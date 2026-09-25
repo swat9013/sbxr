@@ -196,8 +196,8 @@ func (i Inspection) RequireManaged(name string) error {
 	return nil
 }
 
-// Stopped は VM が止まっているか無いか (使用中でないと言えるか) を返す。
-func (i Inspection) Stopped() bool {
+// NotRunning は VM が止まっているか無いか (使用中でないと言えるか) を返す。
+func (i Inspection) NotRunning() bool {
 	return i.Status == runtime.SandboxStopped || i.Status == runtime.SandboxAbsent
 }
 
@@ -285,8 +285,14 @@ const (
 	RemoveRunning
 )
 
-// ErrRunning は稼働中の VM を RefuseRunning で撤去しようとしたときの error。
-var ErrRunning = errors.New("sandbox VM が稼働中")
+// RunningError は稼働中の VM を RefuseRunning で撤去しようとしたときの error。
+type RunningError struct {
+	Status runtime.SandboxStatus
+}
+
+func (e *RunningError) Error() string {
+	return fmt.Sprintf("sandbox VM が稼働中 (%s)", e.Status)
+}
 
 // Destroy は sandbox VM を消し、cache clone と状態ディレクトリを片付ける。
 // 撤去の直前に状態を読み直し、稼働中なら running に従う。VM が無くても env rm を呼ぶ (作成前に置いた sandbox スコープの secret を消すため。ADR 0006)。
@@ -299,8 +305,8 @@ func Destroy(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 	if err := inspection.RequireManaged(target.Name); err != nil {
 		return nil, err
 	}
-	if !inspection.Stopped() && running == RefuseRunning {
-		return nil, fmt.Errorf("%w (%s): %s", ErrRunning, inspection.Status, target.Name)
+	if !inspection.NotRunning() && running == RefuseRunning {
+		return nil, &RunningError{Status: inspection.Status}
 	}
 	stateDir := places.StateDir(target.Name)
 	if err := rt.RemoveEnvironment(ctx, stateDir); err != nil {

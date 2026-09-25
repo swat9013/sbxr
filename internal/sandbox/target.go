@@ -126,6 +126,7 @@ func FreshClone(ctx context.Context, clone Cloner, target Target) error {
 		return err
 	}
 	if err := clone(ctx, target.URL, target.Repo); err != nil {
+		_ = os.RemoveAll(target.Repo) // clone が途中まで作ったものを残さない (状態ディレクトリが無いので destroy は見つけられない)
 		return fmt.Errorf("%s を clone できない: %w", target.URL, err)
 	}
 	return nil

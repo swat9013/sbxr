@@ -78,9 +78,12 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 					return err
 				}
 			}
-			created, err := createApproved(cmd, deps, places, target, yes)
+			created, err := createApproved(cmd, deps, places, target, args[0], yes)
 			if !created && target.FromGitURL() {
-				_ = sandbox.DiscardClone(places, target) // 状態ディレクトリを書く前に止まったので、destroy では見つけられない clone を残さない
+				// 状態ディレクトリを書く前に止まったので、destroy では見つけられない clone を残さない
+				if discardErr := sandbox.DiscardClone(places, target); discardErr != nil {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "警告: %v\n", discardErr)
+				}
 			}
 			if err != nil {
 				return err
@@ -94,7 +97,7 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 }
 
 // createApproved は確認関門を通してから作る。created は状態ディレクトリを書くところまで進んだか (失敗しても destroy で片付けられるか)。
-func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places, target sandbox.Target, yes bool) (created bool, err error) {
+func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places, target sandbox.Target, input string, yes bool) (created bool, err error) {
 	repoEgress := sandbox.KeepRepoEgress
 	if target.FromGitURL() && yes {
 		repoEgress = sandbox.DropRepoEgress
@@ -117,7 +120,6 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 		return false, err
 	}
 	if err := sandbox.Create(cmd.Context(), deps.runtime, places, prepared, values); err != nil {
-		input := target.Source()
 		return true, fmt.Errorf("%w\n復旧: sbxr destroy %s で片付けてから sbxr create %s をやり直す", err, input, input)
 	}
 	return true, nil
@@ -158,7 +160,7 @@ func newDestroyCmd(deps dependencies) *cobra.Command {
 			if err := inspection.RequireManaged(target.Name); err != nil {
 				return err
 			}
-			if !inspection.Stopped() && running == sandbox.RefuseRunning {
+			if !inspection.NotRunning() && running == sandbox.RefuseRunning {
 				return runningError(target.Name, inspection.Status, args[0])
 			}
 			printf(cmd, "sandbox VM %s を撤去する。VM 内の commit と変更は失われる\n", target.Name)
@@ -166,8 +168,9 @@ func newDestroyCmd(deps dependencies) *cobra.Command {
 				return err
 			}
 			warnings, err := sandbox.Destroy(ctx, deps.runtime, places, target, running)
-			if errors.Is(err, sandbox.ErrRunning) {
-				return runningError(target.Name, "running", args[0])
+			var runningErr *sandbox.RunningError
+			if errors.As(err, &runningErr) { // 確認の間に起動した
+				return runningError(target.Name, runningErr.Status, args[0])
 			}
 			if err != nil {
 				return err

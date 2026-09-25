@@ -280,8 +280,11 @@ func TestCreateOfAGitURLDeclinedAtTheGateLeavesNoCacheClone(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
 	lc.prompter.confirms = []bool{false}
 
-	_, _ = lc.run(t, "create", "https://example.com/me/app.git")
+	_, err := lc.run(t, "create", "https://example.com/me/app.git")
 
+	if err == nil {
+		t.Errorf("create error = nil, want declining to exit non-zero")
+	}
 	if exists(filepath.Join(lc.places.CacheRoot, "app")) {
 		t.Errorf("cache clone was left behind; destroy cannot find it without a state dir")
 	}
@@ -596,17 +599,23 @@ func TestARepoNameThatWouldEscapeTheStateDirIsRejected(t *testing.T) {
 	}
 }
 
-func TestDefaultPlacesFollowTheXDGDirectories(t *testing.T) {
+func TestDefaultPlacesFollowAnAbsoluteXDGDirectory(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", "/xdg/state")
+
+	places, err := defaultPlaces()
+
+	if err != nil || places.StateRoot != "/xdg/state/sbxr/sandboxes" {
+		t.Errorf("StateRoot = %q, %v, want it under XDG_STATE_HOME", places.StateRoot, err)
+	}
+}
+
+func TestDefaultPlacesIgnoreARelativeXDGDirectory(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "relative/is/ignored")
 
 	places, err := defaultPlaces()
 
 	if err != nil {
 		t.Fatal(err)
-	}
-	if places.StateRoot != "/xdg/state/sbxr/sandboxes" {
-		t.Errorf("StateRoot = %q, want it under XDG_STATE_HOME", places.StateRoot)
 	}
 	home, _ := os.UserHomeDir()
 	if places.CacheRoot != filepath.Join(home, ".cache", "sbxr", "repos") {
