@@ -23,10 +23,15 @@ func TestParseGroupsRejectsInvalidDeclarations(t *testing.T) {
 		group  map[string]any
 		needle string
 	}{
-		{name: "全 host の許可 **", group: map[string]any{"rationale": "x", "allow": []any{"**"}}, needle: "全 host"},
-		{name: "全 host の許可 *", group: map[string]any{"rationale": "x", "allow": []any{"*"}}, needle: "全 host"},
+		{name: "全 host の許可 **", group: map[string]any{"rationale": "x", "allow": []any{"**"}}, needle: "host[:port]"},
+		{name: "全 host の許可 *", group: map[string]any{"rationale": "x", "allow": []any{"*"}}, needle: "host[:port]"},
 		{name: "URL", group: map[string]any{"rationale": "x", "allow": []any{"https://x.example.com/path"}}, needle: "host[:port]"},
 		{name: "カンマで複数の宛先を 1 entry に詰める", group: map[string]any{"rationale": "x", "allow": []any{"a.example.com,b.example.com"}}, needle: "host[:port]"},
+		{name: "wildcard だけの広すぎる宛先", group: map[string]any{"rationale": "x", "allow": []any{"**.*:443"}}, needle: "host[:port]"},
+		{name: "TLD 全体の wildcard", group: map[string]any{"rationale": "x", "allow": []any{"**.com:443"}}, needle: "host[:port]"},
+		{name: "範囲外の port", group: map[string]any{"rationale": "x", "allow": []any{"api.example.com:99999"}}, needle: "1〜65535"},
+		{name: "port 0", group: map[string]any{"rationale": "x", "allow": []any{"api.example.com:0"}}, needle: "1〜65535"},
+		{name: "大文字の host", group: map[string]any{"rationale": "x", "allow": []any{"GitHub.com:443"}}, needle: "小文字"},
 		{name: "rationale が無い", group: map[string]any{"allow": []any{"x.example.com:443"}}, needle: "rationale"},
 		{name: "allow が空", group: map[string]any{"rationale": "x"}, needle: "allow"},
 		{name: "未知の field", group: map[string]any{"rationale": "x", "allow": []any{"x.example.com"}, "hosts": []any{"y.example.com"}}, needle: "hosts"},
@@ -53,11 +58,19 @@ func TestParseGroupsAcceptsSbxHostPatterns(t *testing.T) {
 	}
 }
 
-func TestADisabledGroupNeedsNoRationaleOrAllow(t *testing.T) {
-	_, err := ParseGroups(map[string]map[string]any{"github": {"enabled": false}})
+func TestExcludingAGroupThatDoesNotExistIsAnError(t *testing.T) {
+	_, err := ParseGroups(map[string]map[string]any{"githb": {"enabled": false}})
+
+	if err == nil || !strings.Contains(err.Error(), "egress.githb") {
+		t.Errorf("ParseGroups() error = %v, want the misspelled exclusion to be reported", err)
+	}
+}
+
+func TestExcludingAnExistingGroupIsValid(t *testing.T) {
+	_, err := ParseGroups(map[string]map[string]any{"github": {"rationale": "GitHub", "allow": []any{"github.com:443"}, "enabled": false}})
 
 	if err != nil {
-		t.Errorf("ParseGroups() error = %v, want a group excluded by enabled: false to need nothing else", err)
+		t.Errorf("ParseGroups() error = %v, want enabled: false on top of an existing group to be valid", err)
 	}
 }
 
@@ -194,6 +207,20 @@ func ruleIDs(rules []runtime.EgressRule) []string {
 		ids = append(ids, r.ID)
 	}
 	return ids
+}
+
+func TestConvergeAddsBeforeRemovingSoDeclaredHostsStayReachable(t *testing.T) {
+	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "github.com:443", "ghcr.io:443")}}
+
+	_, err := Converge(context.Background(), runtime.NewSbx(stub.Run), []string{"ghcr.io:443", "github.com:443"})
+
+	if err != nil {
+		t.Fatalf("Converge() error = %v", err)
+	}
+	want := []string{"policy allow network ghcr.io:443", "policy allow network github.com:443", "policy rm network --id r1"}
+	if !reflect.DeepEqual(stub.Writes, want) {
+		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
+	}
 }
 
 func TestConvergeFailsWhenTheReadBackStillDiffers(t *testing.T) {

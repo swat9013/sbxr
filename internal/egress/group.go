@@ -8,7 +8,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
-	"strings"
+	"strconv"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -26,8 +26,10 @@ func (g Group) enabled() bool {
 }
 
 // resourcePattern は allow の 1 entry の書式: sbx が受け付ける host pattern (*・**・?・[] の glob) と任意の :port。
-// カンマは sbx が複数の宛先の区切りとして読むので通さない。IP と CIDR は扱わない。
-var resourcePattern = regexp.MustCompile(`^[A-Za-z0-9*?\[\]!-]+(\.[A-Za-z0-9*?\[\]!-]+)+(:\d{1,5})?$`)
+// 末尾の 2 label は glob を含まない (「**.com」のような広すぎる指定を通さない)。host は小文字だけにし、
+// sbx が保存する形と宣言を文字列で突き合わせられるようにする。カンマは sbx が複数の宛先の区切りとして読むので通さない。
+// IP と CIDR は扱わない。
+var resourcePattern = regexp.MustCompile(`^([a-z0-9*?\[\]!-]+\.)*[a-z0-9-]+\.[a-z0-9-]+(:(\d{1,5}))?$`)
 
 // ParseGroups は config が要素を検査せずに持つ egress 宣言を Group へ読み、検証する。
 func ParseGroups(raw map[string]map[string]any) (map[string]Group, error) {
@@ -65,10 +67,9 @@ func parseGroup(raw map[string]any) (Group, error) {
 	return group, nil
 }
 
+// validate は除外した group にも rationale と allow を求める。除外は既存の group に enabled: false を重ねて書くので、
+// 中身の無い group は除外したい group の名前の書き違いになる。
 func (g Group) validate() error {
-	if !g.enabled() {
-		return nil
-	}
 	var errs []error
 	if g.Rationale == "" {
 		errs = append(errs, errors.New("rationale が空 (許可する理由を書く)"))
@@ -77,15 +78,20 @@ func (g Group) validate() error {
 		errs = append(errs, errors.New("allow が空"))
 	}
 	for _, resource := range g.Allow {
-		host, _, _ := strings.Cut(resource, ":")
+		match := resourcePattern.FindStringSubmatch(resource)
 		switch {
-		case host == "*" || host == "**":
-			errs = append(errs, fmt.Errorf("allow の %q は全 host の許可になるので書けない", resource))
-		case !resourcePattern.MatchString(resource):
-			errs = append(errs, fmt.Errorf("allow の %q は host[:port] の書式でない (URL・path・カンマ区切りは書けない)", resource))
+		case match == nil:
+			errs = append(errs, fmt.Errorf("allow の %q は host[:port] の書式でない (小文字の host で、末尾の 2 label は glob を含まない。URL・path・カンマ区切りは書けない)", resource))
+		case match[3] != "" && !validPort(match[3]):
+			errs = append(errs, fmt.Errorf("allow の %q の port は 1〜65535", resource))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func validPort(digits string) bool {
+	port, err := strconv.Atoi(digits)
+	return err == nil && port >= 1 && port <= 65535
 }
 
 // DesiredResources は有効な group の allow を重複なく並べる。これが global rule の期待集合になる。

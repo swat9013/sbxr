@@ -38,7 +38,7 @@ func onlyGithubUserConfig(t *testing.T) string {
 
 func TestPolicySyncCheckReportsTheDiffAndFailsWithoutWriting(t *testing.T) {
 	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")}}
-	deps := dependencies{runtime: runtime.NewSbx(stub.Run), userConfigPath: onlyGithubUserConfig(t)}
+	deps := dependencies{runtime: runtime.NewSbx(stub.Run), userConfigPath: fixedPath(onlyGithubUserConfig(t))}
 
 	out, err := runSbxr(t, deps, "policy", "sync", "--check")
 
@@ -57,7 +57,7 @@ func TestPolicySyncCheckReportsTheDiffAndFailsWithoutWriting(t *testing.T) {
 
 func TestPolicySyncConvergesSoThatCheckPassesAfterwards(t *testing.T) {
 	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")}}
-	deps := dependencies{runtime: runtime.NewSbx(stub.Run), userConfigPath: onlyGithubUserConfig(t)}
+	deps := dependencies{runtime: runtime.NewSbx(stub.Run), userConfigPath: fixedPath(onlyGithubUserConfig(t))}
 
 	if _, err := runSbxr(t, deps, "policy", "sync"); err != nil {
 		t.Fatalf("policy sync error = %v", err)
@@ -67,4 +67,8 @@ func TestPolicySyncConvergesSoThatCheckPassesAfterwards(t *testing.T) {
 	if err != nil {
 		t.Errorf("policy sync --check after sync error = %v, output = %q", err, out)
 	}
+}
+
+func fixedPath(path string) func() (string, error) {
+	return func() (string, error) { return path, nil }
 }

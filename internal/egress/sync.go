@@ -29,30 +29,34 @@ func Diff(ctx context.Context, rt runtime.Runtime, desired []string) (Plan, erro
 }
 
 // Converge は global rule を期待集合へ収束させ、行った変更を返す。
+// 宣言に残る宛先が途中で塞がらないよう、足してから消す。途中で失敗したら、そこまでに行った変更を error と一緒に返す。
 // 適用後に読み直して一致しなければ error にする。
 func Converge(ctx context.Context, rt runtime.Runtime, desired []string) (Plan, error) {
 	changes, err := Diff(ctx, rt, desired)
 	if err != nil {
 		return Plan{}, err
 	}
-	for _, rule := range changes.Remove {
-		if err := rt.RemoveGlobalEgressRule(ctx, rule.ID); err != nil {
-			return Plan{}, err
-		}
-	}
+	var applied Plan
 	for _, resource := range changes.Add {
 		if err := rt.AllowGlobalEgress(ctx, resource); err != nil {
-			return Plan{}, err
+			return applied, err
 		}
+		applied.Add = append(applied.Add, resource)
+	}
+	for _, rule := range changes.Remove {
+		if err := rt.RemoveGlobalEgressRule(ctx, rule.ID); err != nil {
+			return applied, err
+		}
+		applied.Remove = append(applied.Remove, rule)
 	}
 	remaining, err := Diff(ctx, rt, desired)
 	if err != nil {
-		return Plan{}, err
+		return applied, err
 	}
 	if !remaining.Empty() {
-		return Plan{}, fmt.Errorf("適用後も宣言と一致しない (消し残し %d / 足りない宛先 %d)", len(remaining.Remove), len(remaining.Add))
+		return applied, fmt.Errorf("適用後も宣言と一致しない (消し残し %d / 足りない宛先 %d)", len(remaining.Remove), len(remaining.Add))
 	}
-	return changes, nil
+	return applied, nil
 }
 
 // plan は残す rule を「allow で 1 resource、期待集合にあり、他の rule がまだ担っていない」ものに限る。

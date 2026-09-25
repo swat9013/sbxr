@@ -17,18 +17,14 @@ var version string
 
 // dependencies は subcommand が使う外部との境界。test では stub に差し替える。
 type dependencies struct {
-	runtime        runtime.Runtime
-	userConfigPath string
+	runtime runtime.Runtime
+	// userConfigPath は user 設定の path を返す。使う subcommand だけが呼ぶ。
+	userConfigPath func() (string, error)
 }
 
 func main() {
 	info, _ := debug.ReadBuildInfo() // 取れなければ nil が返る
-	userConfigPath, err := defaultUserConfigPath()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		os.Exit(1)
-	}
-	deps := dependencies{runtime: runtime.NewSbx(runtime.ExecSbx), userConfigPath: userConfigPath}
+	deps := dependencies{runtime: runtime.NewSbx(runtime.ExecSbx), userConfigPath: defaultUserConfigPath}
 	if err := newRootCmd(resolveVersion(version, info), deps).Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -44,9 +40,10 @@ func newRootCmd(version string, deps dependencies) *cobra.Command {
 	return root
 }
 
-// defaultUserConfigPath は user 設定の path。$XDG_CONFIG_HOME があればその下、無ければ ~/.config の下。
+// defaultUserConfigPath は user 設定の path。$XDG_CONFIG_HOME が絶対 path ならその下、そうでなければ ~/.config の下
+// (XDG Base Directory は相対 path の $XDG_CONFIG_HOME を無視するよう定めている)。
 func defaultUserConfigPath() (string, error) {
-	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
+	if dir := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(dir) {
 		return filepath.Join(dir, "sbxr", "config.yaml"), nil
 	}
 	home, err := os.UserHomeDir()

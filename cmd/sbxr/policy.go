@@ -31,7 +31,11 @@ sandbox スコープ rule と、実行基盤自身が管理する rule には触
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true // ここから先の失敗は使い方の誤りではない
-			desired, err := desiredGlobalResources(deps.userConfigPath)
+			userConfigPath, err := deps.userConfigPath()
+			if err != nil {
+				return err
+			}
+			desired, err := desiredGlobalResources(userConfigPath)
 			if err != nil {
 				return err
 			}
@@ -72,10 +76,10 @@ func checkGlobalRules(cmd *cobra.Command, deps dependencies, desired []string) e
 
 func convergeGlobalRules(cmd *cobra.Command, deps dependencies, desired []string) error {
 	plan, err := egress.Converge(cmd.Context(), deps.runtime, desired)
+	printPlan(cmd, plan) // 途中で失敗しても、そこまでに行った変更は見せる
 	if err != nil {
 		return err
 	}
-	printPlan(cmd, plan)
 	printf(cmd, "global rule を宣言へ収束させた (消した rule %d / 足した宛先 %d / 宛先 %d)\n", len(plan.Remove), len(plan.Add), len(desired))
 	return nil
 }
