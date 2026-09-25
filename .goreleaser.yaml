@@ -1,0 +1,18 @@
+version: 2
+
+builds:
+  - main: ./cmd/sbxr
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [arm64, amd64]
+    ldflags:
+      - -s -w -X main.version={{.Tag}}
+
+archives:
+  - formats: [tar.gz]
+
+checksum:
+  name_template: checksums.txt
+
+# homebrew_casks は #11 (v0.1 release) で有効化する
