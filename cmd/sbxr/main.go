@@ -40,12 +40,8 @@ func newRootCmd(version string, deps dependencies) *cobra.Command {
 	return root
 }
 
-// defaultUserConfigPath は user 設定の path。$XDG_CONFIG_HOME が絶対 path ならその下、そうでなければ ~/.config の下
-// (XDG Base Directory は相対 path の $XDG_CONFIG_HOME を無視するよう定めている)。
+// defaultUserConfigPath は user 設定の path (~/.config/sbxr/config.yaml。ADR 0004)。
 func defaultUserConfigPath() (string, error) {
-	if dir := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(dir) {
-		return filepath.Join(dir, "sbxr", "config.yaml"), nil
-	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("user 設定の置き場を決められない: %w", err)

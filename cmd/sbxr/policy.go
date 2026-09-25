@@ -62,33 +62,33 @@ func desiredGlobalResources(userConfigPath string) ([]string, error) {
 }
 
 func checkGlobalRules(cmd *cobra.Command, deps dependencies, desired []string) error {
-	plan, err := egress.Diff(cmd.Context(), deps.runtime, desired)
+	changes, err := egress.Diff(cmd.Context(), deps.runtime, desired)
 	if err != nil {
 		return err
 	}
-	if plan.Empty() {
+	if changes.Empty() {
 		printf(cmd, "global rule は宣言と一致している (宛先 %d)\n", len(desired))
 		return nil
 	}
-	printPlan(cmd, plan)
+	printChanges(cmd, changes)
 	return errors.New("global rule が宣言と一致しない (sbxr policy sync で収束させる)")
 }
 
 func convergeGlobalRules(cmd *cobra.Command, deps dependencies, desired []string) error {
-	plan, err := egress.Converge(cmd.Context(), deps.runtime, desired)
-	printPlan(cmd, plan) // 途中で失敗しても、そこまでに行った変更は見せる
+	changes, err := egress.Converge(cmd.Context(), deps.runtime, desired)
+	printChanges(cmd, changes) // 途中で失敗しても、そこまでに行った変更は見せる
 	if err != nil {
 		return err
 	}
-	printf(cmd, "global rule を宣言へ収束させた (消した rule %d / 足した宛先 %d / 宛先 %d)\n", len(plan.Remove), len(plan.Add), len(desired))
+	printf(cmd, "global rule を宣言へ収束させた (消した rule %d / 足した宛先 %d / 宛先 %d)\n", len(changes.Remove), len(changes.Add), len(desired))
 	return nil
 }
 
-func printPlan(cmd *cobra.Command, plan egress.Plan) {
-	for _, rule := range plan.Remove {
+func printChanges(cmd *cobra.Command, changes egress.Changes) {
+	for _, rule := range changes.Remove {
 		printf(cmd, "- rm %s (%s: %s)\n", rule.ID, rule.Decision, strings.Join(rule.Resources, ", "))
 	}
-	for _, resource := range plan.Add {
+	for _, resource := range changes.Add {
 		printf(cmd, "+ allow %s\n", resource)
 	}
 }

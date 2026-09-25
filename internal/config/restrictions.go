@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 )
 
 // repoWritableKeys はスコープ制限表のうち、repo 宣言 (untrusted) が書ける key の allowlist。
@@ -24,7 +26,7 @@ var repoWritableKeys = map[string]bool{
 	"secrets":                true,
 }
 
-func checkScopeRestrictions(scope Scope, keys []writtenKey) error {
+func checkScopeRestrictions(scope Scope, decl Declaration, keys []writtenKey) error {
 	if scope != ScopeRepo {
 		return nil
 	}
@@ -32,6 +34,13 @@ func checkScopeRestrictions(scope Scope, keys []writtenKey) error {
 	for _, key := range keys {
 		if !repoWritableKeys[key.name()] {
 			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない", key.name()))
+		}
+	}
+	// repo の egress は sandbox スコープ rule になり、global rule の group とは重ならない。
+	// enabled: false (group の除外) を書いても除外する相手が無いので、書けない key として止める
+	for _, name := range slices.Sorted(maps.Keys(decl.Egress)) {
+		if _, ok := decl.Egress[name]["enabled"]; ok {
+			errs = append(errs, fmt.Errorf("egress.%s.enabled は repo 宣言には書けない (repo の egress は global rule の group を除外できない)", name))
 		}
 	}
 	return errors.Join(errs...)

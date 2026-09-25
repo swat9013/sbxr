@@ -44,7 +44,7 @@ func Merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 			}
 		}
 	}
-	cfg.GlobalEgress = additiveGroups(additiveGroups(nil, defaultDecl.Egress), userDecl.Egress)
+	cfg.GlobalEgress = globalEgress(defaultDecl, userDecl)
 	cfg.SandboxEgress = additiveGroups(nil, repoDecl.Egress)
 
 	var errs []error
@@ -96,6 +96,11 @@ func additive[M ~map[K]V, K comparable, V any](lower, upper M) M {
 	maps.Copy(out, lower)
 	maps.Copy(out, upper)
 	return out
+}
+
+// globalEgress は global rule になる egress 宣言 (default と user) を重ねる。
+func globalEgress(defaultDecl, userDecl Declaration) map[string]map[string]any {
+	return additiveGroups(additiveGroups(nil, defaultDecl.Egress), userDecl.Egress)
 }
 
 // additiveGroups は宛先グループを名前ごとに重ね、同じ名前のグループは中の field ごとに上の層が勝つ。

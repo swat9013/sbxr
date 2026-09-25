@@ -82,7 +82,7 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 		keys, err = listWrittenKeys(data)
 	}
 	if err == nil {
-		err = errors.Join(checkWrittenValues(keys), decl.validate(), checkScopeRestrictions(scope, keys))
+		err = errors.Join(checkWrittenValues(keys), decl.validate(), checkScopeRestrictions(scope, decl, keys))
 	}
 	if err != nil {
 		return Declaration{}, fmt.Errorf("%s (%s スコープ): %w", source, scope, err)

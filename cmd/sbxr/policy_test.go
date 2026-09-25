@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 )
@@ -26,9 +27,15 @@ func runSbxr(t *testing.T, deps dependencies, args ...string) (string, error) {
 func onlyGithubUserConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
+	embedded, err := config.LoadGlobalEgress(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	content := "version: 1\negress:\n"
-	for _, name := range []string{"mise-tools", "docker-registry", "ubuntu-apt", "cert-validation"} {
-		content += "  " + name + ":\n    enabled: false\n"
+	for name := range embedded {
+		if name != "github" {
+			content += "  " + name + ":\n    enabled: false\n"
+		}
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -52,6 +59,20 @@ func TestPolicySyncCheckReportsTheDiffAndFailsWithoutWriting(t *testing.T) {
 	}
 	if len(stub.Writes) != 0 {
 		t.Errorf("sbx writes = %q, want none under --check", stub.Writes)
+	}
+}
+
+func TestPolicySyncPrintsTheChangesMadeBeforeAFailure(t *testing.T) {
+	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")}, FailOnWrite: 2}
+	deps := dependencies{runtime: runtime.NewSbx(stub.Run), userConfigPath: fixedPath(onlyGithubUserConfig(t))}
+
+	out, err := runSbxr(t, deps, "policy", "sync")
+
+	if err == nil {
+		t.Errorf("policy sync error = nil, want the failed write to exit non-zero")
+	}
+	if !strings.Contains(out, "+ allow **.github.com:443") || strings.Contains(out, "+ allow ghcr.io:443") {
+		t.Errorf("output = %q, want only the add made before the failure", out)
 	}
 }
 

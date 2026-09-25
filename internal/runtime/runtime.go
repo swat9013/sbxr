@@ -17,6 +17,14 @@ type Runtime interface {
 // EgressRule は実行基盤にある egress の rule。
 type EgressRule struct {
 	ID        string
-	Decision  string // allow または deny
+	Decision  Decision
 	Resources []string
 }
+
+// Decision は rule が宛先を許可するか拒否するか。
+type Decision string
+
+const (
+	DecisionAllow Decision = "allow"
+	DecisionDeny  Decision = "deny"
+)

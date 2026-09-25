@@ -65,7 +65,7 @@ func (s *Sbx) ListGlobalEgressRules(ctx context.Context) ([]EgressRule, error) {
 	var rules []EgressRule
 	for _, r := range *listing.Rules {
 		if r.Scope == "global" && r.ResourceType == "network" && r.Editable {
-			rules = append(rules, EgressRule{ID: r.ID, Decision: r.Decision, Resources: r.Resources})
+			rules = append(rules, EgressRule{ID: r.ID, Decision: Decision(r.Decision), Resources: r.Resources})
 		}
 	}
 	return rules, nil

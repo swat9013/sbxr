@@ -3,7 +3,6 @@ package egress
 import (
 	"context"
 	"maps"
-	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -89,9 +88,9 @@ func TestDesiredResourcesSkipDisabledGroupsAndDeduplicate(t *testing.T) {
 	}
 }
 
-// --- 差分 (旧 reconcile のケースを移植) ---
+// --- 差分 ---
 
-func TestDiff(t *testing.T) {
+func TestDiffKeepsOnlyOneAllowRulePerDeclaredResource(t *testing.T) {
 	tests := []struct {
 		name       string
 		live       []sbxstub.Rule
@@ -223,6 +222,19 @@ func TestConvergeAddsBeforeRemovingSoDeclaredHostsStayReachable(t *testing.T) {
 	}
 }
 
+func TestConvergeReportsTheChangesMadeBeforeAWriteFails(t *testing.T) {
+	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")}, FailOnWrite: 2}
+
+	applied, err := Converge(context.Background(), runtime.NewSbx(stub.Run), []string{"a.example.com:443", "b.example.com:443"})
+
+	if err == nil {
+		t.Fatal("Converge() error = nil, want the second write to fail")
+	}
+	if want := []string{"a.example.com:443"}; !reflect.DeepEqual(applied.Add, want) || len(applied.Remove) != 0 {
+		t.Errorf("Converge() applied = %+v, want only the add made before the failure", applied)
+	}
+}
+
 func TestConvergeFailsWhenTheReadBackStillDiffers(t *testing.T) {
 	stub := &sbxstub.Stub{DropWrites: true}
 
@@ -236,17 +248,12 @@ func TestConvergeFailsWhenTheReadBackStillDiffers(t *testing.T) {
 // --- 同梱の default スコープ ---
 
 func TestEmbeddedDefaultGroupsAreValid(t *testing.T) {
-	dir := t.TempDir()
-	userPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(userPath, []byte("version: 1\ngit:\n  name: probe\n  email: probe@example.com\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := config.Load(userPath, filepath.Join(dir, "sbxr.yaml"))
+	declared, err := config.LoadGlobalEgress(filepath.Join(t.TempDir(), "no-user-config.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	groups, err := ParseGroups(cfg.GlobalEgress)
+	groups, err := ParseGroups(declared)
 
 	if err != nil {
 		t.Fatalf("ParseGroups(default) error = %v", err)

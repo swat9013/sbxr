@@ -11,6 +11,7 @@ import (
 )
 
 // Rule は sbx policy ls --json が返す rule のうち、sbxr が読む field。
+// runtime.Sbx の decoder とは独立に sbx の出力形式を写したもので、両者の食い違いは adapter の test が検出する。
 type Rule struct {
 	ID           string   `json:"id"`
 	Scope        string   `json:"scope"`
@@ -27,7 +28,9 @@ type Stub struct {
 	Writes []string
 	// DropWrites が true なら書き込みを記録だけして状態に反映しない (適用が効かない sbx の再現)。
 	DropWrites bool
-	nextID     int
+	// FailOnWrite が n (1 始まり) なら n 回目の書き込みを失敗させる。0 なら失敗させない。
+	FailOnWrite int
+	nextID      int
 }
 
 // GlobalAllow は scope=global・network・editable の allow rule を作る。
@@ -42,7 +45,9 @@ func (s *Stub) Run(_ context.Context, args ...string) ([]byte, error) {
 		// sbx は rule が無くても空の配列を返す
 		return json.Marshal(map[string][]Rule{"rules": append([]Rule{}, s.Rules...)})
 	case len(args) == 4 && slices.Equal(args[:3], []string{"policy", "allow", "network"}):
-		s.Writes = append(s.Writes, strings.Join(args, " "))
+		if err := s.recordWrite(args); err != nil {
+			return nil, err
+		}
 		if s.DropWrites {
 			return nil, nil
 		}
@@ -52,7 +57,9 @@ func (s *Stub) Run(_ context.Context, args ...string) ([]byte, error) {
 		}
 		return nil, nil
 	case len(args) == 5 && slices.Equal(args[:4], []string{"policy", "rm", "network", "--id"}):
-		s.Writes = append(s.Writes, strings.Join(args, " "))
+		if err := s.recordWrite(args); err != nil {
+			return nil, err
+		}
 		if s.DropWrites {
 			return nil, nil
 		}
@@ -64,4 +71,12 @@ func (s *Stub) Run(_ context.Context, args ...string) ([]byte, error) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("sbxstub: 想定外の引数 %q", args)
+}
+
+func (s *Stub) recordWrite(args []string) error {
+	if s.FailOnWrite == len(s.Writes)+1 {
+		return fmt.Errorf("sbxstub: %d 回目の書き込みを失敗させた", s.FailOnWrite)
+	}
+	s.Writes = append(s.Writes, strings.Join(args, " "))
+	return nil
 }
