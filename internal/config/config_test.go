@@ -1,9 +1,11 @@
 package config
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -124,28 +126,19 @@ func TestDefaultAndUserEgressBecomeGlobalRules(t *testing.T) {
 	}
 }
 
-func TestUserIsTrustedToDeclareBaseFixedKeysAndSecretDefs(t *testing.T) {
-	cfg := mustMerge(t, testDefault, `
-version: 1
-profile:
-  language: en
-  awaySummaryEnabled: true
-secret_defs:
-  gitlab:
-    env: GITLAB_TOKEN
-`, "")
+func TestUserIsTrustedToDeclareBaseFixedKeys(t *testing.T) {
+	cfg := mustMerge(t, testDefault, "version: 1\nprofile:\n  language: en\n  awaySummaryEnabled: true\n", "")
 
-	if got := *cfg.Profile.Language; got != "en" {
-		t.Errorf("Profile.Language = %q, want %q", got, "en")
+	if *cfg.Profile.Language != "en" || *cfg.Profile.AwaySummaryEnabled != true {
+		t.Errorf("Profile = language %q awaySummaryEnabled %v, want the user values en / true", *cfg.Profile.Language, *cfg.Profile.AwaySummaryEnabled)
 	}
-	if got := *cfg.Profile.AwaySummaryEnabled; got != true {
-		t.Errorf("Profile.AwaySummaryEnabled = %v, want true", got)
-	}
-	if _, ok := cfg.SecretDefs["gitlab"]; !ok {
-		t.Errorf("SecretDefs = %v, want it to contain the user definition gitlab", cfg.SecretDefs)
-	}
-	if _, ok := cfg.SecretDefs["github"]; !ok {
-		t.Errorf("SecretDefs = %v, want it to keep the default definition github", cfg.SecretDefs)
+}
+
+func TestUserIsTrustedToAddSecretDefsOnTopOfTheDefault(t *testing.T) {
+	cfg := mustMerge(t, testDefault, "version: 1\nsecret_defs:\n  gitlab:\n    env: GITLAB_TOKEN\n", "")
+
+	if got := slices.Sorted(maps.Keys(cfg.SecretDefs)); !reflect.DeepEqual(got, []string{"github", "gitlab"}) {
+		t.Errorf("SecretDefs names = %v, want the default github and the user gitlab", got)
 	}
 }
 
@@ -169,9 +162,14 @@ func TestMergeRules(t *testing.T) {
 		want     any
 	}{
 		{
-			name: "宣言ファイルが無ければ default だけが結果になる",
-			got:  func(c Config) any { return []any{*c.Profile.Model, c.Git, c.Init} },
-			want: []any{"opus", Identity{Name: "base-user", Email: "base@example.com"}, []string(nil)},
+			name: "宣言ファイルが無ければ default の scalar が残る",
+			got:  func(c Config) any { return *c.Profile.Model },
+			want: "opus",
+		},
+		{
+			name: "宣言ファイルが無ければ default の git identity が残る",
+			got:  func(c Config) any { return c.Git },
+			want: Identity{Name: "base-user", Email: "base@example.com"},
 		},
 		{
 			name:     "model と effortLevel は repo が override できる",
@@ -266,6 +264,16 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 		{name: "git の値が空", repoYAML: "version: 1\ngit:\n  name: ''\n", needle: "git.name"},
 		{name: "secrets の名前が空", userYAML: "version: 1\nsecrets: ['']\n", needle: "secrets"},
 		{name: "init のコマンドが空", repoYAML: "version: 1\ninit: ['']\n", needle: "init"},
+		{name: "profile の scalar の値の書き忘れ", userYAML: "version: 1\nprofile:\n  effortLevel:\n", needle: "profile.effortLevel"},
+		{name: "repo が base 固定 key を値なしで書く", repoYAML: "version: 1\nprofile:\n  language:\n", needle: "profile.language"},
+		{name: "git の値の書き忘れ", repoYAML: "version: 1\ngit:\n  name:\n", needle: "git.name"},
+		{name: "profile の scalar が mapping", repoYAML: "version: 1\nprofile:\n  effortLevel: {x: 1}\n", needle: "cannot unmarshal"},
+		{name: "enabledPlugins の値が文字列", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk: 'true'\n", needle: "cannot unmarshal"},
+		{name: "bool key に数値", userYAML: "version: 1\nprofile:\n  spinnerTipsEnabled: 1\n", needle: "cannot unmarshal"},
+		{name: "egress の allow に全開 wildcard", repoYAML: "version: 1\negress:\n  x:\n    rationale: x\n    allow: ['**']\n", needle: "**"},
+		{name: "egress の allow に host でない URL", repoYAML: "version: 1\negress:\n  x:\n    rationale: x\n    allow: ['https://x.example.com/path']\n", needle: "host[:port]"},
+		{name: "egress の rationale が無い", userYAML: "version: 1\negress:\n  x:\n    allow: [x.example.com:443]\n", needle: "egress.x.rationale"},
+		{name: "egress の allow が空", userYAML: "version: 1\negress:\n  x:\n    rationale: x\n", needle: "egress.x.allow"},
 		{name: "2 つ目の YAML document", repoYAML: "version: 1\n---\ninit: [make setup]\n", needle: "document"},
 		{name: "enabledPlugins の値の書き忘れ", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk:\n", needle: "p@mk"},
 		{name: "secret_defs の定義が mapping でない", userYAML: "version: 1\nsecret_defs:\n  gitlab: GITLAB_TOKEN\n", needle: "cannot unmarshal"},
@@ -279,9 +287,9 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 	}
 }
 
-func TestOverlayCarriesEveryProfileFieldFromTheUpperScope(t *testing.T) {
-	var upper Profile
-	v := reflect.ValueOf(&upper).Elem()
+func TestMergeCarriesEveryProfileFieldFromTheUserScope(t *testing.T) {
+	var profile Profile
+	v := reflect.ValueOf(&profile).Elem()
 	for i := range v.NumField() {
 		field := v.Field(i)
 		switch field.Kind() {
@@ -291,11 +299,16 @@ func TestOverlayCarriesEveryProfileFieldFromTheUpperScope(t *testing.T) {
 			field.Set(reflect.MakeMap(field.Type()))
 		}
 	}
+	identity := "probe"
+	user := Declaration{Profile: profile, Git: GitDeclaration{Name: &identity, Email: &identity}}
 
-	got := Profile{}.overlay(upper)
+	cfg, err := Merge(Declaration{}, user, Declaration{})
 
-	if !reflect.DeepEqual(got, upper) {
-		t.Errorf("overlay() = %+v, want every field of %+v", got, upper)
+	if err != nil {
+		t.Fatalf("Merge() error = %v", err)
+	}
+	if !reflect.DeepEqual(cfg.Profile, profile) {
+		t.Errorf("Merge().Profile = %+v, want every field of %+v", cfg.Profile, profile)
 	}
 }
 

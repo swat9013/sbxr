@@ -3,8 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"reflect"
-	"strings"
 )
 
 // repoWritableKeys はスコープ制限表のうち、repo 宣言 (untrusted) が書ける key の allowlist。
@@ -26,32 +24,15 @@ var repoWritableKeys = map[string]bool{
 	"secrets":                true,
 }
 
-func checkScopeRestrictions(scope Scope, decl Declaration) error {
+func checkScopeRestrictions(scope Scope, keys []writtenKey) error {
 	if scope != ScopeRepo {
 		return nil
 	}
 	var errs []error
-	for _, key := range declaredKeys(reflect.ValueOf(decl), "") {
-		if !repoWritableKeys[key] {
-			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない", key))
+	for _, key := range keys {
+		if !repoWritableKeys[key.name] {
+			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない", key.name))
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// declaredKeys は宣言が値を書いた key を yaml の key 名で列挙する。Profile と git は field 単位まで降りる。
-func declaredKeys(v reflect.Value, prefix string) []string {
-	var keys []string
-	for i := range v.NumField() {
-		field, value := v.Type().Field(i), v.Field(i)
-		if value.IsZero() {
-			continue
-		}
-		key := prefix + strings.Split(field.Tag.Get("yaml"), ",")[0]
-		keys = append(keys, key)
-		if value.Kind() == reflect.Struct {
-			keys = append(keys, declaredKeys(value, key+".")...)
-		}
-	}
-	return keys
 }

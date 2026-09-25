@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"regexp"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -81,43 +83,89 @@ type EgressGroup struct {
 // Parse は 1 つのスコープの宣言を読み、値とスコープ制限を検証する。
 // source は error に載せる出所 (ファイル path など)。未知の key は error にする。
 func Parse(scope Scope, source string, data []byte) (Declaration, error) {
-	var decl Declaration
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	// 空のファイルは io.EOF になる。空宣言として続け、version の欠落で止める
-	if err := decoder.Decode(&decl); err != nil && !errors.Is(err, io.EOF) {
-		return Declaration{}, fmt.Errorf("%s (%s スコープ): %w", source, scope, err)
+	decl, keys, err := decode(data)
+	if err == nil {
+		err = errors.Join(checkWrittenValues(keys), decl.validate(), checkScopeRestrictions(scope, keys))
 	}
-	// 2 つ目以降の document は黙って捨てずに止める
-	if err := decoder.Decode(new(yaml.Node)); !errors.Is(err, io.EOF) {
-		return Declaration{}, fmt.Errorf("%s (%s スコープ): 宣言は 1 つの YAML document に書く", source, scope)
-	}
-	if err := errors.Join(decl.validate(), checkScopeRestrictions(scope, decl)); err != nil {
+	if err != nil {
 		return Declaration{}, fmt.Errorf("%s (%s スコープ): %w", source, scope, err)
 	}
 	return decl, nil
 }
 
+// writtenKey は宣言ファイルに書かれた key。値が null でも書かれたものとして数える。
+type writtenKey struct {
+	name  string // yaml の key 名。profile と git の中は "profile.model" のように親の key を前に付ける
+	value *yaml.Node
+}
+
+// decode は宣言を型へ読み込み、書かれた key を top-level と profile / git の 1 段下まで列挙する。
+func decode(data []byte) (Declaration, []writtenKey, error) {
+	var decl Declaration
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	// 空のファイルは io.EOF になる。空宣言として続け、version の欠落で止める
+	if err := decoder.Decode(&decl); err != nil && !errors.Is(err, io.EOF) {
+		return Declaration{}, nil, err
+	}
+	// 2 つ目以降の document は黙って捨てずに止める
+	if err := decoder.Decode(new(yaml.Node)); !errors.Is(err, io.EOF) {
+		return Declaration{}, nil, errors.New("宣言は 1 つの YAML document に書く")
+	}
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return Declaration{}, nil, err
+	}
+	var keys []writtenKey
+	for _, top := range mappingEntries(documentBody(&root), "") {
+		keys = append(keys, top)
+		if top.name == "profile" || top.name == "git" {
+			keys = append(keys, mappingEntries(top.value, top.name+".")...)
+		}
+	}
+	return decl, keys, nil
+}
+
+func documentBody(root *yaml.Node) *yaml.Node {
+	if root.Kind == yaml.DocumentNode && len(root.Content) == 1 {
+		return root.Content[0]
+	}
+	return root
+}
+
+func mappingEntries(node *yaml.Node, prefix string) []writtenKey {
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	var entries []writtenKey
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		entries = append(entries, writtenKey{name: prefix + node.Content[i].Value, value: node.Content[i+1]})
+	}
+	return entries
+}
+
+// checkWrittenValues は書いた key の値の書き忘れ (null) と、profile / git の空文字を止める。
+// 型へ読み込むと null と空は「書いていない」と区別できず、黙って下の層の値に落ちるため。
+func checkWrittenValues(keys []writtenKey) error {
+	var errs []error
+	for _, key := range keys {
+		switch {
+		case key.value.Tag == "!!null":
+			errs = append(errs, fmt.Errorf("%s に値が無い", key.name))
+		case strings.Contains(key.name, ".") && key.value.Tag == "!!str" && key.value.Value == "":
+			errs = append(errs, fmt.Errorf("%s が空", key.name))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// allowEntryPattern は egress の allow の書式 host[:port]。先頭の "*." は subdomain wildcard として通す。
+var allowEntryPattern = regexp.MustCompile(`^(\*\.)?([A-Za-z0-9-]+\.)+[A-Za-z0-9-]+(:\d{1,5})?$`)
+
 func (d Declaration) validate() error {
 	var errs []error
 	if d.Version != SchemaVersion {
 		errs = append(errs, fmt.Errorf("version: %d を宣言する (読んだ値: %d)", SchemaVersion, d.Version))
-	}
-	for _, scalar := range []struct {
-		key   string
-		value *string
-	}{
-		{"profile.model", d.Profile.Model},
-		{"profile.effortLevel", d.Profile.EffortLevel},
-		{"profile.language", d.Profile.Language},
-		{"profile.outputStyle", d.Profile.OutputStyle},
-		{"profile.feedbackDrafts", d.Profile.FeedbackDrafts},
-		{"git.name", d.Git.Name},
-		{"git.email", d.Git.Email},
-	} {
-		if scalar.value != nil && *scalar.value == "" {
-			errs = append(errs, fmt.Errorf("%s が空", scalar.key))
-		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(d.Profile.EnabledPlugins)) {
 		if !d.Profile.EnabledPlugins[name] {
@@ -130,6 +178,28 @@ func (d Declaration) validate() error {
 	}{{"init", d.Init}, {"boot", d.Boot}, {"secrets", d.Secrets}} {
 		if slices.Contains(list.entries, "") {
 			errs = append(errs, fmt.Errorf("%s に空の entry がある", list.key))
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(d.Egress)) {
+		errs = append(errs, d.Egress[name].validate("egress."+name))
+	}
+	return errors.Join(errs...)
+}
+
+func (g EgressGroup) validate(key string) error {
+	var errs []error
+	if g.Rationale == "" {
+		errs = append(errs, fmt.Errorf("%s.rationale が空 (許可する理由を書く)", key))
+	}
+	if len(g.Allow) == 0 {
+		errs = append(errs, fmt.Errorf("%s.allow が空", key))
+	}
+	for _, entry := range g.Allow {
+		switch {
+		case entry == "*" || strings.HasPrefix(entry, "**"):
+			errs = append(errs, fmt.Errorf("%s.allow の %q は全 host の許可になるので書けない", key, entry))
+		case !allowEntryPattern.MatchString(entry):
+			errs = append(errs, fmt.Errorf("%s.allow の %q は host[:port] の書式でない (URL や path は書けない)", key, entry))
 		}
 	}
 	return errors.Join(errs...)
