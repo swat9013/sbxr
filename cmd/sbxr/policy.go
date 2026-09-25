@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -64,10 +63,10 @@ func checkGlobalRules(cmd *cobra.Command, deps dependencies, desired []string) e
 		return err
 	}
 	if plan.Empty() {
-		fmt.Fprintf(cmd.OutOrStdout(), "global rule は宣言と一致している (宛先 %d)\n", len(desired))
+		printf(cmd, "global rule は宣言と一致している (宛先 %d)\n", len(desired))
 		return nil
 	}
-	printPlan(cmd.OutOrStdout(), plan)
+	printPlan(cmd, plan)
 	return errors.New("global rule が宣言と一致しない (sbxr policy sync で収束させる)")
 }
 
@@ -76,16 +75,21 @@ func convergeGlobalRules(cmd *cobra.Command, deps dependencies, desired []string
 	if err != nil {
 		return err
 	}
-	printPlan(cmd.OutOrStdout(), plan)
-	fmt.Fprintf(cmd.OutOrStdout(), "global rule を宣言へ収束させた (消した rule %d / 足した宛先 %d / 宛先 %d)\n", len(plan.Remove), len(plan.Add), len(desired))
+	printPlan(cmd, plan)
+	printf(cmd, "global rule を宣言へ収束させた (消した rule %d / 足した宛先 %d / 宛先 %d)\n", len(plan.Remove), len(plan.Add), len(desired))
 	return nil
 }
 
-func printPlan(w io.Writer, plan egress.Plan) {
+func printPlan(cmd *cobra.Command, plan egress.Plan) {
 	for _, rule := range plan.Remove {
-		fmt.Fprintf(w, "- rm %s (%s: %s)\n", rule.ID, rule.Decision, strings.Join(rule.Resources, ", "))
+		printf(cmd, "- rm %s (%s: %s)\n", rule.ID, rule.Decision, strings.Join(rule.Resources, ", "))
 	}
 	for _, resource := range plan.Add {
-		fmt.Fprintf(w, "+ allow %s\n", resource)
+		printf(cmd, "+ allow %s\n", resource)
 	}
+}
+
+// printf は結果を stdout へ書く。書き込みの失敗 (閉じた pipe など) は結果を伝えられないので無視する。
+func printf(cmd *cobra.Command, format string, args ...any) {
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), format, args...)
 }
