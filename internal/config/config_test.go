@@ -232,6 +232,12 @@ func TestMergeRules(t *testing.T) {
 			got:      func(c Config) any { return c.GlobalEgress["github"] },
 			want:     map[string]any{"rationale": "GitHub", "allow": []any{"github.com:443"}, "enabled": false},
 		},
+		{
+			name:     "同じ名前の egress group の allow は和集合になる",
+			userYAML: "version: 1\negress:\n  github:\n    allow: [ghe.example.com:443, github.com:443]\n",
+			got:      func(c Config) any { return c.GlobalEgress["github"]["allow"] },
+			want:     []any{"github.com:443", "ghe.example.com:443"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

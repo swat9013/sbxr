@@ -98,8 +98,9 @@ func additive[M ~map[K]V, K comparable, V any](lower, upper M) M {
 	return out
 }
 
-// additiveGroups は宛先グループを名前ごとに重ね、同じ名前のグループは中の field ごとに上の層が勝つ。
-// user が default のグループの一部の field (例: 除外の enabled) だけを書き換えられるようにするため。
+// additiveGroups は宛先グループを名前ごとに重ねる。同じ名前のグループは field ごとに重ね、
+// list (allow) は下の層の後ろに上の層の要素を重複なく足した和集合、それ以外は上の層が勝つ。
+// user が default のグループに宛先を足したり、一部の field (例: 除外の enabled) だけを書き換えたりできるようにするため。
 func additiveGroups(lower, upper map[string]map[string]any) map[string]map[string]any {
 	if lower == nil && upper == nil {
 		return nil
@@ -109,7 +110,30 @@ func additiveGroups(lower, upper map[string]map[string]any) map[string]map[strin
 		out[name] = additive(nil, group)
 	}
 	for name, group := range upper {
-		out[name] = additive(out[name], group)
+		merged := maps.Clone(out[name])
+		if merged == nil {
+			merged = make(map[string]any, len(group))
+		}
+		for field, value := range group {
+			merged[field] = unionIfLists(merged[field], value)
+		}
+		out[name] = merged
 	}
 	return out
+}
+
+// unionIfLists は両方が list なら和集合を、そうでなければ上の層の値を返す。
+func unionIfLists(lower, upper any) any {
+	lowerList, lowerIsList := lower.([]any)
+	upperList, upperIsList := upper.([]any)
+	if !lowerIsList || !upperIsList {
+		return upper
+	}
+	union := slices.Clone(lowerList)
+	for _, item := range upperList {
+		if !slices.Contains(union, item) {
+			union = append(union, item)
+		}
+	}
+	return union
 }
