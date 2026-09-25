@@ -10,7 +10,7 @@ Issue は GitHub Issues (swat9013/sbxr) で管理し、`gh` CLI で操作する�
 
 ### Triage labels
 
-デフォルトの 5 ラベル (needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix) をそのまま使う。See `docs/agents/triage-labels.md`.
+デフォルトの 5 ラベル (needs-triage / needs-info / ready-for-agent / ready-for-human / wontfix) に、深掘り待ちの need-grilling を足して使う。See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
