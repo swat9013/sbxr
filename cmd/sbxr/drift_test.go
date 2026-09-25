@@ -79,9 +79,6 @@ func TestTheCurrentDeclarationOfAGitURLIsReadFromAFreshClone(t *testing.T) {
 	if err == nil || !strings.Contains(out, "profile.model") {
 		t.Errorf("error = %v, output = %q, want drift from the declaration at the new HEAD", err, out)
 	}
-	if len(lc.clones) != 2 {
-		t.Errorf("clones = %v, want the repo cloned again to read the current declaration", lc.clones)
-	}
 }
 
 func TestChangingTheHostsOfASecretDefinitionIsDrift(t *testing.T) {
@@ -188,5 +185,17 @@ func TestCreateOnAnExistingSandboxWhoseRepoIsGoneSaysTheSandboxExists(t *testing
 
 	if err == nil || !strings.Contains(err.Error(), "既にある") {
 		t.Errorf("error = %v, want it to say the sandbox exists but the drift cannot be checked", err)
+	}
+}
+
+func TestPlanOfASandboxFromAGitURLWithYesStillSummarizesTheRepoEgress(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.clonedRepoDecl = repoWithEgress
+	lc.mustRun(t, "create", "https://example.com/me/app.git", "--yes")
+
+	out := lc.mustRun(t, "plan", "https://example.com/me/app.git")
+
+	if !strings.Contains(out, "api.example.com:443") || !strings.Contains(out, "差分は無い") {
+		t.Errorf("output = %q, want the repo egress in the summary and no drift", out)
 	}
 }

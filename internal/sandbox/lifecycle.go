@@ -186,16 +186,16 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 		return Inspection{}, err
 	}
 	dir := places.StateDir(target.Name)
-	recorded, err := os.ReadFile(filepath.Join(dir, sourceFile))
+	recorded, found, err := recordedSource(dir)
 	switch {
-	case errors.Is(err, fs.ErrNotExist) && status == runtime.SandboxAbsent:
-		return Inspection{Situation: Absent, Status: status}, nil
-	case errors.Is(err, fs.ErrNotExist):
-		return Inspection{Situation: Unmanaged, Status: status}, nil
 	case err != nil:
-		return Inspection{}, fmt.Errorf("状態ディレクトリ %s を読めない: %w", dir, err)
-	case string(recorded) != target.Source():
-		return Inspection{Situation: OtherSource, Status: status, recordedSource: string(recorded)}, nil
+		return Inspection{}, err
+	case !found && status == runtime.SandboxAbsent:
+		return Inspection{Situation: Absent, Status: status}, nil
+	case !found:
+		return Inspection{Situation: Unmanaged, Status: status}, nil
+	case recorded != target.Source():
+		return Inspection{Situation: OtherSource, Status: status, recordedSource: recorded}, nil
 	}
 	if _, err := os.Stat(filepath.Join(dir, declarationFile)); errors.Is(err, fs.ErrNotExist) {
 		return Inspection{Situation: Incomplete, Status: status}, nil

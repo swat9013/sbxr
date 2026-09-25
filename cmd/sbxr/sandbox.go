@@ -29,23 +29,19 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			record, found, err := sandbox.ReadRecord(places, target)
-			if err != nil {
-				return err
-			}
-			repoEgress := sandbox.KeepRepoEgress
-			if found { // 既存の VM は、作成時と同じ repo の egress の扱いで確定する
-				repoEgress = record.RepoEgress
-			}
-			prepared, err := sandbox.Prepare(cmd.Context(), places, target, repoEgress)
+			prepared, err := sandbox.Prepare(cmd.Context(), places, target, sandbox.KeepRepoEgress)
 			if err != nil {
 				return err
 			}
 			if err := printSummary(cmd, prepared); err != nil {
 				return err
 			}
-			if found {
-				differences, err := record.Drift(prepared.Declaration)
+			record, found, err := sandbox.ReadRecord(places, target)
+			if err != nil {
+				return err
+			}
+			if found { // 既存の VM は、作成時の宣言からの差分も見せる
+				differences, _, err := sandbox.CompareWithRecord(cmd.Context(), places, target, record)
 				if err != nil {
 					return err
 				}
@@ -141,14 +137,11 @@ func reportExisting(cmd *cobra.Command, deps dependencies, places sandbox.Places
 		return fmt.Errorf("sandbox VM %s は既にある。現在の宣言を読めないので作成時との差分を確かめられない: %w", target.Name, err)
 	}
 	defer cleanup()
-	prepared, err := sandbox.Prepare(cmd.Context(), places, target, record.RepoEgress)
+	differences, prepared, err := sandbox.CompareWithRecord(cmd.Context(), places, target, record)
 	if err != nil {
 		return fmt.Errorf("sandbox VM %s は既にある。現在の宣言を確定できないので作成時との差分を確かめられない: %w", target.Name, err)
 	}
-	differences, err := record.Drift(prepared.Declaration)
-	if err != nil {
-		return err
-	}
+	printWarnings(cmd, prepared.Warnings)
 	printDrift(cmd, differences)
 	if len(differences) > 0 {
 		return fmt.Errorf("sandbox VM %s は既にあり、宣言が作成時から変わっている。反映するなら作り直す: sbxr destroy %s → sbxr create %s", target.Name, input, input)
