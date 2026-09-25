@@ -413,3 +413,34 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadGlobalEgressNeedsNoGitIdentity(t *testing.T) {
+	userPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, userPath, "version: 1\n")
+
+	_, err := LoadGlobalEgress(userPath)
+
+	if err != nil {
+		t.Errorf("LoadGlobalEgress() error = %v, want no git identity to be required", err)
+	}
+}
+
+func TestLoadGlobalEgressStacksTheUserExclusionOnTheDefaultGroup(t *testing.T) {
+	userPath := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, userPath, "version: 1\negress:\n  github:\n    enabled: false\n")
+
+	egress, err := LoadGlobalEgress(userPath)
+
+	if err != nil {
+		t.Fatalf("LoadGlobalEgress() error = %v", err)
+	}
+	if egress["github"]["enabled"] != false || egress["github"]["rationale"] == nil {
+		t.Errorf("egress[github] = %v, want enabled: false on top of the embedded default group", egress["github"])
+	}
+}
+
+func TestRepoCannotExcludeEgressGroups(t *testing.T) {
+	_, err := mergeYAML(t, testDefault, "", "version: 1\negress:\n  github:\n    enabled: false\n")
+
+	assertErrorMentions(t, err, "egress.github.enabled")
+}

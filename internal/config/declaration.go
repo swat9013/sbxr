@@ -92,9 +92,11 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 
 // writtenKey は宣言ファイルに書かれた key。値が null でも書かれたものとして数える。
 type writtenKey struct {
-	parent string // profile / git の中の key なら親の key。top-level の key は空
+	parent string // 入れ子の key なら親の key ("profile" や "egress.github")。top-level の key は空
 	key    string
 	value  *yaml.Node
+	// tableName は制限表で引く名前。egress の group 名は利用者が付けるので "*" に置き換える ("egress.*.enabled")
+	tableName string
 }
 
 // name は error と制限表に使う key 名 ("profile.model" のように親の key を前に付ける)。
@@ -129,10 +131,17 @@ func listWrittenKeys(data []byte) ([]writtenKey, error) {
 		return nil, err
 	}
 	var keys []writtenKey
-	for _, top := range mappingEntries(documentBody(&root), "") {
+	for _, top := range mappingEntries(documentBody(&root), "", "") {
 		keys = append(keys, top)
-		if top.key == "profile" || top.key == "git" {
-			keys = append(keys, mappingEntries(top.value, top.key)...)
+		switch top.key {
+		case "profile", "git":
+			keys = append(keys, mappingEntries(top.value, top.key, top.key)...)
+		case "egress":
+			for _, group := range mappingEntries(top.value, "egress", "egress") {
+				group.tableName = "egress.*"
+				keys = append(keys, group)
+				keys = append(keys, mappingEntries(group.value, group.name(), "egress.*")...)
+			}
 		}
 	}
 	return keys, nil
@@ -145,13 +154,19 @@ func documentBody(root *yaml.Node) *yaml.Node {
 	return root
 }
 
-func mappingEntries(node *yaml.Node, parent string) []writtenKey {
+// mappingEntries は mapping の key を列挙する。tableParent は制限表で引く名前の親の部分。
+func mappingEntries(node *yaml.Node, parent, tableParent string) []writtenKey {
 	if node.Kind != yaml.MappingNode {
 		return nil
 	}
 	var entries []writtenKey
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		entries = append(entries, writtenKey{parent: parent, key: node.Content[i].Value, value: node.Content[i+1]})
+		key := node.Content[i].Value
+		tableName := key
+		if tableParent != "" {
+			tableName = tableParent + "." + key
+		}
+		entries = append(entries, writtenKey{parent: parent, key: key, value: node.Content[i+1], tableName: tableName})
 	}
 	return entries
 }
