@@ -2,7 +2,9 @@
 
 Status: accepted (2026-09-25)
 
-`sbx env create` と `sbx env rm` には同じ実在のディレクトリを渡す必要がある（lifecycle が相対 path でコマンドを呼ぶため）。single binary に埋め込んだ資材（env 定義と kit）は、create 時に `${XDG_STATE_HOME:-~/.local/state}/sbxr/sandboxes/<name>/` へ書き出し、destroy もそこを使って最後に消す。ここには作成時に確定した宣言も残し、drift 検出の基準にする。lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにし、書き出す資材を減らす。
+`sbx env create` と `sbx env rm` には同じ実在のディレクトリを渡す必要がある（lifecycle が相対 path でコマンドを呼ぶため）。single binary に埋め込んだ資材（env 定義と kit）は、create 時に `${XDG_STATE_HOME:-~/.local/state}/sbxr/sandboxes/<name>/` へ書き出し、destroy もそこを使って最後に消す。
+
+前提の「create と rm に同じ実在ディレクトリが要る」「lifecycle の相対 path は渡したディレクトリ基準で解決される」は、sbx の source が非公開のため**推論であり未実測**。最初の実装（issue #5）で、ディレクトリを移動・削除した後に `sbx env rm` が通るかを実測し、覆れば本 ADR を改める。ここには作成時に確定した宣言も残し、drift 検出の基準にする。lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにし、書き出す資材を減らす。
 
 ## Considered Options
 
