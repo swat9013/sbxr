@@ -59,10 +59,10 @@ repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用�
 _Avoid_: keychain, `.sbox/env`
 
 **secret 定義**:
-user 設定の `secrets.<name>`。secret ファイルのキー、注入先 host、VM に見せる環境変数名を束ねる。
+`secret_defs.<name>`。注入方式、secret ファイルのキー、注入先 host、VM に見せる環境変数名を束ねる。default と user スコープだけが持てる。
 
 **secret 要求**:
-repo 宣言が secret 定義を名前で求めること。host や取得元は書けない。
+`secrets` に secret 定義の名前を並べて配線を求めること。全スコープで書け、user スコープの要求は全 sandbox VM への常時要求になる。
 
 **placeholder 注入**:
 VM には置換用の仮の値だけを入れ、実値は host 側の proxy が通信時に差し込む方式。実値は VM に入らない。

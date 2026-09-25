@@ -2,7 +2,7 @@
 
 Status: accepted (2026-09-25)
 
-default（CLI に同梱）・user（`~/.config/sbxr/config.yaml`）・repo（`sbxr.yaml`）の 3 スコープで同じ key 体系（`version` / `profile` / `git` / `egress` / `init` / `boot` / `secrets`）を使う。スコープごとの差は 1 つの制限表で定義する（例: repo の egress は sandbox スコープ rule になる、repo は base が固定した key を上書きできない）。先頭の `version: 1` で将来の schema 変更を CLI が検出できるようにする。
+default（CLI に同梱）・user（`~/.config/sbxr/config.yaml`）・repo（`sbxr.yaml`）の 3 スコープで同じ key 体系（`version` / `profile` / `git` / `egress` / `init` / `boot` / `secret_defs` / `secrets`）を使う。同じ key はどのスコープでも同じ型を持つ。スコープごとの差は 1 つの制限表で定義する（例: repo の egress は sandbox スコープ rule になる、repo は base が固定した key を上書きできない、repo は `secret_defs` を書けない — ADR 0003）。先頭の `version: 1` で将来の schema 変更を CLI が検出できるようにする。
 
 egress は sbxr 独自の形式で書き、実行基盤の rule へは adapter が変換する。宛先の置き場は「全 VM 共通 = user 設定（global rule）」「repo 固有 = repo 宣言（sandbox スコープ rule）」の 2 つで、汎用の宛先グループは default に同梱する。
 
