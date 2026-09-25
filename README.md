@@ -6,13 +6,22 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 
 ## できること（v0.1 の予定）
 
-- `sbxr plan <repo>` — 何が作られるかを表示する
+- `sbxr plan <repo>` — 何が作られるかを表示する。VM が既にあれば、作成時の宣言からの差分（drift）も表示する
 - `sbxr create <repo>` — repo 宣言（`sbxr.yaml`）を user 設定と merge し、確認のうえ sandbox VM を作る。egress 許可・secret 配線・agent runtime profile・init / boot を適用する
 - `sbxr stop <repo>` / `sbxr destroy <repo>` — 停止 / 撤去（撤去すると VM 内の commit と変更は失われるので、確認を求める。稼働中の VM は使用中かを確かめられないので、止めてから撤去するか `--force` を付ける）
 - `sbxr policy sync [--check]` — user 設定の egress 宣言を global rule へ収束させる
 - `sbxr secret setup github` / `sbxr secret setup custom --host <host>` — token の能力を確認して secret ファイルへ格納する
 
 `<repo>` はローカル path か git URL。
+
+## drift（作成時の宣言からの差分）
+
+`profile`・`git`・`init`・`boot`・repo の egress・`secrets`（実際に配線される secret）・`herdr` は作成時に VM へ焼き込まれる。既存の VM に `sbxr create` すると、作成時の宣言と現在の宣言を比べる。
+
+- 差分が無ければ既存であることを表示して 0 で終える
+- 差分があれば差分と作り直す手順（`sbxr destroy` → `sbxr create`）を表示し、確認にも作成にも進まず非 0 で終える。destroy は自動では実行しない
+- user 設定の egress（global rule）は比べない（`sbxr policy sync --check` が見る）
+- git URL の repo は cache へ clone し直し、default branch の HEAD の `sbxr.yaml` を現在の宣言とする。`--yes` で repo の egress を落として作った VM は、比べるときも落とす
 
 sandbox VM 内の commit は、VM の稼働中に host 側 repo で `git fetch sandbox-<name>` を実行して取り込むか、VM 内から origin へ push して取り出す。
 

@@ -36,6 +36,22 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 					return err
 				}
 			}
+			inspection, err := sandbox.Inspect(cmd.Context(), deps.runtime, places, target)
+			if err != nil {
+				return err
+			}
+			if inspection.Situation == sandbox.Ready { // 既存の VM は、作成時と同じ repo の egress の扱いで確定して差分も見せる
+				drift, err := sandbox.CheckDrift(cmd.Context(), places, target)
+				if err != nil {
+					return err
+				}
+				if err := printSummary(cmd, drift.Prepared); err != nil {
+					return err
+				}
+				printDrift(cmd, drift)
+				printWarnings(cmd, drift.Prepared.Warnings)
+				return nil
+			}
 			prepared, err := sandbox.Prepare(cmd.Context(), places, target, sandbox.KeepRepoEgress)
 			if err != nil {
 				return err
@@ -70,8 +86,7 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 			}
 			switch inspection.Situation {
 			case sandbox.Ready:
-				printf(cmd, "sandbox VM %s は既にある (作り直すなら sbxr destroy %s → sbxr create %s)\n", target.Name, args[0], args[0])
-				return nil
+				return reportExisting(cmd, deps, places, target, args[0])
 			case sandbox.Incomplete:
 				return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから作る", target.Name, args[0])
 			case sandbox.Unmanaged, sandbox.OtherSource:
@@ -98,6 +113,39 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "人間の確認 (確認関門) を省く")
 	return cmd
+}
+
+// reportExisting は既存の sandbox VM について、作成時の宣言からの drift を表示する。drift があれば非 0 で終える。
+// 確認関門にも作成にも進まず、destroy も実行しない。
+func reportExisting(cmd *cobra.Command, deps dependencies, places sandbox.Places, target sandbox.Target, input string) error {
+	if target.FromGitURL() {
+		// 現在の宣言は default branch の HEAD にある repo 宣言 (create と同じく cache へ clone し直す)
+		if err := sandbox.FreshClone(cmd.Context(), deps.clone, target); err != nil {
+			return err
+		}
+	}
+	drift, err := sandbox.CheckDrift(cmd.Context(), places, target)
+	if err != nil {
+		return err
+	}
+	if len(drift.Differences) == 0 {
+		printf(cmd, "sandbox VM %s は既にある (作成時の宣言との差分は無い)\n", target.Name)
+		return nil
+	}
+	printDrift(cmd, drift)
+	return fmt.Errorf("sandbox VM %s は既にあり、宣言が作成時から変わっている。反映するなら作り直す: sbxr destroy %s → sbxr create %s", target.Name, input, input)
+}
+
+// printDrift は作成時の宣言と現在の宣言の差分を表示する。
+func printDrift(cmd *cobra.Command, drift sandbox.Drift) {
+	if len(drift.Differences) == 0 {
+		printf(cmd, "drift: 作成時の宣言との差分は無い\n")
+		return
+	}
+	printf(cmd, "drift: 作成時の宣言との差分が %d 箇所ある\n", len(drift.Differences))
+	for _, difference := range drift.Differences {
+		printf(cmd, "  %s\n    作成時: %s\n    現在:   %s\n", difference.Path, difference.Recorded, difference.Current)
+	}
 }
 
 // createApproved は確認関門を通してから作る。created は状態ディレクトリを書くところまで進んだか (失敗しても destroy で片付けられるか)。

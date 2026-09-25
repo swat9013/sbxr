@@ -59,6 +59,8 @@ type Declaration struct {
 	Secrets []WiredSecret `yaml:"secrets"`
 	// Herdr は herdr 連携。無効なら書かない。
 	Herdr *HerdrPin `yaml:"herdr,omitempty"`
+	// RepoEgressDropped は git URL を --yes で通したために repo の egress を落として作ったか。drift を比べるときに同じ扱いを再現する。
+	RepoEgressDropped bool `yaml:"repo_egress_dropped,omitempty"`
 }
 
 // HerdrPin は作成時に確定した herdr 連携 (VM に入れる版)。
@@ -144,6 +146,7 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	decl.Git.Name, decl.Git.Email = cfg.Git.Name, cfg.Git.Email
 	decl.Init, decl.Boot = cfg.Init, cfg.Boot
 	decl.SandboxEgress = sandboxEgress
+	decl.RepoEgressDropped = repoEgress == DropRepoEgress
 	if cfg.Herdr.Enabled {
 		decl.Herdr = &HerdrPin{Version: cfg.Herdr.Version}
 	}
