@@ -64,9 +64,14 @@ func (s *Sbx) ListGlobalEgressRules(ctx context.Context) ([]EgressRule, error) {
 	}
 	var rules []EgressRule
 	for _, r := range *listing.Rules {
-		if r.Scope == "global" && r.ResourceType == "network" && r.Editable {
-			rules = append(rules, EgressRule{ID: r.ID, Decision: Decision(r.Decision), Resources: r.Resources})
+		if r.Scope != "global" || r.ResourceType != "network" || !r.Editable {
+			continue
 		}
+		decision := Decision(r.Decision)
+		if decision != DecisionAllow && decision != DecisionDeny {
+			return nil, fmt.Errorf("sbx の rule %s の decision %q を解釈できない", r.ID, r.Decision)
+		}
+		rules = append(rules, EgressRule{ID: r.ID, Decision: decision, Resources: r.Resources})
 	}
 	return rules, nil
 }

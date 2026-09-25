@@ -63,17 +63,40 @@ func TestPolicySyncCheckReportsTheDiffAndFailsWithoutWriting(t *testing.T) {
 }
 
 func TestPolicySyncPrintsTheChangesMadeBeforeAFailure(t *testing.T) {
-	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")}, FailOnWrite: 2}
-	deps := dependencies{runtime: runtime.NewSbx(stub.Run), userConfigPath: fixedPath(onlyGithubUserConfig(t))}
+	stub := &sbxstub.Stub{FailOnWrite: 2}
+	userConfig := ownGroupOnlyUserConfig(t, "a.example.com:443", "b.example.com:443")
+	deps := dependencies{runtime: runtime.NewSbx(stub.Run), userConfigPath: fixedPath(userConfig)}
 
 	out, err := runSbxr(t, deps, "policy", "sync")
 
 	if err == nil {
 		t.Errorf("policy sync error = nil, want the failed write to exit non-zero")
 	}
-	if !strings.Contains(out, "+ allow **.github.com:443") || strings.Contains(out, "+ allow ghcr.io:443") {
+	if !strings.Contains(out, "+ allow a.example.com:443") || strings.Contains(out, "+ allow b.example.com:443") {
 		t.Errorf("output = %q, want only the add made before the failure", out)
 	}
+}
+
+// ownGroupOnlyUserConfig は同梱の group をすべて除外し、allow を持つ group を 1 つだけ宣言する user 設定を書く。
+func ownGroupOnlyUserConfig(t *testing.T, allow ...string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	embedded, err := config.LoadGlobalEgress(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := "version: 1\negress:\n"
+	for name := range embedded {
+		content += "  " + name + ":\n    enabled: false\n"
+	}
+	content += "  own:\n    rationale: test\n    allow:\n"
+	for _, resource := range allow {
+		content += "      - " + resource + "\n"
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestPolicySyncConvergesSoThatCheckPassesAfterwards(t *testing.T) {

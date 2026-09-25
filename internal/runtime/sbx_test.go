@@ -56,3 +56,15 @@ func TestSbxRemovesARuleByID(t *testing.T) {
 		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
 	}
 }
+
+func TestSbxRejectsARuleWithAnUnknownDecision(t *testing.T) {
+	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{
+		{ID: "r1", Scope: "global", ResourceType: "network", Decision: "audit", Resources: []string{"x.example.com:443"}, Editable: true},
+	}}
+
+	_, err := NewSbx(stub.Run).ListGlobalEgressRules(context.Background())
+
+	if err == nil {
+		t.Errorf("ListGlobalEgressRules() error = nil, want an error for the decision audit")
+	}
+}
