@@ -20,9 +20,8 @@ func main() {
 
 func newRootCmd(version string) *cobra.Command {
 	return &cobra.Command{
-		Use:          "sbxr",
-		Short:        "repo を宣言 1 枚で AI coding agent 用の sandbox VM にする",
-		Version:      version,
-		SilenceUsage: true,
+		Use:     "sbxr",
+		Short:   "repo を宣言 1 枚で AI coding agent 用の sandbox VM にする",
+		Version: version,
 	}
 }
