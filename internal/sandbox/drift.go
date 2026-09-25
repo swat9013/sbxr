@@ -1,12 +1,14 @@
 package sandbox
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -15,6 +17,62 @@ import (
 // user の egress (global rule) は sbxr policy sync --check が比べるので入れない。
 var driftKeys = []string{"profile", "git", "init", "boot", "sandbox_egress", "secrets", "herdr"}
 
+// Record は状態ディレクトリに残した作成時の記録。宣言と、それを確定したときの repo の egress の扱い。
+type Record struct {
+	Declaration Declaration
+	RepoEgress  RepoEgressPolicy
+}
+
+// recordFile は declaration.yaml の形。宣言の key に、git URL を --yes で通して repo の egress を落としたかを足す。
+type recordFile struct {
+	Declaration       `yaml:",inline"`
+	RepoEgressDropped bool `yaml:"repo_egress_dropped,omitempty"`
+}
+
+func writeRecord(dir string, record Record) error {
+	data, err := yaml.Marshal(recordFile{Declaration: record.Declaration, RepoEgressDropped: record.RepoEgress == DropRepoEgress})
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, declarationFile), data, 0o600); err != nil {
+		return fmt.Errorf("状態ディレクトリに %s を書けない: %w", declarationFile, err)
+	}
+	return nil
+}
+
+// ReadRecord は target の作成時の記録を状態ディレクトリから読む。sbx には問い合わせない。
+// 作り終えた記録が無い (状態ディレクトリが無い・別の repo のもの・作成が途中で止まった) なら found が false。
+func ReadRecord(places Places, target Target) (record Record, found bool, err error) {
+	dir := places.StateDir(target.Name)
+	source, err := os.ReadFile(filepath.Join(dir, sourceFile))
+	if errors.Is(err, fs.ErrNotExist) {
+		return Record{}, false, nil
+	}
+	if err != nil {
+		return Record{}, false, fmt.Errorf("状態ディレクトリ %s を読めない: %w", dir, err)
+	}
+	if string(source) != target.Source() {
+		return Record{}, false, nil
+	}
+	path := filepath.Join(dir, declarationFile)
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Record{}, false, nil
+	}
+	if err != nil {
+		return Record{}, false, fmt.Errorf("作成時の宣言 %s を読めない: %w", path, err)
+	}
+	var file recordFile
+	if err := yaml.Unmarshal(data, &file); err != nil {
+		return Record{}, false, fmt.Errorf("作成時の宣言 %s を読めない: %w", path, err)
+	}
+	record = Record{Declaration: file.Declaration, RepoEgress: KeepRepoEgress}
+	if file.RepoEgressDropped {
+		record.RepoEgress = DropRepoEgress
+	}
+	return record, true, nil
+}
+
 // Difference は作成時の宣言と現在の宣言で値が違う 1 箇所。Path は key を . で繋いだもの (profile.model 等)。
 type Difference struct {
 	Path     string
@@ -22,52 +80,11 @@ type Difference struct {
 	Current  string
 }
 
-// Drift は既存の sandbox VM について、作成時の宣言と現在の宣言を比べた結果。
-type Drift struct {
-	// Prepared は現在の宣言に create と同じ確定処理を通した結果 (作成時と同じ repo の egress の扱いで)。
-	Prepared    Prepared
-	Differences []Difference
-}
-
-// CheckDrift は状態ディレクトリの作成時の宣言と、現在の宣言を比べる。
-// git URL を --yes で通して作った VM は、現在の宣言からも repo の egress を落として比べる。git URL の Target は呼び出し側が clone してから渡す。
-func CheckDrift(ctx context.Context, places Places, target Target) (Drift, error) {
-	recorded, err := readDeclaration(places.StateDir(target.Name))
-	if err != nil {
-		return Drift{}, err
-	}
-	repoEgress := KeepRepoEgress
-	if recorded.RepoEgressDropped {
-		repoEgress = DropRepoEgress
-	}
-	prepared, err := Prepare(ctx, places, target, repoEgress)
-	if err != nil {
-		return Drift{}, err
-	}
-	differences, err := compareDeclarations(recorded, prepared.Declaration)
-	if err != nil {
-		return Drift{}, err
-	}
-	return Drift{Prepared: prepared, Differences: differences}, nil
-}
-
-func readDeclaration(stateDir string) (Declaration, error) {
-	path := filepath.Join(stateDir, declarationFile)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Declaration{}, fmt.Errorf("作成時の宣言 %s を読めない: %w", path, err)
-	}
-	var decl Declaration
-	if err := yaml.Unmarshal(data, &decl); err != nil {
-		return Declaration{}, fmt.Errorf("作成時の宣言 %s を読めない: %w", path, err)
-	}
-	return decl, nil
-}
-
-// compareDeclarations は drift として比べる key について、値が違う箇所を葉の単位で並べる。
-// 両方を同じ YAML の形へ直してから比べるので、書き出し方の違い (空の list と null など) は差にならない。
-func compareDeclarations(recorded, current Declaration) ([]Difference, error) {
-	before, err := declarationTree(recorded)
+// Drift は作成時の宣言と、現在の宣言 (作成時と同じ repo の egress の扱いで確定したもの) の違いを葉の単位で並べる。
+// 両方を同じ YAML の形へ直してから比べるので、書き出し方の違いは差にならない。
+// secret の並びと注入先 host の並びは VM に効かないので、並べ替えてから比べる。
+func (r Record) Drift(current Declaration) ([]Difference, error) {
+	before, err := declarationTree(r.Declaration)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +100,11 @@ func compareDeclarations(recorded, current Declaration) ([]Difference, error) {
 }
 
 func declarationTree(decl Declaration) (map[string]any, error) {
+	decl.Secrets = slices.Clone(decl.Secrets)
+	for i := range decl.Secrets {
+		decl.Secrets[i].Hosts = slices.Sorted(slices.Values(decl.Secrets[i].Hosts))
+	}
+	slices.SortFunc(decl.Secrets, func(a, b WiredSecret) int { return strings.Compare(a.Name, b.Name) })
 	data, err := yaml.Marshal(decl)
 	if err != nil {
 		return nil, err

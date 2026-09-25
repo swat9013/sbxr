@@ -21,7 +21,8 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 - 差分が無ければ既存であることを表示して 0 で終える
 - 差分があれば差分と作り直す手順（`sbxr destroy` → `sbxr create`）を表示し、確認にも作成にも進まず非 0 で終える。destroy は自動では実行しない
 - user 設定の egress（global rule）は比べない（`sbxr policy sync --check` が見る）
-- git URL の repo は cache へ clone し直し、default branch の HEAD の `sbxr.yaml` を現在の宣言とする。`--yes` で repo の egress を落として作った VM は、比べるときも落とす
+- git URL の repo は一時ディレクトリへ clone し、default branch の HEAD の `sbxr.yaml` を現在の宣言とする（VM の cache clone には触れない。そこには VM の git remote と取り込んだ commit がある）。`--yes` で repo の egress を落として作った VM は、比べるときも落とす
+- secret の並びと注入先 host の並びは差にしない
 
 sandbox VM 内の commit は、VM の稼働中に host 側 repo で `git fetch sandbox-<name>` を実行して取り込むか、VM 内から origin へ push して取り出す。
 

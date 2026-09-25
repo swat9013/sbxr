@@ -16,7 +16,7 @@ import (
 func newPlanCmd(deps dependencies) *cobra.Command {
 	return &cobra.Command{
 		Use:   "plan <repo>",
-		Short: "sandbox VM に何が作られるかを表示する (変更しない)",
+		Short: "sandbox VM に何が作られるかを表示する (変更しない)。VM が既にあれば作成時の宣言からの差分も表示する",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
@@ -24,45 +24,56 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if target.FromGitURL() {
-				// plan は host に何も残さないので、一時ディレクトリへ clone して終わりに消す
-				tmp, err := os.MkdirTemp("", "sbxr-plan-")
-				if err != nil {
-					return err
-				}
-				defer func() { _ = os.RemoveAll(tmp) }()
-				target.Repo = filepath.Join(tmp, target.Name)
-				if err := sandbox.FreshClone(cmd.Context(), deps.clone, target); err != nil {
-					return err
-				}
-			}
-			inspection, err := sandbox.Inspect(cmd.Context(), deps.runtime, places, target)
+			target, cleanup, err := readableRepo(cmd, deps, target)
 			if err != nil {
 				return err
 			}
-			if inspection.Situation == sandbox.Ready { // 既存の VM は、作成時と同じ repo の egress の扱いで確定して差分も見せる
-				drift, err := sandbox.CheckDrift(cmd.Context(), places, target)
-				if err != nil {
-					return err
-				}
-				if err := printSummary(cmd, drift.Prepared); err != nil {
-					return err
-				}
-				printDrift(cmd, drift)
-				printWarnings(cmd, drift.Prepared.Warnings)
-				return nil
+			defer cleanup()
+			record, found, err := sandbox.ReadRecord(places, target)
+			if err != nil {
+				return err
 			}
-			prepared, err := sandbox.Prepare(cmd.Context(), places, target, sandbox.KeepRepoEgress)
+			repoEgress := sandbox.KeepRepoEgress
+			if found { // 既存の VM は、作成時と同じ repo の egress の扱いで確定する
+				repoEgress = record.RepoEgress
+			}
+			prepared, err := sandbox.Prepare(cmd.Context(), places, target, repoEgress)
 			if err != nil {
 				return err
 			}
 			if err := printSummary(cmd, prepared); err != nil {
 				return err
 			}
+			if found {
+				differences, err := record.Drift(prepared.Declaration)
+				if err != nil {
+					return err
+				}
+				printDrift(cmd, differences)
+			}
 			printWarnings(cmd, prepared.Warnings)
 			return nil
 		},
 	}
+}
+
+// readableRepo は宣言を読むための repo を返す。git URL は一時ディレクトリへ clone する (host に何も残さず、
+// 既存の VM の cache clone にも触れない)。cleanup は一時ディレクトリを消す。
+func readableRepo(cmd *cobra.Command, deps dependencies, target sandbox.Target) (sandbox.Target, func(), error) {
+	if !target.FromGitURL() {
+		return target, func() {}, nil
+	}
+	tmp, err := os.MkdirTemp("", "sbxr-read-")
+	if err != nil {
+		return target, nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(tmp) }
+	target.Repo = filepath.Join(tmp, target.Name)
+	if err := sandbox.FreshClone(cmd.Context(), deps.clone, target); err != nil {
+		cleanup()
+		return target, nil, err
+	}
+	return target, cleanup, nil
 }
 
 func newCreateCmd(deps dependencies) *cobra.Command {
@@ -118,32 +129,42 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 // reportExisting は既存の sandbox VM について、作成時の宣言からの drift を表示する。drift があれば非 0 で終える。
 // 確認関門にも作成にも進まず、destroy も実行しない。
 func reportExisting(cmd *cobra.Command, deps dependencies, places sandbox.Places, target sandbox.Target, input string) error {
-	if target.FromGitURL() {
-		// 現在の宣言は default branch の HEAD にある repo 宣言 (create と同じく cache へ clone し直す)
-		if err := sandbox.FreshClone(cmd.Context(), deps.clone, target); err != nil {
-			return err
-		}
-	}
-	drift, err := sandbox.CheckDrift(cmd.Context(), places, target)
+	record, found, err := sandbox.ReadRecord(places, target)
 	if err != nil {
 		return err
 	}
-	if len(drift.Differences) == 0 {
-		printf(cmd, "sandbox VM %s は既にある (作成時の宣言との差分は無い)\n", target.Name)
-		return nil
+	if !found {
+		return fmt.Errorf("sandbox VM %s の作成時の記録が状態ディレクトリに無い", target.Name)
 	}
-	printDrift(cmd, drift)
-	return fmt.Errorf("sandbox VM %s は既にあり、宣言が作成時から変わっている。反映するなら作り直す: sbxr destroy %s → sbxr create %s", target.Name, input, input)
+	target, cleanup, err := readableRepo(cmd, deps, target) // git URL は default branch の HEAD の repo 宣言を読む
+	if err != nil {
+		return fmt.Errorf("sandbox VM %s は既にある。現在の宣言を読めないので作成時との差分を確かめられない: %w", target.Name, err)
+	}
+	defer cleanup()
+	prepared, err := sandbox.Prepare(cmd.Context(), places, target, record.RepoEgress)
+	if err != nil {
+		return fmt.Errorf("sandbox VM %s は既にある。現在の宣言を確定できないので作成時との差分を確かめられない: %w", target.Name, err)
+	}
+	differences, err := record.Drift(prepared.Declaration)
+	if err != nil {
+		return err
+	}
+	printDrift(cmd, differences)
+	if len(differences) > 0 {
+		return fmt.Errorf("sandbox VM %s は既にあり、宣言が作成時から変わっている。反映するなら作り直す: sbxr destroy %s → sbxr create %s", target.Name, input, input)
+	}
+	printf(cmd, "sandbox VM %s は既にある\n", target.Name)
+	return nil
 }
 
 // printDrift は作成時の宣言と現在の宣言の差分を表示する。
-func printDrift(cmd *cobra.Command, drift sandbox.Drift) {
-	if len(drift.Differences) == 0 {
+func printDrift(cmd *cobra.Command, differences []sandbox.Difference) {
+	if len(differences) == 0 {
 		printf(cmd, "drift: 作成時の宣言との差分は無い\n")
 		return
 	}
-	printf(cmd, "drift: 作成時の宣言との差分が %d 箇所ある\n", len(drift.Differences))
-	for _, difference := range drift.Differences {
+	printf(cmd, "drift: 作成時の宣言との差分が %d 箇所ある\n", len(differences))
+	for _, difference := range differences {
 		printf(cmd, "  %s\n    作成時: %s\n    現在:   %s\n", difference.Path, difference.Recorded, difference.Current)
 	}
 }

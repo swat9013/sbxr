@@ -128,3 +128,65 @@ func writeUserConfig(t *testing.T, lc *lifecycle, config string) {
 		t.Fatal(err)
 	}
 }
+
+func TestCheckingDriftOfAGitURLLeavesTheCacheCloneOfTheSandboxAlone(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.mustRun(t, "create", "https://example.com/me/app.git", "--yes")
+	fetched := filepath.Join(lc.places.CacheRoot, "app", "fetched-from-the-vm")
+	if err := os.WriteFile(fetched, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lc.mustRun(t, "create", "https://example.com/me/app.git", "--yes")
+
+	if !exists(fetched) {
+		t.Errorf("the cache clone was replaced, want it kept (it carries the sandbox's git remote and fetched commits)")
+	}
+}
+
+func TestPlanDoesNotNeedSbx(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.stub.FailOn = "ls"
+
+	out := lc.mustRun(t, "plan", repo)
+
+	if !strings.Contains(out, "差分は無い") {
+		t.Errorf("output = %q, want the drift read from the state dir alone", out)
+	}
+}
+
+func TestReorderingRequestedSecretsIsNotDrift(t *testing.T) {
+	const defs = "egress:\n  hosts:\n    rationale: test\n    allow: [a.example.com:443, b.example.com:443]\n" +
+		"secret_defs:\n  one:\n    key: ONE\n    hosts: [a.example.com]\n    env: ONE\n  two:\n    key: TWO\n    hosts: [b.example.com]\n    env: TWO\n"
+	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [one, two]\n"+defs)
+	secretFile, _ := lc.deps.secretFilePath()
+	if err := os.WriteFile(secretFile, []byte("ONE=1\nTWO=2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	writeUserConfig(t, lc, lifecycleUserConfig+"secrets: [two, one]\n"+defs)
+
+	out := lc.mustRun(t, "create", repo, "--yes")
+
+	if !strings.Contains(out, "差分は無い") {
+		t.Errorf("output = %q, want the same wired secrets in another order to be no drift", out)
+	}
+}
+
+func TestCreateOnAnExistingSandboxWhoseRepoIsGoneSaysTheSandboxExists(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	if err := os.RemoveAll(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := lc.run(t, "create", repo, "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "既にある") {
+		t.Errorf("error = %v, want it to say the sandbox exists but the drift cannot be checked", err)
+	}
+}
