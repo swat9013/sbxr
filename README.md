@@ -21,6 +21,12 @@ sandbox VM 内の commit は、VM の稼働中に host 側 repo で `git fetch s
 - 状態ディレクトリ: `${XDG_STATE_HOME:-~/.local/state}/sbxr/sandboxes/<name>/`（env 定義と作成時の宣言。destroy が消す）
 - git URL の cache clone: `${XDG_CACHE_HOME:-~/.cache}/sbxr/repos/<name>/`（destroy が消す）
 
+## init と boot
+
+- `init` は create のときに 1 回、VM 内の repo root で順に走る。失敗すると create は VM を残して止まる
+- `boot` は create のときに init の後で 1 回走り、その後は sandbox VM の起動ごとに走る。走るのは作成時に確定した内容で、起動のたびに宣言を読み直しはしない
+- 2 回目以降の起動での boot の出力と失敗（`boot[N] fail`）は host からは見えない。VM 内の `/var/log/sbx-kit-startup.log` に残る（`sbx exec <name> -- cat /var/log/sbx-kit-startup.log`）
+
 ## 必要なもの
 
 - [`sbx`](https://docs.docker.com/ai/sandboxes/)（Docker Sandboxes CLI）

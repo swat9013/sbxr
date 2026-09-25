@@ -36,7 +36,7 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 					return err
 				}
 			}
-			prepared, err := sandbox.Prepare(places, target, sandbox.KeepRepoEgress)
+			prepared, err := sandbox.Prepare(cmd.Context(), places, target, sandbox.KeepRepoEgress)
 			if err != nil {
 				return err
 			}
@@ -102,7 +102,7 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 	if target.FromGitURL() && yes {
 		repoEgress = sandbox.DropRepoEgress
 	}
-	prepared, err := sandbox.Prepare(places, target, repoEgress)
+	prepared, err := sandbox.Prepare(cmd.Context(), places, target, repoEgress)
 	if err != nil {
 		return false, err
 	}
@@ -119,7 +119,11 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 	if err != nil {
 		return false, err
 	}
-	if err := sandbox.Create(cmd.Context(), deps.runtime, places, prepared, values); err != nil {
+	if err := sandbox.Create(cmd.Context(), deps.runtime, places, prepared, values, cmd.OutOrStdout()); err != nil {
+		var stageErr *sandbox.StageError
+		if errors.As(err, &stageErr) { // VM は作れている
+			return true, fmt.Errorf("%w\nsandbox VM %s は調べられるように残した。復旧: sbxr stop %s → sbxr destroy %s → sbxr create %s", err, target.Name, input, input, input)
+		}
 		return true, fmt.Errorf("%w\n復旧: sbxr destroy %s で片付けてから sbxr create %s をやり直す", err, input, input)
 	}
 	return true, nil

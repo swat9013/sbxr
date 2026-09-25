@@ -26,6 +26,18 @@ type Runtime interface {
 	StopSandbox(ctx context.Context, sandbox string) error
 	// AllowSandboxEgress は 1 つの宛先を許可する sandbox スコープ rule を足す。sandbox VM の作成後にしか置けない。
 	AllowSandboxEgress(ctx context.Context, sandbox, resource string) error
+	// ExecInSandbox は sandbox VM 内でコマンドを実行し、stdout を返す。0 以外で終われば error。
+	ExecInSandbox(ctx context.Context, sandbox string, command SandboxCommand) ([]byte, error)
+}
+
+// SandboxCommand は sandbox VM 内で実行するコマンド。
+type SandboxCommand struct {
+	// Args は実行するコマンドと引数。shell を通さない (shell が要るときは Args に sh -c を書く)。
+	Args []string
+	// Dir は VM 内の作業ディレクトリ。空なら実行基盤の既定。
+	Dir string
+	// Input はコマンドの stdin に渡す内容。nil なら何も渡さない。
+	Input []byte
 }
 
 // SandboxStatus は sandbox VM の状態。実行基盤が返す値をそのまま持ち、sbxr が扱う値だけを定数にする。

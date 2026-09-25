@@ -161,3 +161,18 @@ func (s *Sbx) AllowSandboxEgress(ctx context.Context, sandbox, resource string) 
 	_, err := s.run(ctx, nil, "policy", "allow", "network", "--sandbox", sandbox, resource)
 	return err
 }
+
+// ExecInSandbox は sbx exec で VM 内のコマンドを実行する。Input があるときだけ -i で stdin を渡す。
+func (s *Sbx) ExecInSandbox(ctx context.Context, sandbox string, command SandboxCommand) ([]byte, error) {
+	args := []string{"exec"}
+	var stdin io.Reader
+	if command.Input != nil {
+		args = append(args, "-i")
+		stdin = bytes.NewReader(command.Input)
+	}
+	if command.Dir != "" {
+		args = append(args, "-w", command.Dir)
+	}
+	args = append(append(args, sandbox, "--"), command.Args...)
+	return s.run(ctx, stdin, args...)
+}

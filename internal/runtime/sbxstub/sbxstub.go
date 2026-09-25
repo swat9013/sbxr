@@ -46,7 +46,9 @@ type Stub struct {
 	SandboxRules map[string][]string
 	// SandboxSecrets は sandbox スコープの secret の数。sandbox と一緒に消える。
 	SandboxSecrets map[string]int
-	nextID         int
+	// VM は sbx exec を受ける sandbox VM の中身。nil なら sbx exec は失敗する。
+	VM     *FakeVM
+	nextID int
 }
 
 // GlobalAllow は scope=global・network・editable の allow rule を作る。
@@ -68,6 +70,8 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		return nil, fmt.Errorf("sbxstub: %q を失敗させた", s.FailOn)
 	}
 	switch {
+	case len(args) >= 1 && args[0] == "exec":
+		return s.exec(args[1:], input)
 	case len(args) >= 2 && args[0] == "secret" && (args[1] == "set" || args[1] == "set-custom"):
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
@@ -161,6 +165,33 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		return nil, nil
 	}
 	return nil, fmt.Errorf("sbxstub: 想定外の引数 %q", args)
+}
+
+// exec は sbx exec [-i] [-w dir] <sandbox> -- <args> を VM へ渡す。
+func (s *Stub) exec(args []string, input string) ([]byte, error) {
+	command := VMCommand{}
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
+		switch args[0] {
+		case "-i":
+			command.Input = &input
+			args = args[1:]
+		case "-w":
+			command.Dir, args = args[1], args[2:]
+		default:
+			return nil, fmt.Errorf("sbxstub: exec の想定外のフラグ %q", args[0])
+		}
+	}
+	if len(args) < 3 || args[1] != "--" {
+		return nil, fmt.Errorf("sbxstub: exec の引数 %q が <sandbox> -- <command> の形でない", args)
+	}
+	if status, ok := s.Sandboxes[args[0]]; !ok || status != "running" {
+		return nil, fmt.Errorf("sbxstub: sandbox %s が動いていない", args[0])
+	}
+	if s.VM == nil {
+		return nil, fmt.Errorf("sbxstub: VM が無い")
+	}
+	command.Args = args[2:]
+	return s.VM.Exec(command)
 }
 
 func (s *Stub) ensureMaps() {
