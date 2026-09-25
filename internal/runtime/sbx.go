@@ -114,19 +114,22 @@ func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus,
 	if err != nil {
 		return "", err
 	}
-	var listing struct {
-		Sandboxes *[]struct {
-			Name   string `json:"name"`
-			Status string `json:"status"`
-		} `json:"sandboxes"`
-	}
+	var listing map[string]json.RawMessage
 	if err := json.Unmarshal(out, &listing); err != nil {
 		return "", fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
 	}
-	if listing.Sandboxes == nil {
+	raw, ok := listing["sandboxes"]
+	if !ok {
 		return "", fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
 	}
-	for _, sb := range *listing.Sandboxes {
+	var sandboxes []struct { // sandbox が 1 つも無ければ null でも空でもよい
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &sandboxes); err != nil {
+		return "", fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
+	}
+	for _, sb := range sandboxes {
 		if sb.Name == sandbox {
 			return SandboxStatus(sb.Status), nil
 		}
@@ -140,7 +143,8 @@ func (s *Sbx) CreateEnvironment(ctx context.Context, envDir string) error {
 	return err
 }
 
-// RemoveEnvironment は sbx env rm で消す。sbx は stdin が端末でないと --force を要求し、--force は使用中の sandbox も消す (実測。ADR 0006)。
+// RemoveEnvironment は sbx env rm で消す。sbx は stdin が端末でないと --force を要求し、--force は使用中の sandbox も消す。
+// sandbox が無いときも「not found」を出して sandbox スコープの secret を消し、0 で終わる (実測。ADR 0006)。
 func (s *Sbx) RemoveEnvironment(ctx context.Context, envDir string) error {
 	_, err := s.run(ctx, nil, "env", "rm", "--force", envDir)
 	return err

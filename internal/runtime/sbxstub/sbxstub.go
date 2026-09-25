@@ -99,7 +99,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		s.Sandboxes[name] = "running"
 		return nil, nil
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "rm", "--force"}):
-		// 実 sbx と同じく、env 定義が無ければ消せない
+		// 実 sbx と同じく、env 定義が無ければ消せない。sandbox が無くても sandbox スコープの secret は消して成功する
 		name, err := envName(args[3])
 		if err != nil {
 			return nil, err
@@ -128,6 +128,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
+		s.ensureMaps()
 		s.SandboxRules[args[4]] = append(s.SandboxRules[args[4]], args[5])
 		return nil, nil
 	case slices.Equal(args, []string{"policy", "ls", "--json"}):

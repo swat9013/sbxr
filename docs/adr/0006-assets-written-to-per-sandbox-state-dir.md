@@ -2,9 +2,21 @@
 
 Status: accepted (2026-09-25)
 
-`sbx env create` と `sbx env rm` には同じ実在のディレクトリを渡す必要がある（lifecycle が相対 path でコマンドを呼ぶため）。single binary に埋め込んだ資材（env 定義と kit）は、create 時に `${XDG_STATE_HOME:-~/.local/state}/sbxr/sandboxes/<name>/` へ書き出し、destroy もそこを使って最後に消す。
+`sbx env rm` は渡した場所の env 定義を読み、lifecycle の相対 path のコマンドはその env 定義のディレクトリを cwd にして走る。そのため destroy の時点でも env 定義が実在している必要がある。single binary に埋め込んだ資材（env 定義と kit）は、create 時に `${XDG_STATE_HOME:-~/.local/state}/sbxr/sandboxes/<name>/` へ書き出し、destroy もそこを使って最後に消す。
 
-`sbx env rm` は渡した場所の env 定義を読むので、destroy の時点で env 定義が実在している必要がある（実測は下記）。ここには作成時に確定した宣言も残し、drift 検出の基準にする。lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにし、書き出す資材を減らす。
+ここには作成時に確定した宣言も残し、drift 検出の基準にする。
+
+状態ディレクトリは sbxr が作った sandbox VM の印も兼ねる。
+
+- 状態ディレクトリの無い sandbox VM は sbxr の管理外として、create・stop・destroy のどれでも触らない
+- 状態ディレクトリには sandbox VM の出所（repo の path か git URL）を記録する。同じ名前の別 repo の VM を取り違えないためで、出所が違えば拒否する
+- 作成時の宣言（`declaration.yaml`）は作成がすべて済んでから書き、作成が終わった印にする。印の無い状態ディレクトリは作成が途中で止まったものとして扱い、create はやり直さずに destroy を促す
+
+destroy は、稼働中の sandbox VM を `--force` 無しでは撤去しない（実測は下記）。sbx の撤去は非対話では `--force` を要し、`--force` は使用中の VM も消す。一方で、使用中かを知る手段が無い。退けた案は次の 2 つ。
+- 常に `--force` を渡す: `--force` を使用中の VM の強制撤去だけに使う、という CLI の約束が守れない
+- `sbx stop` してから撤去する: `sbx stop` も使用中の session を切るので、`--force` と同じことになる
+
+lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにし、書き出す資材を減らす。
 
 ## Considered Options
 
@@ -18,6 +30,7 @@ Status: accepted (2026-09-25)
 - A を削除すると `sbx env rm A` は `no sbxenv.yaml found` で失敗する。別のディレクトリに同じ `name:` の env 定義を書き直せば、そこからの `sbx env rm` は通る
 - `sbx env rm` と `sbx rm` は、sandbox と一緒に sandbox スコープの secret（`sbx secret set --sandbox` で env 定義の外から置いたものを含む）と sandbox スコープ rule を消す
 - sandbox スコープの secret は sandbox の作成前に置け、作成時に VM の環境変数へ placeholder が入る。env 定義の `env:` も VM の環境変数に入る。sandbox スコープ rule は sandbox の作成前には置けない（`sandbox not found`）
+- sandbox を作る前に失敗し、sandbox スコープの secret だけが残った名前でも、`sbx env rm --force` は `not found` を出したうえで secret を消し、0 で終わる
 - `sbx env rm` は stdin が端末でないと `--force` を要求し、`--force` は in-use の sandbox も消す。`sbx ls --json` に in-use を示す欄は無く、`sbx stop` も in-use を拒まない
 
 前提の「同じ実在ディレクトリが要る」は「destroy の時点で env 定義が実在する」に弱まるが、状態ディレクトリに env 定義を置き続ける設計はそのまま成り立つ。

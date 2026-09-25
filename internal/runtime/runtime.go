@@ -20,7 +20,7 @@ type Runtime interface {
 	// CreateEnvironment は envDir の env 定義から sandbox VM を作り、起動する。
 	CreateEnvironment(ctx context.Context, envDir string) error
 	// RemoveEnvironment は envDir の env 定義が指す sandbox VM を、sandbox スコープの secret と rule ごと消す。
-	// 使用中かを確かめずに消すので、呼び出し側が止まっていることを確かめてから呼ぶ。
+	// VM が無くても sandbox スコープの secret は消す。使用中の VM も消す。
 	RemoveEnvironment(ctx context.Context, envDir string) error
 	// StopSandbox は sandbox VM を止める。状態は残る。
 	StopSandbox(ctx context.Context, sandbox string) error
@@ -33,7 +33,6 @@ type SandboxStatus string
 
 const (
 	SandboxAbsent  SandboxStatus = "absent"
-	SandboxRunning SandboxStatus = "running"
 	SandboxStopped SandboxStatus = "stopped"
 )
 

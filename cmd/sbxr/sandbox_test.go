@@ -118,6 +118,29 @@ func TestCreateThenDestroyOfAGitURLLeavesNoStateDirOrCacheClone(t *testing.T) {
 	}
 }
 
+func TestDestroyRemovesSecretsPlacedBeforeAFailedSandboxCreation(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\n")
+	secretFile, _ := lc.deps.secretFilePath()
+	if err := os.WriteFile(secretFile, []byte("GITHUB_TOKEN=ghp_x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := localRepo(t, "app", "")
+	lc.stub.FailOn = "env create"
+	if _, err := lc.run(t, "create", repo, "--yes"); err == nil {
+		t.Fatalf("create error = nil, want the injected env create failure")
+	}
+	lc.stub.FailOn = ""
+
+	lc.mustRun(t, "destroy", repo, "--yes")
+
+	if lc.stub.SandboxSecrets["app"] != 0 {
+		t.Errorf("sandbox-scoped secrets = %d, want the token removed", lc.stub.SandboxSecrets["app"])
+	}
+	if exists(lc.places.StateDir("app")) {
+		t.Errorf("destroy left the state dir")
+	}
+}
+
 func TestDestroyOfAPathRepoKeepsTheRepo(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
 	repo := localRepo(t, "app", "")
@@ -242,8 +265,120 @@ func TestCreateDeclinedAtTheGateCreatesNothing(t *testing.T) {
 
 	_, err := lc.run(t, "create", repo)
 
-	if err == nil || len(lc.stub.Writes) != 0 || exists(lc.places.StateDir("app")) {
-		t.Errorf("error = %v, writes = %q, want nothing created after declining", err, lc.stub.Writes)
+	if err == nil {
+		t.Errorf("create error = nil, want declining to exit non-zero")
+	}
+	if len(lc.stub.Writes) != 0 {
+		t.Errorf("sbx writes = %q, want none after declining", lc.stub.Writes)
+	}
+	if exists(lc.places.StateDir("app")) {
+		t.Errorf("state dir was written after declining")
+	}
+}
+
+func TestCreateOfAGitURLDeclinedAtTheGateLeavesNoCacheClone(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.prompter.confirms = []bool{false}
+
+	_, _ = lc.run(t, "create", "https://example.com/me/app.git")
+
+	if exists(filepath.Join(lc.places.CacheRoot, "app")) {
+		t.Errorf("cache clone was left behind; destroy cannot find it without a state dir")
+	}
+}
+
+func TestCreateOfAGitURLClonesAgainInsteadOfReusingALeftoverClone(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	leftover := filepath.Join(lc.places.CacheRoot, "app")
+	if err := os.MkdirAll(leftover, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(leftover, "sbxr.yaml"), []byte(repoWithEgress), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	lc.prompter.confirms = []bool{true}
+
+	lc.mustRun(t, "create", "https://example.com/bob/app.git")
+
+	if len(lc.clones) != 1 {
+		t.Errorf("clones = %v, want a fresh clone", lc.clones)
+	}
+	if len(lc.stub.SandboxRules["app"]) != 0 {
+		t.Errorf("sandbox rules = %v, want none from the leftover clone's declaration", lc.stub.SandboxRules["app"])
+	}
+}
+
+func TestPlanOfAGitURLLeavesNoCacheClone(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.clonedRepoDecl = repoWithEgress
+
+	out := lc.mustRun(t, "plan", "https://example.com/me/app.git")
+
+	if !strings.Contains(out, "api.example.com:443") {
+		t.Errorf("output = %q, want the cloned declaration", out)
+	}
+	if exists(filepath.Join(lc.places.CacheRoot, "app")) {
+		t.Errorf("plan left a cache clone")
+	}
+}
+
+func TestCreateRefusesARepoWhoseNameIsTakenByAnotherRepo(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.mustRun(t, "create", localRepo(t, "app", ""), "--yes")
+	other := localRepo(t, "app", "")
+
+	_, err := lc.run(t, "create", other, "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "別の repo") {
+		t.Errorf("error = %v, want it to refuse a name taken by another repo", err)
+	}
+}
+
+func TestDestroyRefusesARepoWhoseNameIsTakenByAnotherRepo(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.mustRun(t, "create", localRepo(t, "app", ""), "--yes")
+	other := localRepo(t, "app", "")
+
+	_, err := lc.run(t, "destroy", other, "--yes", "--force")
+
+	if err == nil || !strings.Contains(err.Error(), "別の repo") {
+		t.Errorf("error = %v, want it to refuse a name taken by another repo", err)
+	}
+	if _, ok := lc.stub.Sandboxes["app"]; !ok {
+		t.Errorf("the other repo's sandbox was removed")
+	}
+}
+
+func TestCreateAfterACreationThatStoppedHalfwayAsksToDestroyFirst(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", repoWithEgress)
+	lc.stub.FailOn = "policy allow network --sandbox"
+	if _, err := lc.run(t, "create", repo, "--yes"); err == nil {
+		t.Fatalf("create error = nil, want the injected rule failure")
+	}
+	lc.stub.FailOn = ""
+
+	_, err := lc.run(t, "create", repo, "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "途中で止まっている") {
+		t.Errorf("error = %v, want the half-created sandbox reported instead of success", err)
+	}
+}
+
+func TestDestroyWorksAfterTheLocalRepoWasDeleted(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.mustRun(t, "stop", repo)
+	if err := os.RemoveAll(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	lc.mustRun(t, "destroy", repo, "--yes")
+
+	if _, ok := lc.stub.Sandboxes["app"]; ok {
+		t.Errorf("sandbox is still there")
 	}
 }
 
@@ -331,8 +466,11 @@ func TestDestroyWarnsThatVMChangesAreLostAndAsks(t *testing.T) {
 	if !strings.Contains(out, "VM 内の commit と変更は失われる") {
 		t.Errorf("output = %q, want the data-loss warning", out)
 	}
-	if err == nil || lc.stub.Sandboxes["app"] != "stopped" {
-		t.Errorf("error = %v, sandboxes = %v, want nothing removed after declining", err, lc.stub.Sandboxes)
+	if err == nil {
+		t.Errorf("destroy error = nil, want declining to exit non-zero")
+	}
+	if lc.stub.Sandboxes["app"] != "stopped" {
+		t.Errorf("sandboxes = %v, want nothing removed after declining", lc.stub.Sandboxes)
 	}
 }
 
@@ -394,8 +532,11 @@ func TestDestroyRefusesASandboxSbxrDidNotCreate(t *testing.T) {
 
 	_, err := lc.run(t, "destroy", repo, "--yes")
 
-	if err == nil || !strings.Contains(err.Error(), "管理外") || lc.stub.Sandboxes["app"] != "stopped" {
-		t.Errorf("error = %v, want an unmanaged sandbox left alone", err)
+	if err == nil || !strings.Contains(err.Error(), "管理外") {
+		t.Errorf("error = %v, want it to refuse an unmanaged sandbox", err)
+	}
+	if lc.stub.Sandboxes["app"] != "stopped" {
+		t.Errorf("sandboxes = %v, want the unmanaged sandbox left alone", lc.stub.Sandboxes)
 	}
 }
 
@@ -447,7 +588,28 @@ func TestARepoNameThatWouldEscapeTheStateDirIsRejected(t *testing.T) {
 
 	_, err := lc.run(t, "create", "https://example.com/me/..", "--yes")
 
-	if err == nil {
-		t.Errorf("create error = nil, want an invalid name rejected")
+	if err == nil || !strings.Contains(err.Error(), "名前を決められない") {
+		t.Errorf("error = %v, want the invalid name rejected", err)
+	}
+	if exists(lc.places.StateRoot) || exists(lc.places.CacheRoot) {
+		t.Errorf("something was written under the state or cache root")
+	}
+}
+
+func TestDefaultPlacesFollowTheXDGDirectories(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", "/xdg/state")
+	t.Setenv("XDG_CACHE_HOME", "relative/is/ignored")
+
+	places, err := defaultPlaces()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if places.StateRoot != "/xdg/state/sbxr/sandboxes" {
+		t.Errorf("StateRoot = %q, want it under XDG_STATE_HOME", places.StateRoot)
+	}
+	home, _ := os.UserHomeDir()
+	if places.CacheRoot != filepath.Join(home, ".cache", "sbxr", "repos") {
+		t.Errorf("CacheRoot = %q, want the ~/.cache fallback for a relative XDG_CACHE_HOME", places.CacheRoot)
 	}
 }

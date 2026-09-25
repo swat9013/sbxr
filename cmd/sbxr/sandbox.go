@@ -24,7 +24,19 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			prepared, err := sandbox.Prepare(cmd.Context(), deps.clone, places, target, sandbox.KeepRepoEgress)
+			if target.FromGitURL() {
+				// plan は host に何も残さないので、一時ディレクトリへ clone して終わりに消す
+				tmp, err := os.MkdirTemp("", "sbxr-plan-")
+				if err != nil {
+					return err
+				}
+				defer func() { _ = os.RemoveAll(tmp) }()
+				target.Repo = filepath.Join(tmp, target.Name)
+				if err := sandbox.FreshClone(cmd.Context(), deps.clone, target); err != nil {
+					return err
+				}
+			}
+			prepared, err := sandbox.Prepare(places, target, sandbox.KeepRepoEgress)
 			if err != nil {
 				return err
 			}
@@ -48,50 +60,30 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			status, err := deps.runtime.SandboxStatus(ctx, target.Name)
+			inspection, err := sandbox.Inspect(ctx, deps.runtime, places, target)
 			if err != nil {
 				return err
 			}
-			managed, err := sandbox.Managed(places, target.Name)
-			if err != nil {
-				return err
-			}
-			switch {
-			case status != runtime.SandboxAbsent && !managed:
-				return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", target.Name)
-			case status != runtime.SandboxAbsent:
+			switch inspection.Situation {
+			case sandbox.Ready:
 				printf(cmd, "sandbox VM %s は既にある (作り直すなら sbxr destroy %s → sbxr create %s)\n", target.Name, args[0], args[0])
 				return nil
-			case managed:
-				return fmt.Errorf("sandbox VM %s の前回の作成の残り (%s) がある。sbxr destroy %s で片付けてから作る", target.Name, places.StateDir(target.Name), args[0])
+			case sandbox.Incomplete:
+				return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから作る", target.Name, args[0])
+			case sandbox.Unmanaged, sandbox.OtherSource:
+				return inspection.RequireManaged(target.Name)
 			}
-			repoEgress := sandbox.KeepRepoEgress
-			if target.FromGitURL() && yes {
-				repoEgress = sandbox.DropRepoEgress
+			if target.FromGitURL() {
+				if err := sandbox.FreshClone(ctx, deps.clone, target); err != nil {
+					return err
+				}
 			}
-			prepared, err := sandbox.Prepare(ctx, deps.clone, places, target, repoEgress)
+			created, err := createApproved(cmd, deps, places, target, yes)
+			if !created && target.FromGitURL() {
+				_ = sandbox.DiscardClone(places, target) // 状態ディレクトリを書く前に止まったので、destroy では見つけられない clone を残さない
+			}
 			if err != nil {
 				return err
-			}
-			if err := printSummary(cmd, prepared); err != nil {
-				return err
-			}
-			if len(prepared.DroppedRepoEgress) > 0 {
-				printf(cmd, "git URL を --yes で通したので、repo 宣言の egress (%d 件) を落とした\n", len(prepared.DroppedRepoEgress))
-			}
-			if err := confirm(deps, yes, fmt.Sprintf("sandbox VM %s を作る? [y/N]: ", target.Name)); err != nil {
-				return err
-			}
-			secretFile, err := deps.secretFilePath()
-			if err != nil {
-				return err
-			}
-			values, err := secret.ReadFile(secretFile)
-			if err != nil {
-				return err
-			}
-			if err := sandbox.Create(ctx, deps.runtime, places, prepared, values); err != nil {
-				return fmt.Errorf("%w\n復旧: sbxr destroy %s で片付けてから sbxr create %s をやり直す", err, args[0], args[0])
 			}
 			printf(cmd, "sandbox VM %s を作った\n", target.Name)
 			return nil
@@ -99,6 +91,44 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "人間の確認 (確認関門) を省く")
 	return cmd
+}
+
+// createApproved は確認関門を通してから作る。created は状態ディレクトリを書くところまで進んだか (失敗しても destroy で片付けられるか)。
+func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places, target sandbox.Target, yes bool) (created bool, err error) {
+	repoEgress := sandbox.KeepRepoEgress
+	if target.FromGitURL() && yes {
+		repoEgress = sandbox.DropRepoEgress
+	}
+	prepared, err := sandbox.Prepare(places, target, repoEgress)
+	if err != nil {
+		return false, err
+	}
+	if err := printSummary(cmd, prepared); err != nil {
+		return false, err
+	}
+	if len(prepared.DroppedRepoEgress) > 0 {
+		printf(cmd, "git URL を --yes で通したので、repo 宣言の egress (%d 件) を落とした\n", len(prepared.DroppedRepoEgress))
+	}
+	if err := confirm(deps, yes, fmt.Sprintf("sandbox VM %s を作る? [y/N]: ", target.Name)); err != nil {
+		return false, err
+	}
+	values, err := readSecretFile(deps)
+	if err != nil {
+		return false, err
+	}
+	if err := sandbox.Create(cmd.Context(), deps.runtime, places, prepared, values); err != nil {
+		input := target.Source()
+		return true, fmt.Errorf("%w\n復旧: sbxr destroy %s で片付けてから sbxr create %s をやり直す", err, input, input)
+	}
+	return true, nil
+}
+
+func readSecretFile(deps dependencies) (secret.Values, error) {
+	path, err := deps.secretFilePath()
+	if err != nil {
+		return nil, err
+	}
+	return secret.ReadFile(path)
 }
 
 func newDestroyCmd(deps dependencies) *cobra.Command {
@@ -116,21 +146,29 @@ func newDestroyCmd(deps dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := requireManaged(deps, cmd, places, target); err != nil {
-				return err
+			running := sandbox.RefuseRunning
+			if force {
+				running = sandbox.RemoveRunning
 			}
-			status, err := deps.runtime.SandboxStatus(ctx, target.Name)
+			// 確認の前に、撤去できない理由があれば伝える (Destroy は撤去の直前にもう一度確かめる)
+			inspection, err := sandbox.Inspect(ctx, deps.runtime, places, target)
 			if err != nil {
 				return err
 			}
-			if status != runtime.SandboxAbsent && status != runtime.SandboxStopped && !force {
-				return fmt.Errorf("sandbox VM %s は %s (使用中かを確かめられない)。sbxr stop %s で止めてから撤去するか、--force で撤去する", target.Name, status, args[0])
+			if err := inspection.RequireManaged(target.Name); err != nil {
+				return err
+			}
+			if !inspection.Stopped() && running == sandbox.RefuseRunning {
+				return runningError(target.Name, inspection.Status, args[0])
 			}
 			printf(cmd, "sandbox VM %s を撤去する。VM 内の commit と変更は失われる\n", target.Name)
 			if err := confirm(deps, yes, "撤去する? [y/N]: "); err != nil {
 				return err
 			}
-			warnings, err := sandbox.Destroy(ctx, deps.runtime, places, target)
+			warnings, err := sandbox.Destroy(ctx, deps.runtime, places, target, running)
+			if errors.Is(err, sandbox.ErrRunning) {
+				return runningError(target.Name, "running", args[0])
+			}
 			if err != nil {
 				return err
 			}
@@ -149,6 +187,10 @@ func newDestroyCmd(deps dependencies) *cobra.Command {
 	return cmd
 }
 
+func runningError(name string, status runtime.SandboxStatus, input string) error {
+	return fmt.Errorf("sandbox VM %s は %s (使用中かを確かめられない)。sbxr stop %s で止めてから撤去するか、--force で撤去する", name, status, input)
+}
+
 func newStopCmd(deps dependencies) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop <repo>",
@@ -160,7 +202,11 @@ func newStopCmd(deps dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := requireManaged(deps, cmd, places, target); err != nil {
+			inspection, err := sandbox.Inspect(cmd.Context(), deps.runtime, places, target)
+			if err != nil {
+				return err
+			}
+			if err := inspection.RequireManaged(target.Name); err != nil {
 				return err
 			}
 			if err := deps.runtime.StopSandbox(cmd.Context(), target.Name); err != nil {
@@ -179,22 +225,6 @@ func resolve(deps dependencies, input string) (sandbox.Places, sandbox.Target, e
 	}
 	target, err := sandbox.ResolveTarget(input, places.CacheRoot)
 	return places, target, err
-}
-
-// requireManaged は sbxr が作った (状態ディレクトリがある) sandbox VM でなければ止める。
-func requireManaged(deps dependencies, cmd *cobra.Command, places sandbox.Places, target sandbox.Target) error {
-	managed, err := sandbox.Managed(places, target.Name)
-	if err != nil || managed {
-		return err
-	}
-	status, err := deps.runtime.SandboxStatus(cmd.Context(), target.Name)
-	if err != nil {
-		return err
-	}
-	if status != runtime.SandboxAbsent {
-		return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", target.Name)
-	}
-	return fmt.Errorf("sandbox VM %s は無い", target.Name)
 }
 
 // confirm は --yes が無ければ人間に確かめる。端末が無ければ prompter が error を返す。
