@@ -114,9 +114,9 @@ func TestRepoEgressBecomesSandboxScopeOnly(t *testing.T) {
 func TestDefaultAndUserEgressBecomeGlobalRules(t *testing.T) {
 	cfg := mustMerge(t, testDefault, "version: 1\negress:\n  pypi:\n    rationale: PyPI\n    allow: [pypi.org:443]\n", "")
 
-	want := map[string]EgressGroup{
-		"github": {Rationale: "GitHub", Allow: []string{"github.com:443"}},
-		"pypi":   {Rationale: "PyPI", Allow: []string{"pypi.org:443"}},
+	want := map[string]map[string]any{
+		"github": {"rationale": "GitHub", "allow": []any{"github.com:443"}},
+		"pypi":   {"rationale": "PyPI", "allow": []any{"pypi.org:443"}},
 	}
 	if !reflect.DeepEqual(cfg.GlobalEgress, want) {
 		t.Errorf("GlobalEgress = %v, want %v", cfg.GlobalEgress, want)
@@ -227,10 +227,10 @@ func TestMergeRules(t *testing.T) {
 			want:     [][]string{{"user-init", "repo-init"}, {"user-boot", "repo-boot"}},
 		},
 		{
-			name:     "同じ名前の egress group は user が差し替える",
-			userYAML: "version: 1\negress:\n  github:\n    rationale: GitHub Enterprise\n    allow: [ghe.example.com:443]\n",
+			name:     "同じ名前の egress group は user が書いた field だけを上書きする",
+			userYAML: "version: 1\negress:\n  github:\n    enabled: false\n",
 			got:      func(c Config) any { return c.GlobalEgress["github"] },
-			want:     EgressGroup{Rationale: "GitHub Enterprise", Allow: []string{"ghe.example.com:443"}},
+			want:     map[string]any{"rationale": "GitHub", "allow": []any{"github.com:443"}, "enabled": false},
 		},
 	}
 	for _, tt := range tests {
@@ -255,7 +255,6 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 	}{
 		{name: "未知の top-level key", repoYAML: "version: 1\ndeny: [x.example.com]\n", needle: "deny"},
 		{name: "未知の profile key", userYAML: "version: 1\nprofile:\n  modell: sonnet\n", needle: "modell"},
-		{name: "未知の egress group の key", repoYAML: "version: 1\negress:\n  npm:\n    hosts: [a.example.com]\n", needle: "hosts"},
 		{name: "version が無い", repoYAML: "profile:\n  model: sonnet\n", needle: "version"},
 		{name: "未対応の version", userYAML: "version: 2\n", needle: "version"},
 		{name: "空のファイル", repoYAML: "\n", needle: "version"},
@@ -275,10 +274,6 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 		{name: "profile の scalar が mapping", repoYAML: "version: 1\nprofile:\n  effortLevel: {x: 1}\n", needle: "cannot unmarshal"},
 		{name: "enabledPlugins の値が文字列", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk: 'true'\n", needle: "cannot unmarshal"},
 		{name: "bool key に数値", userYAML: "version: 1\nprofile:\n  spinnerTipsEnabled: 1\n", needle: "cannot unmarshal"},
-		{name: "egress の allow に全開 wildcard", repoYAML: "version: 1\negress:\n  x:\n    rationale: x\n    allow: ['**']\n", needle: "**"},
-		{name: "egress の allow に host でない URL", repoYAML: "version: 1\negress:\n  x:\n    rationale: x\n    allow: ['https://x.example.com/path']\n", needle: "host[:port]"},
-		{name: "egress の rationale が無い", userYAML: "version: 1\negress:\n  x:\n    allow: [x.example.com:443]\n", needle: "egress.x.rationale"},
-		{name: "egress の allow が空", userYAML: "version: 1\negress:\n  x:\n    rationale: x\n", needle: "egress.x.allow"},
 		{name: "信頼済みの user でも top-level の値の書き忘れは止める", userYAML: "version: 1\negress:\n", needle: "egress に値が無い"},
 		{name: "2 つ目の YAML document", repoYAML: "version: 1\n---\ninit: [make setup]\n", needle: "document"},
 		{name: "enabledPlugins の値の書き忘れ", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk:\n", needle: "p@mk"},

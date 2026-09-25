@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"regexp"
 	"slices"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -40,12 +38,13 @@ func (s Scope) String() string {
 // Declaration は 1 つのスコープの宣言。3 スコープで同じ型を使い、スコープ差は制限表 (restrictions.go) で表す。
 // scalar の pointer と map の nil は「そのスコープが書いていない」を表す。
 type Declaration struct {
-	Version int                    `yaml:"version"`
-	Profile Profile                `yaml:"profile"`
-	Git     GitDeclaration         `yaml:"git"`
-	Egress  map[string]EgressGroup `yaml:"egress"`
-	Init    []string               `yaml:"init"`
-	Boot    []string               `yaml:"boot"`
+	Version int            `yaml:"version"`
+	Profile Profile        `yaml:"profile"`
+	Git     GitDeclaration `yaml:"git"`
+	// Egress の要素 (宛先グループ) の形式は egress (#3) で決めるまで検査しない。
+	Egress map[string]map[string]any `yaml:"egress"`
+	Init   []string                  `yaml:"init"`
+	Boot   []string                  `yaml:"boot"`
 	// SecretDefs の中身 (注入方式・注入先 host 等) の schema は secret 配線 (#4) で決めるまで検査しない。
 	SecretDefs map[string]map[string]any `yaml:"secret_defs"`
 	Secrets    []string                  `yaml:"secrets"`
@@ -72,12 +71,6 @@ type Profile struct {
 type GitDeclaration struct {
 	Name  *string `yaml:"name"`
 	Email *string `yaml:"email"`
-}
-
-// EgressGroup は同じ理由で許可する宛先のまとまり。
-type EgressGroup struct {
-	Rationale string   `yaml:"rationale"`
-	Allow     []string `yaml:"allow"`
 }
 
 // Parse は 1 つのスコープの宣言を読み、値とスコープ制限を検証する。
@@ -178,9 +171,6 @@ func checkWrittenValues(keys []writtenKey) error {
 	return errors.Join(errs...)
 }
 
-// allowEntryPattern は egress の allow の書式 host[:port]。先頭の "*." は subdomain wildcard として通す。
-var allowEntryPattern = regexp.MustCompile(`^(\*\.)?([A-Za-z0-9-]+\.)+[A-Za-z0-9-]+(:\d{1,5})?$`)
-
 func (d Declaration) validate() error {
 	var errs []error
 	if d.Version != SchemaVersion {
@@ -197,28 +187,6 @@ func (d Declaration) validate() error {
 	}{{"init", d.Init}, {"boot", d.Boot}, {"secrets", d.Secrets}} {
 		if slices.Contains(list.entries, "") {
 			errs = append(errs, fmt.Errorf("%s に空の entry がある", list.key))
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(d.Egress)) {
-		errs = append(errs, d.Egress[name].validate("egress."+name))
-	}
-	return errors.Join(errs...)
-}
-
-func (g EgressGroup) validate(key string) error {
-	var errs []error
-	if g.Rationale == "" {
-		errs = append(errs, fmt.Errorf("%s.rationale が空 (許可する理由を書く)", key))
-	}
-	if len(g.Allow) == 0 {
-		errs = append(errs, fmt.Errorf("%s.allow が空", key))
-	}
-	for _, entry := range g.Allow {
-		switch {
-		case entry == "*" || strings.HasPrefix(entry, "**"):
-			errs = append(errs, fmt.Errorf("%s.allow の %q は全 host の許可になるので書けない", key, entry))
-		case !allowEntryPattern.MatchString(entry):
-			errs = append(errs, fmt.Errorf("%s.allow の %q は host[:port] の書式でない (URL や path は書けない)", key, entry))
 		}
 	}
 	return errors.Join(errs...)
