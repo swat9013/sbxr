@@ -172,6 +172,11 @@ func TestMergeRules(t *testing.T) {
 			want: Identity{Name: "base-user", Email: "base@example.com"},
 		},
 		{
+			name: "宣言ファイルが無ければ空の init は空のまま",
+			got:  func(c Config) any { return c.Init },
+			want: []string(nil),
+		},
+		{
 			name:     "model と effortLevel は repo が override できる",
 			repoYAML: "version: 1\nprofile:\n  model: sonnet\n  effortLevel: high\n",
 			got:      func(c Config) any { return []string{*c.Profile.Model, *c.Profile.EffortLevel, *c.Profile.Language} },
@@ -274,6 +279,7 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 		{name: "egress の allow に host でない URL", repoYAML: "version: 1\negress:\n  x:\n    rationale: x\n    allow: ['https://x.example.com/path']\n", needle: "host[:port]"},
 		{name: "egress の rationale が無い", userYAML: "version: 1\negress:\n  x:\n    allow: [x.example.com:443]\n", needle: "egress.x.rationale"},
 		{name: "egress の allow が空", userYAML: "version: 1\negress:\n  x:\n    rationale: x\n", needle: "egress.x.allow"},
+		{name: "信頼済みの user でも top-level の値の書き忘れは止める", userYAML: "version: 1\negress:\n", needle: "egress に値が無い"},
 		{name: "2 つ目の YAML document", repoYAML: "version: 1\n---\ninit: [make setup]\n", needle: "document"},
 		{name: "enabledPlugins の値の書き忘れ", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk:\n", needle: "p@mk"},
 		{name: "secret_defs の定義が mapping でない", userYAML: "version: 1\nsecret_defs:\n  gitlab: GITLAB_TOKEN\n", needle: "cannot unmarshal"},

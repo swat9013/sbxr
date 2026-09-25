@@ -30,8 +30,8 @@ func checkScopeRestrictions(scope Scope, keys []writtenKey) error {
 	}
 	var errs []error
 	for _, key := range keys {
-		if !repoWritableKeys[key.name] {
-			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない", key.name))
+		if !repoWritableKeys[key.name()] {
+			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない", key.name()))
 		}
 	}
 	return errors.Join(errs...)

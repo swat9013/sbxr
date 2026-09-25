@@ -83,7 +83,11 @@ type EgressGroup struct {
 // Parse は 1 つのスコープの宣言を読み、値とスコープ制限を検証する。
 // source は error に載せる出所 (ファイル path など)。未知の key は error にする。
 func Parse(scope Scope, source string, data []byte) (Declaration, error) {
-	decl, keys, err := decode(data)
+	decl, err := decode(data)
+	var keys []writtenKey
+	if err == nil {
+		keys, err = listWrittenKeys(data)
+	}
 	if err == nil {
 		err = errors.Join(checkWrittenValues(keys), decl.validate(), checkScopeRestrictions(scope, keys))
 	}
@@ -95,35 +99,50 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 
 // writtenKey は宣言ファイルに書かれた key。値が null でも書かれたものとして数える。
 type writtenKey struct {
-	name  string // yaml の key 名。profile と git の中は "profile.model" のように親の key を前に付ける
-	value *yaml.Node
+	parent string // profile / git の中の key なら親の key。top-level の key は空
+	key    string
+	value  *yaml.Node
 }
 
-// decode は宣言を型へ読み込み、書かれた key を top-level と profile / git の 1 段下まで列挙する。
-func decode(data []byte) (Declaration, []writtenKey, error) {
+// name は error と制限表に使う key 名 ("profile.model" のように親の key を前に付ける)。
+func (k writtenKey) name() string {
+	if k.parent == "" {
+		return k.key
+	}
+	return k.parent + "." + k.key
+}
+
+// decode は宣言を型へ読み込む。未知の key と 2 つ目以降の document は error にする。
+func decode(data []byte) (Declaration, error) {
 	var decl Declaration
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
 	// 空のファイルは io.EOF になる。空宣言として続け、version の欠落で止める
 	if err := decoder.Decode(&decl); err != nil && !errors.Is(err, io.EOF) {
-		return Declaration{}, nil, err
+		return Declaration{}, err
 	}
 	// 2 つ目以降の document は黙って捨てずに止める
 	if err := decoder.Decode(new(yaml.Node)); !errors.Is(err, io.EOF) {
-		return Declaration{}, nil, errors.New("宣言は 1 つの YAML document に書く")
+		return Declaration{}, errors.New("宣言は 1 つの YAML document に書く")
 	}
+	return decl, nil
+}
+
+// listWrittenKeys は書かれた key を top-level と profile / git の 1 段下まで列挙する。
+// 型へ読み込んだ後では、null を書いた key と書いていない key を区別できないため YAML node から数える。
+func listWrittenKeys(data []byte) ([]writtenKey, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
-		return Declaration{}, nil, err
+		return nil, err
 	}
 	var keys []writtenKey
 	for _, top := range mappingEntries(documentBody(&root), "") {
 		keys = append(keys, top)
-		if top.name == "profile" || top.name == "git" {
-			keys = append(keys, mappingEntries(top.value, top.name+".")...)
+		if top.key == "profile" || top.key == "git" {
+			keys = append(keys, mappingEntries(top.value, top.key)...)
 		}
 	}
-	return decl, keys, nil
+	return keys, nil
 }
 
 func documentBody(root *yaml.Node) *yaml.Node {
@@ -133,13 +152,13 @@ func documentBody(root *yaml.Node) *yaml.Node {
 	return root
 }
 
-func mappingEntries(node *yaml.Node, prefix string) []writtenKey {
+func mappingEntries(node *yaml.Node, parent string) []writtenKey {
 	if node.Kind != yaml.MappingNode {
 		return nil
 	}
 	var entries []writtenKey
 	for i := 0; i+1 < len(node.Content); i += 2 {
-		entries = append(entries, writtenKey{name: prefix + node.Content[i].Value, value: node.Content[i+1]})
+		entries = append(entries, writtenKey{parent: parent, key: node.Content[i].Value, value: node.Content[i+1]})
 	}
 	return entries
 }
@@ -151,9 +170,9 @@ func checkWrittenValues(keys []writtenKey) error {
 	for _, key := range keys {
 		switch {
 		case key.value.Tag == "!!null":
-			errs = append(errs, fmt.Errorf("%s に値が無い", key.name))
-		case strings.Contains(key.name, ".") && key.value.Tag == "!!str" && key.value.Value == "":
-			errs = append(errs, fmt.Errorf("%s が空", key.name))
+			errs = append(errs, fmt.Errorf("%s に値が無い", key.name()))
+		case key.parent != "" && key.value.Tag == "!!str" && key.value.Value == "":
+			errs = append(errs, fmt.Errorf("%s が空", key.name()))
 		}
 	}
 	return errors.Join(errs...)
