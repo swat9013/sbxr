@@ -40,8 +40,11 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := printSummary(cmd, prepared); err != nil {
+				return err
+			}
 			printWarnings(cmd, prepared.Warnings)
-			return printSummary(cmd, prepared)
+			return nil
 		},
 	}
 }

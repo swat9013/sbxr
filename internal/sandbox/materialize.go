@@ -40,11 +40,16 @@ func (v vm) path(rel string) string {
 	return v.home + "/" + rel
 }
 
-// exists は VM 内に rel があるかを返す。test -e の非 0 を「無い」と読むので、exec の失敗と区別できない。
-// 読み取り (cat) の失敗は別に error として扱い、「無い」への黙った読み替えにはしない。
-func (v vm) exists(ctx context.Context, rel string) bool {
-	_, err := v.run(ctx, runtime.SandboxCommand{Args: []string{"test", "-e", v.path(rel)}})
-	return err == nil
+// existsScript は $1 があれば yes、無ければ no を出す。exec の失敗 (0 以外) と「無い」を区別するため、有無は出力で返す。
+const existsScript = `if [ -e "$1" ]; then echo yes; else echo no; fi`
+
+// exists は VM 内に rel があるかを返す。確かめられなければ error。
+func (v vm) exists(ctx context.Context, rel string) (bool, error) {
+	out, err := v.run(ctx, runtime.SandboxCommand{Args: []string{"sh", "-c", existsScript, "sh", v.path(rel)}})
+	if err != nil {
+		return false, fmt.Errorf("VM の %s の有無を確かめられない: %w", rel, err)
+	}
+	return strings.TrimSpace(string(out)) == "yes", nil
 }
 
 func (v vm) readFile(ctx context.Context, rel string) ([]byte, error) {
@@ -187,8 +192,9 @@ func materialize(ctx context.Context, v vm, settings map[string]any, decl Declar
 // readSettings は VM の settings.json を読む。無ければ空。あるのに読めなければ error (初期値を消した上書きをしない)。
 func readSettings(ctx context.Context, v vm) (map[string]any, error) {
 	settings := map[string]any{}
-	if !v.exists(ctx, settingsRelPath) {
-		return settings, nil
+	found, err := v.exists(ctx, settingsRelPath)
+	if err != nil || !found {
+		return settings, err
 	}
 	data, err := v.readFile(ctx, settingsRelPath)
 	if err != nil {

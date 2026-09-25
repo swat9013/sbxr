@@ -63,11 +63,12 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 	switch {
 	case slices.Equal(args, []string{"printenv", "HOME"}):
 		return []byte(Home + "\n"), nil
-	case len(args) == 3 && args[0] == "test" && args[1] == "-e":
-		if _, ok := vm.Files[args[2]]; !ok {
-			return nil, fmt.Errorf("exit status 1")
+	case len(args) == 5 && args[0] == "sh" && args[1] == "-c" && args[3] == "sh" && command.Input == nil:
+		// sh -c '<$1 があれば yes、無ければ no を出す script>' sh <path>
+		if _, ok := vm.Files[args[4]]; ok {
+			return []byte("yes\n"), nil
 		}
-		return nil, nil
+		return []byte("no\n"), nil
 	case len(args) == 2 && args[0] == "cat" && vm.FailRead:
 		return nil, fmt.Errorf("cat: %s: Permission denied", args[1])
 	case len(args) == 2 && args[0] == "cat":
