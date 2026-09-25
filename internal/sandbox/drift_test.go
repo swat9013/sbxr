@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"maps"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/config"
@@ -43,5 +45,20 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 				t.Errorf("Drift = %v, %v, want %v", got, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestTheDeclarationHoldsOnlyTheKeysBakedIntoTheVM(t *testing.T) {
+	tree, err := declarationTree(Declaration{Herdr: &HerdrPin{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	keys := slices.Sorted(maps.Keys(tree))
+
+	// Drift は宣言の key を全部比べる。焼き込まれない key を足すなら、比べる key を絞り直す
+	want := []string{"boot", "git", "herdr", "init", "profile", "sandbox_egress", "secrets"}
+	if !slices.Equal(keys, want) {
+		t.Errorf("declaration keys = %v, want %v", keys, want)
 	}
 }

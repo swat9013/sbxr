@@ -195,7 +195,19 @@ func TestPlanOfASandboxFromAGitURLWithYesStillSummarizesTheRepoEgress(t *testing
 
 	out := lc.mustRun(t, "plan", "https://example.com/me/app.git")
 
-	if !strings.Contains(out, "api.example.com:443") || !strings.Contains(out, "差分は無い") {
-		t.Errorf("output = %q, want the repo egress in the summary and no drift", out)
+	if !strings.Contains(out, "api.example.com:443") {
+		t.Errorf("output = %q, want the repo egress in the summary", out)
+	}
+}
+
+func TestPlanOfASandboxFromAGitURLWithYesDropsTheRepoEgressAgainWhenComparing(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.clonedRepoDecl = repoWithEgress
+	lc.mustRun(t, "create", "https://example.com/me/app.git", "--yes")
+
+	out := lc.mustRun(t, "plan", "https://example.com/me/app.git")
+
+	if !strings.Contains(out, "差分は無い") {
+		t.Errorf("output = %q, want no drift", out)
 	}
 }
