@@ -259,13 +259,16 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 		{name: "enabledPlugins の false で base の plugin を消す", repoYAML: "version: 1\nprofile:\n  enabledPlugins:\n    base-plugin@mk: false\n", needle: "base-plugin@mk"},
 		{name: "user も enabledPlugins に false は書けない", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk: false\n", needle: "p@mk"},
 		{name: "profile の scalar が空", userYAML: "version: 1\nprofile:\n  effortLevel: ''\n", needle: "profile.effortLevel"},
-		{name: "profile の scalar が list", repoYAML: "version: 1\nprofile:\n  model: [opus]\n", needle: "repo"},
-		{name: "bool key に文字列", userYAML: "version: 1\nprofile:\n  awaySummaryEnabled: 'false'\n", needle: "user"},
-		{name: "enabledPlugins が list", repoYAML: "version: 1\nprofile:\n  enabledPlugins: [repo-plugin@mk]\n", needle: "repo"},
-		{name: "boot が文字列の list でない", repoYAML: "version: 1\nboot: pgrep cron\n", needle: "repo"},
+		{name: "profile の scalar が list", repoYAML: "version: 1\nprofile:\n  model: [opus]\n", needle: "cannot unmarshal"},
+		{name: "bool key に文字列", userYAML: "version: 1\nprofile:\n  awaySummaryEnabled: 'false'\n", needle: "cannot unmarshal"},
+		{name: "enabledPlugins が list", repoYAML: "version: 1\nprofile:\n  enabledPlugins: [repo-plugin@mk]\n", needle: "cannot unmarshal"},
+		{name: "boot が文字列の list でない", repoYAML: "version: 1\nboot: pgrep cron\n", needle: "cannot unmarshal"},
 		{name: "git の値が空", repoYAML: "version: 1\ngit:\n  name: ''\n", needle: "git.name"},
 		{name: "secrets の名前が空", userYAML: "version: 1\nsecrets: ['']\n", needle: "secrets"},
-		{name: "secret_defs の定義が mapping でない", userYAML: "version: 1\nsecret_defs:\n  gitlab: GITLAB_TOKEN\n", needle: "user"},
+		{name: "init のコマンドが空", repoYAML: "version: 1\ninit: ['']\n", needle: "init"},
+		{name: "2 つ目の YAML document", repoYAML: "version: 1\n---\ninit: [make setup]\n", needle: "document"},
+		{name: "enabledPlugins の値の書き忘れ", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk:\n", needle: "p@mk"},
+		{name: "secret_defs の定義が mapping でない", userYAML: "version: 1\nsecret_defs:\n  gitlab: GITLAB_TOKEN\n", needle: "cannot unmarshal"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -273,6 +276,26 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 
 			assertErrorMentions(t, err, tt.needle)
 		})
+	}
+}
+
+func TestOverlayCarriesEveryProfileFieldFromTheUpperScope(t *testing.T) {
+	var upper Profile
+	v := reflect.ValueOf(&upper).Elem()
+	for i := range v.NumField() {
+		field := v.Field(i)
+		switch field.Kind() {
+		case reflect.Pointer:
+			field.Set(reflect.New(field.Type().Elem()))
+		case reflect.Map:
+			field.Set(reflect.MakeMap(field.Type()))
+		}
+	}
+
+	got := Profile{}.overlay(upper)
+
+	if !reflect.DeepEqual(got, upper) {
+		t.Errorf("overlay() = %+v, want every field of %+v", got, upper)
 	}
 }
 
@@ -321,6 +344,24 @@ func TestLoadNamesTheFileThatFailedToParse(t *testing.T) {
 	_, err := Load(userPath, filepath.Join(dir, "sbxr.yaml"))
 
 	assertErrorMentions(t, err, userPath)
+}
+
+func TestLoadRejectsAUserPathWhoseSymlinkTargetIsGone(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.yaml")
+	if err := os.Symlink(filepath.Join(dir, "moved-away.yaml"), userPath); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(userPath, filepath.Join(dir, "sbxr.yaml"))
+
+	assertErrorMentions(t, err, userPath)
+}
+
+func TestLoadRejectsAnEmptyPath(t *testing.T) {
+	_, err := Load("", filepath.Join(t.TempDir(), "sbxr.yaml"))
+
+	assertErrorMentions(t, err, "path が空")
 }
 
 // --- 同梱の default スコープ ---

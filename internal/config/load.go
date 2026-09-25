@@ -28,10 +28,14 @@ func Load(userPath, repoPath string) (Config, error) {
 }
 
 func parseFileIfExists(scope Scope, path string) (Declaration, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	if path == "" {
+		return Declaration{}, fmt.Errorf("%s スコープの宣言ファイルの path が空", scope)
+	}
+	// 無いのが path そのものなら宣言が無いスコープ。リンク先が消えた symlink などは読めない error として止める
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return Declaration{}, nil
 	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return Declaration{}, fmt.Errorf("%s を読めない: %w", path, err)
 	}

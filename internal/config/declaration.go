@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -86,6 +88,10 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 	if err := decoder.Decode(&decl); err != nil && !errors.Is(err, io.EOF) {
 		return Declaration{}, fmt.Errorf("%s (%s スコープ): %w", source, scope, err)
 	}
+	// 2 つ目以降の document は黙って捨てずに止める
+	if err := decoder.Decode(new(yaml.Node)); !errors.Is(err, io.EOF) {
+		return Declaration{}, fmt.Errorf("%s (%s スコープ): 宣言は 1 つの YAML document に書く", source, scope)
+	}
 	if err := errors.Join(decl.validate(), checkScopeRestrictions(scope, decl)); err != nil {
 		return Declaration{}, fmt.Errorf("%s (%s スコープ): %w", source, scope, err)
 	}
@@ -97,27 +103,33 @@ func (d Declaration) validate() error {
 	if d.Version != SchemaVersion {
 		errs = append(errs, fmt.Errorf("version: %d を宣言する (読んだ値: %d)", SchemaVersion, d.Version))
 	}
-	for key, value := range map[string]*string{
-		"profile.model":          d.Profile.Model,
-		"profile.effortLevel":    d.Profile.EffortLevel,
-		"profile.language":       d.Profile.Language,
-		"profile.outputStyle":    d.Profile.OutputStyle,
-		"profile.feedbackDrafts": d.Profile.FeedbackDrafts,
-		"git.name":               d.Git.Name,
-		"git.email":              d.Git.Email,
+	for _, scalar := range []struct {
+		key   string
+		value *string
+	}{
+		{"profile.model", d.Profile.Model},
+		{"profile.effortLevel", d.Profile.EffortLevel},
+		{"profile.language", d.Profile.Language},
+		{"profile.outputStyle", d.Profile.OutputStyle},
+		{"profile.feedbackDrafts", d.Profile.FeedbackDrafts},
+		{"git.name", d.Git.Name},
+		{"git.email", d.Git.Email},
 	} {
-		if value != nil && *value == "" {
-			errs = append(errs, fmt.Errorf("%s が空", key))
+		if scalar.value != nil && *scalar.value == "" {
+			errs = append(errs, fmt.Errorf("%s が空", scalar.key))
 		}
 	}
-	for name, enabled := range d.Profile.EnabledPlugins {
-		if !enabled {
-			errs = append(errs, fmt.Errorf("profile.enabledPlugins.%s: false は書けない (additive のみ。下の層の plugin は消せない)", name))
+	for _, name := range slices.Sorted(maps.Keys(d.Profile.EnabledPlugins)) {
+		if !d.Profile.EnabledPlugins[name] {
+			errs = append(errs, fmt.Errorf("profile.enabledPlugins.%s: true だけを書ける (additive のみ。下の層の plugin は消せない)", name))
 		}
 	}
-	for _, name := range d.Secrets {
-		if name == "" {
-			errs = append(errs, errors.New("secrets に空の名前がある"))
+	for _, list := range []struct {
+		key     string
+		entries []string
+	}{{"init", d.Init}, {"boot", d.Boot}, {"secrets", d.Secrets}} {
+		if slices.Contains(list.entries, "") {
+			errs = append(errs, fmt.Errorf("%s に空の entry がある", list.key))
 		}
 	}
 	return errors.Join(errs...)
