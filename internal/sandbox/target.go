@@ -4,6 +4,7 @@ package sandbox
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -130,4 +131,33 @@ func FreshClone(ctx context.Context, clone Cloner, target Target) error {
 		return fmt.Errorf("%s を clone できない: %w", target.URL, err)
 	}
 	return nil
+}
+
+// originHost は host 側の repo の origin の host を返す。origin が無い・host を持たない (ローカル path や file://) ときは空。
+// git で読めなければ空と警告を返す (origin の host は ssh 形を https に書き換えるだけなので、plan と create は止めない)。
+func originHost(ctx context.Context, repo string) (host string, warning error) {
+	out, err := exec.CommandContext(ctx, "git", "-C", repo, "config", "--get", "remote.origin.url").Output()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 { // origin が無い
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("repo %s の origin を読めないので、VM の git で ssh 形を https に書き換えない: %w", repo, err)
+	}
+	return remoteHost(strings.TrimSpace(string(out))), nil
+}
+
+// remoteHost は network 越しの remote URL (https / http / ssh / git と scp 形 git@host:path) の host を返す。それ以外は空。
+func remoteHost(rawURL string) string {
+	if parsed, err := url.Parse(rawURL); err == nil && parsed.Host != "" {
+		switch parsed.Scheme {
+		case "https", "http", "ssh", "git":
+			return strings.ToLower(parsed.Hostname())
+		}
+		return ""
+	}
+	if strings.Contains(rawURL, "://") || !strings.Contains(rawURL, "@") || !strings.Contains(rawURL, ":") {
+		return ""
+	}
+	return gitURLHost(rawURL)
 }

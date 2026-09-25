@@ -41,6 +41,8 @@ type FakeVM struct {
 	FailShell string
 	// FailExecute はこの path のファイルの実行を失敗させる。
 	FailExecute string
+	// FailRead が true なら cat を失敗させる (ファイルはあるのに読めない状態の再現)。
+	FailRead bool
 	// DropWrites が true なら書き込みを受け付けたふりをして Files に反映しない (read-back の不一致の再現)。
 	DropWrites bool
 	// AptBusyPolls は pgrep -x apt-get が「動いている」と答える回数。
@@ -61,6 +63,13 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 	switch {
 	case slices.Equal(args, []string{"printenv", "HOME"}):
 		return []byte(Home + "\n"), nil
+	case len(args) == 3 && args[0] == "test" && args[1] == "-e":
+		if _, ok := vm.Files[args[2]]; !ok {
+			return nil, fmt.Errorf("exit status 1")
+		}
+		return nil, nil
+	case len(args) == 2 && args[0] == "cat" && vm.FailRead:
+		return nil, fmt.Errorf("cat: %s: Permission denied", args[1])
 	case len(args) == 2 && args[0] == "cat":
 		content, ok := vm.Files[args[1]]
 		if !ok {
@@ -114,7 +123,7 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 		vm.ShellRuns = append(vm.ShellRuns, ShellRun{Dir: command.Dir, Command: args[2]})
 		vm.Events = append(vm.Events, "shell "+args[2])
 		if args[2] == vm.FailShell {
-			return nil, fmt.Errorf("exit status 1")
+			return []byte("output of the failed command\n"), fmt.Errorf("exit status 1")
 		}
 		return nil, nil
 	case len(args) == 1 && strings.HasPrefix(args[0], "/"):
@@ -124,7 +133,7 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 		vm.Executed = append(vm.Executed, args[0])
 		vm.Events = append(vm.Events, "exec "+args[0])
 		if args[0] == vm.FailExecute {
-			return nil, fmt.Errorf("exit status 1")
+			return []byte("boot[1] fail exit=1\n"), fmt.Errorf("exit status 1")
 		}
 		return nil, nil
 	}

@@ -40,6 +40,7 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			printWarnings(cmd, prepared.Warnings)
 			return printSummary(cmd, prepared)
 		},
 	}
@@ -109,6 +110,7 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 	if err := printSummary(cmd, prepared); err != nil {
 		return false, err
 	}
+	printWarnings(cmd, prepared.Warnings)
 	if len(prepared.DroppedRepoEgress) > 0 {
 		printf(cmd, "git URL を --yes で通したので、repo 宣言の egress (%d 件) を落とした\n", len(prepared.DroppedRepoEgress))
 	}
@@ -121,7 +123,7 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 	}
 	if err := sandbox.Create(cmd.Context(), deps.runtime, places, prepared, values, cmd.OutOrStdout()); err != nil {
 		var stageErr *sandbox.StageError
-		if errors.As(err, &stageErr) { // VM は作れている
+		if errors.As(err, &stageErr) { // VM は作れていて、稼働している (destroy は稼働中の VM を拒むので先に止める)
 			return true, fmt.Errorf("%w\nsandbox VM %s は調べられるように残した。復旧: sbxr stop %s → sbxr destroy %s → sbxr create %s", err, target.Name, input, input, input)
 		}
 		return true, fmt.Errorf("%w\n復旧: sbxr destroy %s で片付けてから sbxr create %s をやり直す", err, input, input)
@@ -280,4 +282,10 @@ func xdgDir(variable, home string, fallback ...string) string {
 		return dir
 	}
 	return filepath.Join(append([]string{home}, fallback...)...)
+}
+
+func printWarnings(cmd *cobra.Command, warnings []error) {
+	for _, warning := range warnings {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "警告: %v\n", warning)
+	}
 }

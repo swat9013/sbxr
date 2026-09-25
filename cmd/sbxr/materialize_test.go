@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,10 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
+	"github.com/swat9013/sbxr/internal/sandbox"
 )
+
+const bootScriptPath = sbxstub.Home + "/" + sandbox.BootScriptRelPath
 
 const settingsPath = sbxstub.Home + "/.claude/settings.json"
 
@@ -107,7 +111,8 @@ func TestCreateFailsAndKeepsTheVMWhenTheReadBackDoesNotMatch(t *testing.T) {
 
 	_, err := lc.run(t, "create", repo, "--yes")
 
-	if err == nil || !strings.Contains(err.Error(), "read-back") {
+	var stageErr *sandbox.StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != sandbox.StageReadBack {
 		t.Errorf("error = %v, want a read-back failure", err)
 	}
 	if _, ok := lc.stub.Sandboxes["app"]; !ok {
@@ -157,30 +162,91 @@ func TestCreateRunsBootOnceAfterInit(t *testing.T) {
 
 	lc.mustRun(t, "create", repo, "--yes")
 
-	bootScript := sbxstub.Home + "/.config/sbxr/boot.sh"
-	if want := []string{"shell make setup", "exec " + bootScript}; !slices.Equal(lc.stub.VM.Events, want) {
+	if want := []string{"shell make setup", "exec " + bootScriptPath}; !slices.Equal(lc.stub.VM.Events, want) {
 		t.Errorf("VM events = %q, want init then one boot run", lc.stub.VM.Events)
 	}
-	if script := lc.stub.VM.Files[bootScript]; !strings.Contains(script, "start-daemon") || !strings.Contains(script, repo) {
+}
+
+func TestCreateWritesTheBootCommandsToAnExecutableScriptForTheRepoRoot(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := gitRepo(t, "app", "version: 1\nboot:\n  - start-daemon\n", "https://github.com/me/app.git")
+
+	lc.mustRun(t, "create", repo, "--yes")
+
+	if script := lc.stub.VM.Files[bootScriptPath]; !strings.Contains(script, "start-daemon") || !strings.Contains(script, repo) {
 		t.Errorf("boot script = %q, want the boot command run in the repo root", script)
 	}
-	if lc.stub.VM.Modes[bootScript] != "0755" {
-		t.Errorf("boot script mode = %q, want 0755", lc.stub.VM.Modes[bootScript])
+	if lc.stub.VM.Modes[bootScriptPath] != "0755" {
+		t.Errorf("boot script mode = %q, want 0755", lc.stub.VM.Modes[bootScriptPath])
 	}
 }
 
 func TestCreateFailsAndKeepsTheVMWhenBootFails(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
-	lc.stub.VM.FailExecute = sbxstub.Home + "/.config/sbxr/boot.sh"
+	lc.stub.VM.FailExecute = bootScriptPath
 	repo := gitRepo(t, "app", "version: 1\nboot:\n  - start-daemon\n", "https://github.com/me/app.git")
 
-	_, err := lc.run(t, "create", repo, "--yes")
+	out, err := lc.run(t, "create", repo, "--yes")
 
-	if err == nil || !strings.Contains(err.Error(), "boot") || !strings.Contains(err.Error(), "sbxr destroy") {
-		t.Errorf("error = %v, want the failed stage and the recovery steps", err)
+	var stageErr *sandbox.StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != sandbox.StageBoot {
+		t.Errorf("error = %v, want a boot stage failure", err)
+	}
+	if !strings.Contains(out, "boot[1] fail") {
+		t.Errorf("output = %q, want the failed boot entry shown", out)
 	}
 	if _, ok := lc.stub.Sandboxes["app"]; !ok {
 		t.Errorf("sandbox was removed; the VM is kept")
+	}
+}
+
+func TestCreateFailsAndKeepsTheVMWhenInitFailsAndShowsHowToRecover(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.stub.VM.FailShell = "make setup"
+	repo := gitRepo(t, "app", "version: 1\ninit:\n  - make setup\n", "https://github.com/me/app.git")
+
+	out, err := lc.run(t, "create", repo, "--yes")
+
+	var stageErr *sandbox.StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != sandbox.StageInit {
+		t.Errorf("error = %v, want an init stage failure", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "sbxr stop") || !strings.Contains(err.Error(), "sbxr destroy") {
+		t.Errorf("error = %v, want the recovery steps", err)
+	}
+	if !strings.Contains(out, "output of the failed command") {
+		t.Errorf("output = %q, want the failed init's output shown", out)
+	}
+	if _, ok := lc.stub.Sandboxes["app"]; !ok {
+		t.Errorf("sandbox was removed; the VM is kept")
+	}
+}
+
+func TestCreateDoesNotOverwriteSettingsItCouldNotRead(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.stub.VM.Files = map[string]string{settingsPath: sbxInitialSettings}
+	lc.stub.VM.FailRead = true
+	repo := gitRepo(t, "app", "", "https://github.com/me/app.git")
+
+	_, err := lc.run(t, "create", repo, "--yes")
+
+	if err == nil {
+		t.Errorf("create error = nil, want the unreadable settings.json to stop materialize")
+	}
+	if lc.stub.VM.Files[settingsPath] != sbxInitialSettings {
+		t.Errorf("settings.json = %q, want sbx's settings left untouched", lc.stub.VM.Files[settingsPath])
+	}
+}
+
+func TestARuleFailureAfterCreatingTheVMAsksToStopBeforeDestroying(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.stub.FailOn = "policy allow network --sandbox"
+	repo := gitRepo(t, "app", repoWithEgress, "https://github.com/me/app.git")
+
+	_, err := lc.run(t, "create", repo, "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "sbxr stop") {
+		t.Errorf("error = %v, want the running VM's recovery steps", err)
 	}
 }
 

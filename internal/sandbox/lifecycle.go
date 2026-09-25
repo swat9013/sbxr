@@ -79,6 +79,8 @@ type Prepared struct {
 	VMEnv             map[string]string
 	// OriginHost は repo の origin の host。VM の git で ssh 形をこの host の https へ書き換える。origin が無ければ空。
 	OriginHost string
+	// Warnings は作成を止めないが、利用者に見せる警告。
+	Warnings []error
 }
 
 // RepoEgressPolicy は repo 宣言の egress を sandbox スコープ rule にするか。
@@ -96,10 +98,7 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	if info, err := os.Stat(target.Repo); err != nil || !info.IsDir() {
 		return Prepared{}, fmt.Errorf("repo のディレクトリ %s が無い", target.Repo)
 	}
-	host, err := originHost(ctx, target.Repo)
-	if err != nil {
-		return Prepared{}, err
-	}
+	host, warning := originHost(ctx, target.Repo)
 	cfg, err := config.Load(places.UserConfig, filepath.Join(target.Repo, RepoDeclarationFile))
 	if err != nil {
 		return Prepared{}, err
@@ -113,6 +112,9 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 		return Prepared{}, err
 	}
 	prepared := Prepared{Target: target, GlobalEgress: egress.DesiredResources(globalGroups), OriginHost: host}
+	if warning != nil {
+		prepared.Warnings = append(prepared.Warnings, warning)
+	}
 	sandboxEgress := egress.DesiredResources(sandboxGroups)
 	if repoEgress == DropRepoEgress {
 		prepared.DroppedRepoEgress, sandboxEgress = sandboxEgress, nil
@@ -227,7 +229,7 @@ func Create(ctx context.Context, rt runtime.Runtime, places Places, prepared Pre
 	}
 	for _, resource := range prepared.Declaration.SandboxEgress {
 		if err := rt.AllowSandboxEgress(ctx, name, resource); err != nil {
-			return fmt.Errorf("sandbox スコープ rule %s を足せない: %w", resource, err)
+			return stageError(StageSandboxEgress, fmt.Errorf("%s を足せない: %w", resource, err))
 		}
 	}
 	if err := setUpInside(ctx, rt, prepared, progress); err != nil {
@@ -270,6 +272,10 @@ func writeEnvironment(dir string, prepared Prepared) error {
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("状態ディレクトリ %s を作れない: %w", dir, err)
+	}
+	// CopyFS は既存のファイルを上書きしないので、前回の残りを消してから書く
+	if err := os.RemoveAll(filepath.Join(dir, kitsDir)); err != nil {
+		return fmt.Errorf("状態ディレクトリの kit を書き直せない: %w", err)
 	}
 	if err := os.CopyFS(filepath.Join(dir, kitsDir), assets.Kits()); err != nil {
 		return fmt.Errorf("状態ディレクトリに kit を書けない: %w", err)

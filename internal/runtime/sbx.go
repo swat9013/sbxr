@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// CommandRunner は sbx を引数付きで実行し、stdout を返す。stdin が nil なら何も渡さない (null device になる)。
+// CommandRunner は sbx を引数付きで実行し、stdout を返す (失敗したときも得られた分を返す)。stdin が nil なら何も渡さない (null device になる)。
 // secret の値は argv に載せると process 一覧から見えるので、stdin で渡す。
 type CommandRunner func(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error)
 
@@ -32,7 +32,8 @@ func ExecSbx(ctx context.Context, stdin io.Reader, args ...string) ([]byte, erro
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("sbx %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		// 失敗しても stdout は返す (VM 内のコマンドが失敗の経緯を stdout に書くことがある)
+		return out, fmt.Errorf("sbx %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
 }
