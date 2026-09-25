@@ -20,7 +20,8 @@ sbxr は設計段階（v0.1 未リリース）。語彙は [CONTEXT.md](./CONTEX
 
 ## gate（品質チェック）
 
-Go の実装が入るまで build / test / lint の gate は無い。現時点で commit 前に通るのは pre-commit の gitleaks だけ。
+- commit 前: pre-commit の gitleaks と gofmt
+- PR / push: GitHub Actions で `go test ./...`・`golangci-lint`・`goreleaser check`
 
 ## commit・PR 規約
 
