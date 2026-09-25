@@ -37,7 +37,8 @@ create の前に merge 結果を人間に見せて承認を得る段階。repo �
 _Avoid_: prompt, confirm
 
 **drift**:
-状態ディレクトリにある作成時の宣言と、現在の宣言との差。既存の sandbox VM は宣言の変更を取り込まないため、drift は再作成の合図になる。
+状態ディレクトリにある作成時の宣言と、現在の宣言との差のうち、既存の sandbox VM が取り込まない部分。drift は再作成の合図になる。global rule は policy sync で既存の sandbox VM にも行き渡るため、drift に含めない。
+_Avoid_: 宣言全体の差
 
 ### egress
 
@@ -50,7 +51,7 @@ user 設定の egress 宣言から作られ、全 sandbox VM に常時適用さ�
 _Avoid_: default allow
 
 **sandbox スコープ rule**:
-repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用される許可。destroy で回収される。
+repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用される許可。destroy で消える。
 
 ### secret
 
@@ -71,7 +72,7 @@ _Avoid_: env 注入
 ### VM 内の構成
 
 **agent runtime profile**:
-sandbox VM 内の agent（Claude Code）の設定。宣言の `profile` から作られ、host 側の個人設定は持ち込まない。
+sandbox VM 内の agent（Claude Code）の設定。宣言の `profile` と、有効にした herdr 連携から作られ、host 側の個人設定は持ち込まない。
 _Avoid_: dot_claude, host settings
 
 **materialize**:
@@ -87,3 +88,12 @@ _Avoid_: startup（sbx kit の用語）, resume hook
 **回収**:
 sandbox VM 内で agent が作った commit を host 側へ取り込むこと。
 _Avoid_: sync, pull
+
+### herdr 連携
+
+**herdr 連携**:
+sandbox VM に herdr を入れ、host の herdr から VM 内の agent を扱えるようにする opt-in の支援機能。user 設定でだけ有効にできる。
+
+**herdr machine**:
+herdr 連携を有効にした sandbox VM が、host の herdr に登録される接続先。create で登録し、stop で無効化し、destroy で解除する。
+_Avoid_: remote, host entry

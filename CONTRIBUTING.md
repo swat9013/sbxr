@@ -27,3 +27,10 @@ sbxr は設計段階（v0.1 未リリース）。語彙は [CONTEXT.md](./CONTEX
 
 - commit message は Conventional Commits 形式で、subject は日本語で書く（例: `docs(adr): 0006 の前提が未実測の推論であることを明記する`）
 - 設計判断を変える変更は、該当する ADR の追記・新規 ADR とあわせて出す
+
+## issue の範囲
+
+- 旧実装（dotfiles の `sbx-repo.sh` ほか）は動作の参考にとどめ、持ち込むのは処理の意味だけにする（ADR 0001）。旧名・旧 path・旧宣言の形は持ち込まない。移植する処理は issue に関数単位で書かれたものに限る
+- issue の範囲外の変更が要ると気付いたら、その issue では実装しない。follow-up issue を切り、PR 本文に理由とあわせて列挙する
+- 受け入れ条件は sbx stub 上の test で満たす。実 sbx での確認は、手順と結果を PR 本文に checklist で残す
+- 実 sbx でしか確かめられず先へ進めないときは実装を止め、停止理由・そこまでの成果・人間が実行する確認手順を PR 本文に書いて返す
