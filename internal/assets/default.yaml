@@ -1,0 +1,26 @@
+# default スコープの宣言 (CLI に同梱)。user 設定 (~/.config/sbxr/config.yaml) と
+# repo 宣言 (<repo>/sbxr.yaml) がこの上に重なる。個人値 (git identity・言語・plugin 選定) は持たない。
+version: 1
+
+# agent runtime profile: VM 内の Claude Code の settings.json へ入る key だけを持つ
+profile:
+  model: opus
+  effortLevel: medium
+  # sandbox VM の agent は非対話なので、対話補助と背景のモデル呼び出しは待ち時間を増やすだけ。まとめて切る
+  awaySummaryEnabled: false      # 離席後に出る session recap の生成
+  autoMemoryEnabled: false       # auto-memory directory の毎ターン read/write
+  autoDreamEnabled: false        # background の memory consolidation
+  promptSuggestionEnabled: false # 入力欄の prompt 候補生成
+  spinnerTipsEnabled: false      # spinner の tips 表示
+  feedbackDrafts: "off"          # SendFeedback tool ごと外す
+  env:
+    CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "60"
+    CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "1"
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"
+    DISABLE_ERROR_REPORTING: "1"
+  # VM の Claude Code は marketplace を持たずに起動するので、plugin install の前提になる official marketplace を宣言する
+  extraKnownMarketplaces:
+    claude-plugins-official:
+      source:
+        source: github
+        repo: anthropics/claude-plugins-official
