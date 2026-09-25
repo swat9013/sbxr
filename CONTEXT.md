@@ -72,7 +72,7 @@ _Avoid_: env 注入
 ### VM 内の構成
 
 **agent runtime profile**:
-sandbox VM 内の agent（Claude Code）の設定。宣言の `profile` から作られ、host 側の個人設定は持ち込まない。
+sandbox VM 内の agent（Claude Code）の設定。宣言の `profile` と、有効にした herdr 連携から作られ、host 側の個人設定は持ち込まない。
 _Avoid_: dot_claude, host settings
 
 **materialize**:
@@ -88,3 +88,12 @@ _Avoid_: startup（sbx kit の用語）, resume hook
 **回収**:
 sandbox VM 内で agent が作った commit を host 側へ取り込むこと。
 _Avoid_: sync, pull
+
+### herdr 連携
+
+**herdr 連携**:
+sandbox VM に herdr を入れ、host の herdr から VM 内の agent を扱えるようにする opt-in の支援機能。user 設定でだけ有効にできる。
+
+**herdr machine**:
+herdr 連携を有効にした sandbox VM が、host の herdr に登録される接続先。create で登録し、stop で無効化し、destroy で解除する。
+_Avoid_: remote, host entry
