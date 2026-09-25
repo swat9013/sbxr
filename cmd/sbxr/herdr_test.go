@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -42,7 +43,7 @@ func (f *fakeHerdr) Add(_ context.Context, target, label string) error {
 	if f.FailAdd {
 		return errors.New("herdr machine add: exit status 1")
 	}
-	f.Machines = append(f.Machines, herdr.Machine{ID: fmt.Sprintf("id%d", len(f.Machines)+1), Label: label, Target: target, Enabled: true})
+	f.Machines = append(f.Machines, herdr.Machine{ID: fmt.Sprintf("id%d", len(f.Machines)+1), Target: target, Enabled: true})
 	return nil
 }
 
@@ -103,9 +104,6 @@ func TestHerdrIsNeverCalledWhenDisabled(t *testing.T) {
 	if len(lc.herdr.Calls) != 0 {
 		t.Errorf("herdr calls = %v, want none", lc.herdr.Calls)
 	}
-	if slices.Contains(lc.stub.VM.Events, "pkill herdr") {
-		t.Errorf("VM events = %v, want the herdr server left alone", lc.stub.VM.Events)
-	}
 }
 
 func TestTheEnvDefinitionLeavesOutTheHerdrKitWhenDisabled(t *testing.T) {
@@ -131,7 +129,7 @@ func TestTheEnvDefinitionCarriesTheHerdrKitWithThePinnedVersion(t *testing.T) {
 
 	stateDir := lc.places.StateDir("app")
 	env, _ := os.ReadFile(filepath.Join(stateDir, "sbxenv.yaml"))
-	if !strings.Contains(string(env), "./kits/sbxr-herdr") || !strings.Contains(string(env), "version: v0.9.0") {
+	if !strings.Contains(string(env), "./kits/sbxr-herdr") || !regexp.MustCompile(`version: v[0-9]+\.[0-9]+\.[0-9]+`).Match(env) {
 		t.Errorf("sbxenv.yaml = %q, want the herdr kit with the default version", env)
 	}
 	if !exists(filepath.Join(stateDir, "kits", "sbxr-herdr", "spec.yaml")) {
@@ -139,7 +137,7 @@ func TestTheEnvDefinitionCarriesTheHerdrKitWithThePinnedVersion(t *testing.T) {
 	}
 }
 
-func TestCreateRegistersTheSandboxAsAHerdrMachineAfterStoppingTheKitsServer(t *testing.T) {
+func TestCreateRegistersTheSandboxAsAHerdrMachine(t *testing.T) {
 	lc := herdrLifecycle(t)
 	repo := localRepo(t, "app", "")
 
@@ -148,23 +146,26 @@ func TestCreateRegistersTheSandboxAsAHerdrMachineAfterStoppingTheKitsServer(t *t
 	if !slices.Contains(lc.herdr.Calls, "add app.sbx app") {
 		t.Errorf("herdr calls = %v, want app.sbx registered with label app", lc.herdr.Calls)
 	}
-	if !slices.Contains(lc.stub.VM.Events, "pkill herdr") {
-		t.Errorf("VM events = %v, want the kit's server stopped before the registration", lc.stub.VM.Events)
+	if !slices.Contains(lc.stub.VM.Events, "stop herdr server") {
+		t.Errorf("VM events = %v, want the kit's server stopped for the registration", lc.stub.VM.Events)
 	}
 }
 
-func TestCreateReplacesALeftoverRegistrationOfTheSameTarget(t *testing.T) {
+func TestCreateLeavesALeftoverRegistrationAloneAndShowsHowToReplaceIt(t *testing.T) {
 	lc := herdrLifecycle(t)
-	lc.herdr.Machines = []herdr.Machine{{ID: "old", Label: "app", Target: "app.sbx", Enabled: false}}
+	lc.herdr.Machines = []herdr.Machine{{ID: "old", Target: "app.sbx", Enabled: false}}
 	repo := localRepo(t, "app", "")
 
-	lc.mustRun(t, "create", repo, "--yes")
+	_, err := lc.run(t, "create", repo, "--yes")
 
-	if !slices.Contains(lc.herdr.Calls, "remove old") || !slices.Contains(lc.herdr.Calls, "add app.sbx app") {
-		t.Errorf("herdr calls = %v, want the leftover removed and the sandbox registered again", lc.herdr.Calls)
+	if err == nil || !strings.Contains(err.Error(), "herdr machine remove old; sbx exec app -- pkill -x herdr; herdr machine add app.sbx --label app") {
+		t.Errorf("error = %v, want a non-zero exit with how to replace the leftover", err)
 	}
-	if len(lc.herdr.Machines) != 1 || !lc.herdr.Machines[0].Enabled {
-		t.Errorf("machines = %v, want one enabled registration", lc.herdr.Machines)
+	if len(lc.herdr.Machines) != 1 || lc.herdr.Machines[0].ID != "old" {
+		t.Errorf("machines = %v, want the leftover untouched", lc.herdr.Machines)
+	}
+	if lc.stub.Sandboxes["app"] != "running" {
+		t.Errorf("status = %q, want the VM kept", lc.stub.Sandboxes["app"])
 	}
 }
 
@@ -218,16 +219,46 @@ func TestStopReenablesTheMachineWhenTheVMCannotBeStopped(t *testing.T) {
 	}
 }
 
-func TestStopWithoutHerdrOnTheHostStopsWithAWarning(t *testing.T) {
+func TestStopWithoutHerdrOnTheHostIsAnErrorAndKeepsTheVMRunning(t *testing.T) {
 	lc := herdrLifecycle(t)
 	repo := localRepo(t, "app", "")
 	lc.mustRun(t, "create", repo, "--yes")
 	lc.herdr.Missing = true
 
+	_, err := lc.run(t, "stop", repo)
+
+	if err == nil || lc.stub.Sandboxes["app"] != "running" {
+		t.Errorf("error = %v, status = %q, want an error with the VM left running", err, lc.stub.Sandboxes["app"])
+	}
+}
+
+func TestStopWarnsWhenTheRegistrationIsGone(t *testing.T) {
+	lc := herdrLifecycle(t)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.herdr.Machines = nil
+
 	out := lc.mustRun(t, "stop", repo)
 
 	if lc.stub.Sandboxes["app"] != "stopped" || !strings.Contains(out, "警告") {
 		t.Errorf("status = %q, output = %q, want the VM stopped with a warning", lc.stub.Sandboxes["app"], out)
+	}
+}
+
+func TestDestroyStopsBeforeTheGateWhenTheHostHasNoHerdr(t *testing.T) {
+	lc := herdrLifecycle(t)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.mustRun(t, "stop", repo)
+	lc.herdr.Missing = true
+
+	_, err := lc.run(t, "destroy", repo)
+
+	if err == nil || len(lc.prompter.prompts) != 0 {
+		t.Errorf("error = %v, prompts = %v, want an error before the confirmation", err, lc.prompter.prompts)
+	}
+	if _, ok := lc.stub.Sandboxes["app"]; !ok {
+		t.Errorf("sandbox was removed, want it kept")
 	}
 }
 
@@ -287,10 +318,10 @@ func TestCreateStopsBeforeTheGateWhenTheHostHasNoHerdr(t *testing.T) {
 	lc.herdr.Missing = true
 	repo := localRepo(t, "app", "")
 
-	_, err := lc.run(t, "create", repo, "--yes")
+	_, err := lc.run(t, "create", repo)
 
-	if err == nil {
-		t.Fatal("create succeeded, want the missing herdr reported")
+	if err == nil || len(lc.prompter.prompts) != 0 {
+		t.Fatalf("error = %v, prompts = %v, want the missing herdr reported before the confirmation", err, lc.prompter.prompts)
 	}
 	if _, ok := lc.stub.Sandboxes["app"]; ok || exists(lc.places.StateDir("app")) {
 		t.Errorf("sandbox or state dir was created, want nothing created")
@@ -314,6 +345,9 @@ func TestCreateFailsAndKeepsTheVMWhenTheHerdrKitFails(t *testing.T) {
 			}
 			if slices.ContainsFunc(lc.herdr.Calls, func(c string) bool { return strings.HasPrefix(c, "add ") }) {
 				t.Errorf("herdr calls = %v, want no registration", lc.herdr.Calls)
+			}
+			if lc.stub.Sandboxes["app"] != "running" {
+				t.Errorf("status = %q, want the VM kept", lc.stub.Sandboxes["app"])
 			}
 		})
 	}

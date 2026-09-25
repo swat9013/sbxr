@@ -39,10 +39,8 @@ const RepoDeclarationFile = "sbxr.yaml"
 
 // 状態ディレクトリに置くファイル。declaration.yaml は作成がすべて済んでから書き、作成が終わった印にする。
 const (
-	envFile    = "sbxenv.yaml"
-	sourceFile = "source"
-	// herdrFile は herdr 連携を有効にして作った印。stop / destroy は、これがあるときだけ host の herdr を呼ぶ。
-	herdrFile       = "herdr"
+	envFile         = "sbxenv.yaml"
+	sourceFile      = "source"
 	declarationFile = "declaration.yaml"
 )
 
@@ -60,11 +58,11 @@ type Declaration struct {
 	// Secrets は配線する secret。
 	Secrets []WiredSecret `yaml:"secrets"`
 	// Herdr は herdr 連携。無効なら書かない。
-	Herdr *HerdrDeclaration `yaml:"herdr,omitempty"`
+	Herdr *HerdrPin `yaml:"herdr,omitempty"`
 }
 
-// HerdrDeclaration は作成時に確定した herdr 連携。
-type HerdrDeclaration struct {
+// HerdrPin は作成時に確定した herdr 連携 (VM に入れる版)。
+type HerdrPin struct {
 	Version string `yaml:"version"`
 }
 
@@ -147,7 +145,7 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	decl.Init, decl.Boot = cfg.Init, cfg.Boot
 	decl.SandboxEgress = sandboxEgress
 	if cfg.Herdr.Enabled {
-		decl.Herdr = &HerdrDeclaration{Version: cfg.Herdr.Version}
+		decl.Herdr = &HerdrPin{Version: cfg.Herdr.Version}
 	}
 	for _, wire := range prepared.Wiring.Wired {
 		decl.Secrets = append(decl.Secrets, WiredSecret{Name: wire.Name, Service: wire.Definition.Service, Hosts: wire.Definition.Hosts, Env: wire.Definition.Env})
@@ -280,11 +278,20 @@ type envKit struct {
 	Args   map[string]string `yaml:"args,omitempty"`
 }
 
-// 埋め込みの kit の名前。
+// 埋め込みの kit の名前 (internal/assets/kits の下のディレクトリ名)。
 const (
 	bootKit  = "sbxr-boot"
 	herdrKit = "sbxr-herdr"
 )
+
+// embeddedKit は env 定義に入れる埋め込みの kit。
+type embeddedKit struct {
+	name string
+	args map[string]string
+}
+
+// source は env 定義から kit を指す相対 path。
+func (k embeddedKit) source() string { return "./" + kitsDir + "/" + k.name }
 
 // kitsDir は状態ディレクトリの中で埋め込みの kit を置くディレクトリ。env 定義からは相対 path で指す
 // (sbx は ./ で始まる kit を env 定義のディレクトリ基準で解決する)。
@@ -297,12 +304,16 @@ type envWorkspace struct {
 
 func writeEnvironment(dir string, prepared Prepared) error {
 	selected := kits(prepared.Declaration)
+	var refs []envKit
+	for _, kit := range selected {
+		refs = append(refs, envKit{Source: kit.source(), Args: kit.args})
+	}
 	env, err := yaml.Marshal(envDefinition{
 		SchemaVersion: "1",
 		Agent:         "claude",
 		Name:          prepared.Target.Name,
 		Workspace:     envWorkspace{Path: prepared.Target.Repo, Clone: true},
-		Kits:          selected,
+		Kits:          refs,
 		Env:           prepared.VMEnv,
 	})
 	if err != nil {
@@ -316,18 +327,12 @@ func writeEnvironment(dir string, prepared Prepared) error {
 		return fmt.Errorf("状態ディレクトリの kit を書き直せない: %w", err)
 	}
 	for _, kit := range selected {
-		name := filepath.Base(kit.Source)
-		sub, err := fs.Sub(assets.Kits(), name)
+		sub, err := fs.Sub(assets.Kits(), kit.name)
 		if err == nil {
-			err = os.CopyFS(filepath.Join(dir, kitsDir, name), sub)
+			err = os.CopyFS(filepath.Join(dir, kitsDir, kit.name), sub)
 		}
 		if err != nil {
-			return fmt.Errorf("状態ディレクトリに kit %s を書けない: %w", name, err)
-		}
-	}
-	if prepared.Declaration.Herdr != nil {
-		if err := os.WriteFile(filepath.Join(dir, herdrFile), nil, 0o600); err != nil {
-			return fmt.Errorf("状態ディレクトリに %s を書けない: %w", herdrFile, err)
+			return fmt.Errorf("状態ディレクトリに kit %s を書けない: %w", kit.name, err)
 		}
 	}
 	for _, file := range []struct {
@@ -342,14 +347,13 @@ func writeEnvironment(dir string, prepared Prepared) error {
 }
 
 // kits は env 定義に入れる埋め込みの kit。herdr 連携が無効なら herdr の kit を入れない。
-// kit startup は最初の失敗で止まる (VM の /etc/durable-startup.d/run.sh)。herdr を先に置いて repo の boot の失敗に巻き込ませず、
-// herdr の kit は失敗しても止めずに印の行を残す (herdr の失敗で boot を飛ばさない)。
-func kits(decl Declaration) []envKit {
-	var list []envKit
+// herdr を先に置く (順序の理由は ADR 0007)。
+func kits(decl Declaration) []embeddedKit {
+	var list []embeddedKit
 	if decl.Herdr != nil {
-		list = append(list, envKit{Source: "./" + kitsDir + "/" + herdrKit, Args: map[string]string{"version": decl.Herdr.Version}})
+		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": decl.Herdr.Version}})
 	}
-	return append(list, envKit{Source: "./" + kitsDir + "/" + bootKit})
+	return append(list, embeddedKit{name: bootKit})
 }
 
 func writeDeclaration(dir string, decl Declaration) error {

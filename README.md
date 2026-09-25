@@ -40,7 +40,8 @@ herdr:
 
 - VM 内では起動ごとに、宣言の版と違うときだけ GitHub release から herdr を入れ、`herdr server` を起動し、`herdr integration install claude` を実行する
 - create の後に登録し、destroy の前に解除する。stop の前には machine を無効にする（有効なままだと herdr が繋ぎ直して VM が起動する）。起動し直したら、stop が表示した `herdr machine enable <id>` で有効に戻す
-- 有効なのに host に herdr が無ければ、create は確認の前に止まる。登録に失敗したら VM を残して止まり、登録し直すコマンドを表示する
+- 有効なのに host に herdr が無ければ、create / stop / destroy は確認や VM の操作の前に止まる。登録に失敗したら VM を残して止まり、登録し直す手順を表示する（同じ `<name>.sbx` の登録が残っているときも、それには触れずに止まる）
+- VM 内の herdr の失敗は `/var/log/sbx-kit-startup.log` に `sbxr-herdr: fail` の行で残る。create のときは create が失敗として止まる
 
 ## 必要なもの
 

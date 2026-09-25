@@ -13,7 +13,6 @@ import (
 // Machine は host の herdr に保存された SSH machine。
 type Machine struct {
 	ID      string `json:"id"`
-	Label   string `json:"label"`
 	Target  string `json:"target"`
 	Enabled bool   `json:"enabled"`
 }
@@ -45,14 +44,33 @@ func Find(machines []Machine, target string) (Machine, bool) {
 	return Machine{}, false
 }
 
-// AddCommand は target を登録する herdr のコマンド (復旧手順として見せる)。
-func AddCommand(target, label string) string {
-	return fmt.Sprintf("herdr machine add %s --label %s", target, label)
+// herdr の各操作の引数。CLI の実行と、利用者へ見せる復旧手順の両方がここから作る。
+
+func addArgs(target, label string) []string {
+	return []string{"machine", "add", target, "--label", label}
 }
+func enableArgs(id string) []string  { return []string{"machine", "enable", id} }
+func disableArgs(id string) []string { return []string{"machine", "disable", id} }
+func removeArgs(id string) []string  { return []string{"machine", "remove", id} }
+
+func command(args []string) string { return "herdr " + strings.Join(args, " ") }
+
+// AddCommand は target を登録する herdr のコマンド (復旧手順として見せる)。
+func AddCommand(target, label string) string { return command(addArgs(target, label)) }
 
 // EnableCommand は machine を有効に戻す herdr のコマンド。
-func EnableCommand(id string) string {
-	return "herdr machine enable " + id
+func EnableCommand(id string) string { return command(enableArgs(id)) }
+
+// RemoveCommand は machine を解除する herdr のコマンド。
+func RemoveCommand(id string) string { return command(removeArgs(id)) }
+
+// ParseMachines は herdr machine list --json の出力を読む。
+func ParseMachines(out []byte) ([]Machine, error) {
+	var machines []Machine
+	if err := json.Unmarshal(out, &machines); err != nil {
+		return nil, fmt.Errorf("herdr machine list --json の出力を読めない: %w", err)
+	}
+	return machines, nil
 }
 
 // CLI は PATH 上の herdr を子プロセスとして呼ぶ Client。stdin は渡さない (null device になる)。
@@ -63,58 +81,46 @@ var _ Client = CLI{}
 // Available は PATH に herdr があるかを確かめる。
 func (CLI) Available() error {
 	if _, err := exec.LookPath("herdr"); err != nil {
-		return fmt.Errorf("herdr 連携が有効だが、host に herdr が無い (PATH に herdr を入れるか、user 設定で herdr.enabled: false にする): %w", err)
+		return fmt.Errorf("host に herdr が無い: %w", err)
 	}
 	return nil
 }
 
 func (CLI) List(ctx context.Context) ([]Machine, error) {
-	out, err := run(ctx, "herdr", "machine", "list", "--json")
+	out, err := run(ctx, []string{"machine", "list", "--json"})
 	if err != nil {
 		return nil, err
 	}
-	var machines []Machine
-	if err := json.Unmarshal(out, &machines); err != nil {
-		return nil, fmt.Errorf("herdr machine list --json の出力を読めない: %w", err)
-	}
-	return machines, nil
+	return ParseMachines(out)
 }
 
-// Add は host の ssh が target の ProxyCommand を持つか (sbx の ssh 設定が済んでいるか) を確かめてから登録する。
 func (CLI) Add(ctx context.Context, target, label string) error {
-	out, err := run(ctx, "ssh", "-G", target)
-	if err != nil {
-		return err
-	}
-	if !strings.Contains(strings.ToLower(string(out)), "\nproxycommand ") {
-		return fmt.Errorf("host の ssh が %s の ProxyCommand を持たない (sbx の ssh 設定が済んでいるか確かめる)", target)
-	}
-	_, err = run(ctx, "herdr", "machine", "add", target, "--label", label)
+	_, err := run(ctx, addArgs(target, label))
 	return err
 }
 
 func (CLI) Enable(ctx context.Context, id string) error {
-	_, err := run(ctx, "herdr", "machine", "enable", id)
+	_, err := run(ctx, enableArgs(id))
 	return err
 }
 
 func (CLI) Disable(ctx context.Context, id string) error {
-	_, err := run(ctx, "herdr", "machine", "disable", id)
+	_, err := run(ctx, disableArgs(id))
 	return err
 }
 
 func (CLI) Remove(ctx context.Context, id string) error {
-	_, err := run(ctx, "herdr", "machine", "remove", id)
+	_, err := run(ctx, removeArgs(id))
 	return err
 }
 
-func run(ctx context.Context, name string, args ...string) ([]byte, error) {
+func run(ctx context.Context, args []string) ([]byte, error) {
 	var stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, "herdr", args...)
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return out, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		return out, fmt.Errorf("%s: %w: %s", command(args), err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
 }

@@ -11,8 +11,7 @@ args:
     description: 導入する herdr の release tag (herdrdev/herdr)
 
 setup:
-  # 各段は失敗しても 0 で終わり、"sbxr-herdr: fail <段>" を log に残す。dispatcher は最初の失敗で止まるので、
-  # 0 以外で終わると後ろの kit (repo の boot) まで走らなくなる。create 時は sbxr がこの行を失敗として読む。
+  # 各段は失敗しても 0 で終わり、"sbxr-herdr: fail <段>" を log に残す (理由は ADR 0007)。create 時は sbxr がこの行を失敗として読む。
   startup:
     - description: herdr を導入する (宣言の版と違うか未導入のときだけ)
       command:
@@ -44,8 +43,16 @@ setup:
         - bash
         - -c
         - |
+          running=no
           for _ in $(seq 1 30); do
-            herdr status --json 2>/dev/null | grep -q '"running": *true' && break
+            if herdr status --json 2>/dev/null | grep -q '"running": *true'; then
+              running=yes
+              break
+            fi
             sleep 1
           done
+          if [ "$running" = no ]; then
+            echo "sbxr-herdr: fail server (herdr status が 30 秒で running にならない)"
+            exit 0
+          fi
           herdr integration install claude || echo "sbxr-herdr: fail integration"

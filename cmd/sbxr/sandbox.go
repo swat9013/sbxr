@@ -179,6 +179,9 @@ func newDestroyCmd(deps dependencies) *cobra.Command {
 			if !inspection.NotRunning() && running == sandbox.RefuseRunning {
 				return runningError(target.Name, inspection.Status, args[0])
 			}
+			if err := sandbox.RequireHerdrFor(places, target.Name, deps.herdr); err != nil {
+				return err
+			}
 			printf(cmd, "sandbox VM %s を撤去する。VM 内の commit と変更は失われる\n", target.Name)
 			if err := confirm(deps, yes, "撤去する? [y/N]: "); err != nil {
 				return err
@@ -226,6 +229,9 @@ func newStopCmd(deps dependencies) *cobra.Command {
 				return err
 			}
 			if err := inspection.RequireManaged(target.Name); err != nil {
+				return err
+			}
+			if err := sandbox.RequireHerdrFor(places, target.Name, deps.herdr); err != nil {
 				return err
 			}
 			if err := sandbox.Stop(cmd.Context(), deps.hosts(), places, target.Name, cmd.OutOrStdout()); err != nil {
