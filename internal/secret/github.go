@@ -45,11 +45,11 @@ var forbiddenCapabilities = []struct {
 	{"Administration", "/keys"},
 }
 
-// ForbiddenPermissions は probe で拒否を確かめる権限の名前。
+// ForbiddenPermissions は probe で拒否を確かめる権限の名前と、確かめる API (例: "Actions (GET /actions/workflows)")。
 func ForbiddenPermissions() []string {
 	names := make([]string, 0, len(forbiddenCapabilities))
 	for _, capability := range forbiddenCapabilities {
-		names = append(names, capability.permission)
+		names = append(names, fmt.Sprintf("%s (GET %s)", capability.permission, capability.path))
 	}
 	return names
 }

@@ -62,7 +62,7 @@ func PlanWiring(requested []string, defs map[string]Definition, allowed []string
 	return plan, nil
 }
 
-// VMEnv は配線する secret の付随値 (vars) を 1 つの環境変数の集合にまとめる。create がこれを VM の環境変数に入れる。
+// VMEnv は配線する secret の付随値 (vars) を 1 つの環境変数の集合にまとめる。VM の環境変数へ入れるのは create (#5) の担当。
 // 同じ名前を違う値で持つ secret が 2 つあれば止める。
 func (p Plan) VMEnv() (map[string]string, error) {
 	env := map[string]string{}
@@ -106,7 +106,12 @@ func Apply(ctx context.Context, rt runtime.Runtime, sandbox string, plan Plan, v
 	}
 	for i, secret := range secrets {
 		if err := rt.SetSandboxSecret(ctx, sandbox, secret); err != nil {
-			return fmt.Errorf("secret %s を配線できない: %w", plan.Wired[i].Name, err)
+			placed := make([]string, 0, i)
+			for _, wire := range plan.Wired[:i] {
+				placed = append(placed, wire.Name)
+			}
+			return fmt.Errorf("secret %s を配線できない (配線済み: %s。sandbox VM の destroy で消える): %w",
+				plan.Wired[i].Name, strings.Join(placed, ", "), err)
 		}
 	}
 	return nil
