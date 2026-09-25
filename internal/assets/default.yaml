@@ -90,3 +90,13 @@ egress:
       - ocsp.globalsign.com:443
       - ocsp2.globalsign.com:80
       - ocsp2.globalsign.com:443
+
+# secret 定義。値は secret ファイル (~/.config/sbxr/secrets.env) の key から読み、VM には placeholder だけが入る。
+# 配線するのは user 設定か repo 宣言の secrets で要求され、hosts がすべて egress で許可されているときだけ
+secret_defs:
+  github:
+    service: github # sbx 組み込みの github service。VM の gh / git が使う token を proxy が差し込む
+    key: GITHUB_TOKEN
+    hosts:
+      - github.com
+      - api.github.com

@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 )
 
-// CommandRunner は sbx を引数付きで実行し、stdout を返す。
-type CommandRunner func(ctx context.Context, args ...string) ([]byte, error)
+// CommandRunner は sbx を引数付きで実行し、stdout を返す。stdin が nil なら何も渡さない (null device になる)。
+// secret の値は argv に載せると process 一覧から見えるので、stdin で渡す。
+type CommandRunner func(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error)
 
 // Sbx は Docker Sandboxes (sbx CLI) による Runtime の実装。
 type Sbx struct {
@@ -22,10 +24,11 @@ func NewSbx(run CommandRunner) *Sbx {
 	return &Sbx{run: run}
 }
 
-// ExecSbx は PATH 上の sbx を子プロセスとして実行する。stdin は渡さない (null device になる)。
-func ExecSbx(ctx context.Context, args ...string) ([]byte, error) {
+// ExecSbx は PATH 上の sbx を子プロセスとして実行する。
+func ExecSbx(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
 	var stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, "sbx", args...)
+	cmd.Stdin = stdin
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
@@ -49,7 +52,7 @@ type sbxRule struct {
 // ListGlobalEgressRules は scope=global・resource_type=network・editable=true の rule を返す。
 // editable でない rule (sbx 自身が管理する既定の rule) と sandbox スコープ rule は対象外。
 func (s *Sbx) ListGlobalEgressRules(ctx context.Context) ([]EgressRule, error) {
-	out, err := s.run(ctx, "policy", "ls", "--json")
+	out, err := s.run(ctx, nil, "policy", "ls", "--json")
 	if err != nil {
 		return nil, err
 	}
@@ -78,12 +81,29 @@ func (s *Sbx) ListGlobalEgressRules(ctx context.Context) ([]EgressRule, error) {
 
 // AllowGlobalEgress は sbx policy allow network で 1 resource の global rule を足す。
 func (s *Sbx) AllowGlobalEgress(ctx context.Context, resource string) error {
-	_, err := s.run(ctx, "policy", "allow", "network", resource)
+	_, err := s.run(ctx, nil, "policy", "allow", "network", resource)
 	return err
 }
 
 // RemoveGlobalEgressRule は sbx policy rm network --id で global rule を消す。
 func (s *Sbx) RemoveGlobalEgressRule(ctx context.Context, id string) error {
-	_, err := s.run(ctx, "policy", "rm", "network", "--id", id)
+	_, err := s.run(ctx, nil, "policy", "rm", "network", "--id", id)
+	return err
+}
+
+// SetSandboxSecret は secret を sandbox スコープに置く。service があれば sbx 組み込み service の secret、
+// 無ければ host 指定の custom secret (placeholder 注入) にする。値は stdin で渡す。
+// sandbox スコープの secret は sandbox の作成前にも置け、作成時に VM の環境変数へ placeholder が入る (sbx 実測)。
+func (s *Sbx) SetSandboxSecret(ctx context.Context, sandbox string, secret SandboxSecret) error {
+	args := []string{"secret", "set", secret.Service, "--sandbox", sandbox}
+	if secret.Service == "" {
+		args = []string{"secret", "set-custom", "--sandbox", sandbox}
+		for _, host := range secret.Hosts {
+			args = append(args, "--host", host)
+		}
+		args = append(args, "--env", secret.Env)
+	}
+	// sbx は 1 行を値として読む (help の例は echo の出力を pipe する)
+	_, err := s.run(ctx, strings.NewReader(secret.Value+"\n"), args...)
 	return err
 }

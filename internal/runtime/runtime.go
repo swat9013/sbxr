@@ -12,6 +12,19 @@ type Runtime interface {
 	AllowGlobalEgress(ctx context.Context, resource string) error
 	// RemoveGlobalEgressRule は global rule を 1 つ消す。
 	RemoveGlobalEgressRule(ctx context.Context, id string) error
+	// SetSandboxSecret は 1 つの sandbox VM に限った secret を置く。sandbox VM の destroy で消える。
+	SetSandboxSecret(ctx context.Context, sandbox string, secret SandboxSecret) error
+}
+
+// SandboxSecret は sandbox VM に配線する secret。VM には placeholder だけが入り、実値は host 側の proxy が差し込む。
+type SandboxSecret struct {
+	// Service は実行基盤の組み込み service の名前 (例: github)。空なら Hosts と Env による placeholder 注入。
+	Service string
+	// Hosts は placeholder 注入で実値を差し込む宛先。
+	Hosts []string
+	// Env は placeholder を入れる VM の環境変数名。
+	Env   string
+	Value string
 }
 
 // EgressRule は実行基盤にある egress の rule。

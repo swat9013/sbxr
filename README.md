@@ -29,6 +29,27 @@ sandbox VM 内の commit は、VM の稼働中に host 側 repo で `git fetch s
 | `~/.config/sbxr/config.yaml` | user 設定 |
 | `~/.config/sbxr/secrets.env` | secret の値（mode 0600 必須） |
 
+## secret
+
+VM には placeholder だけが入り、実値は host 側の proxy が通信時に差し込む。secret は「定義」と「要求」に分けて書く。
+
+```yaml
+# ~/.config/sbxr/config.yaml
+version: 1
+secrets: [github]          # 要求 (repo 宣言にも書ける)。user 設定の要求は全 sandbox VM に効く
+secret_defs:               # 定義 (user 設定だけが書ける。github は同梱)
+  gitlab:
+    key: GITLAB_TOKEN      # secret ファイルのキー
+    hosts: [gitlab.example.com]  # 注入先 host。すべてが egress で許可されているときだけ配線する
+    env: GITLAB_TOKEN      # placeholder を入れる VM の環境変数名
+    vars:                  # 秘密でない付随値
+      GITLAB_HOST: gitlab.example.com
+```
+
+値は `sbxr secret setup github` か `sbxr secret setup custom --host <host>` で secret ファイルへ書く。`setup github` は、指定した private repo で token が Contents を読めて、Secrets・Workflows・Administration を持たないことを GitHub API で確かめてから書く。
+
+repo の削除と force push は token の権限では防げない。守りたい branch には branch protection（または ruleset）を設定する。
+
 ## インストール（v0.1 以降）
 
 ```sh

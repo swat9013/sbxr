@@ -48,6 +48,16 @@ func LoadGlobalEgress(userPath string) (map[string]map[string]any, error) {
 	return globalEgress(defaultDecl, userDecl), nil
 }
 
+// LoadSecretDefs は同梱の default スコープと userPath の user 設定から、secret 定義だけを重ねて返す。
+// secret ファイルへの格納は repo 宣言と git identity を使わないので、Load と違ってそれらを要求しない。
+func LoadSecretDefs(userPath string) (map[string]map[string]any, error) {
+	defaultDecl, userDecl, err := parseTrustedScopes(userPath)
+	if err != nil {
+		return nil, err
+	}
+	return additive(additive(nil, defaultDecl.SecretDefs), userDecl.SecretDefs), nil
+}
+
 // parseTrustedScopes は同梱の default 宣言と userPath の user 設定を読む。
 func parseTrustedScopes(userPath string) (defaultDecl, userDecl Declaration, err error) {
 	defaultDecl, err = Parse(ScopeDefault, "同梱の default 宣言", assets.DefaultDeclaration)
