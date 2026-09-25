@@ -254,3 +254,87 @@ func TestApplyWritesNothingWhenAWiredValueIsMissingFromTheSecretFile(t *testing.
 		t.Errorf("sbx writes = %q, want none before every value is found", stub.Writes)
 	}
 }
+
+func TestWriteValueKeepsLinesAfterAVeryLongValue(t *testing.T) {
+	long := strings.Repeat("x", 100_000)
+	path := writeSecretFile(t, "LONG="+long+"\nAFTER=1\n", 0o600)
+
+	if err := WriteValue(path, "NEW", "v"); err != nil {
+		t.Fatalf("WriteValue() error = %v", err)
+	}
+
+	values, err := ReadFile(path)
+	if err != nil || values["LONG"] != long || values["AFTER"] != "1" || values["NEW"] != "v" {
+		t.Errorf("ReadFile() keys = %d, err = %v, want LONG, AFTER and NEW kept", len(values), err)
+	}
+}
+
+func TestWriteValueWritesThroughASymlinkedSecretFile(t *testing.T) {
+	target := writeSecretFile(t, "OTHER=1\n", 0o600)
+	link := filepath.Join(t.TempDir(), "secrets.env")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteValue(link, "GITHUB_TOKEN", "v"); err != nil {
+		t.Fatalf("WriteValue() error = %v", err)
+	}
+
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("secret file link was replaced by a regular file")
+	}
+	values, err := ReadFile(target)
+	if err != nil || values["GITHUB_TOKEN"] != "v" {
+		t.Errorf("link target = %v, %v, want the token written through the link", values, err)
+	}
+}
+
+func TestWriteValueDoesNotTouchAnExistingFileOthersCanRead(t *testing.T) {
+	path := writeSecretFile(t, "OTHER=1\n", 0o644)
+
+	err := WriteValue(path, "GITHUB_TOKEN", "v")
+
+	assertErrorMentions(t, err, "0600")
+	data, readErr := os.ReadFile(path)
+	if readErr != nil || string(data) != "OTHER=1\n" {
+		t.Errorf("file = %q, want it unchanged", data)
+	}
+}
+
+func TestWriteValueCollapsesDuplicateLinesOfTheKeyIntoOne(t *testing.T) {
+	path := writeSecretFile(t, "GITHUB_TOKEN=a\nOTHER=1\nGITHUB_TOKEN=b\n", 0o600)
+
+	if err := WriteValue(path, "GITHUB_TOKEN", "new"); err != nil {
+		t.Fatalf("WriteValue() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "GITHUB_TOKEN=new\nOTHER=1\n" {
+		t.Errorf("file = %q, want one GITHUB_TOKEN line", data)
+	}
+}
+
+func TestVMEnvCollectsTheVarsOfWiredSecrets(t *testing.T) {
+	plan := Plan{Wired: []Wire{
+		{Name: "gitlab", Definition: Definition{Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}}},
+		{Name: "jira", Definition: Definition{Vars: map[string]string{"JIRA_SITE": "x.atlassian.net"}}},
+	}}
+
+	env, err := plan.VMEnv()
+
+	want := map[string]string{"GITLAB_HOST": "gitlab.example.com", "JIRA_SITE": "x.atlassian.net"}
+	if err != nil || !reflect.DeepEqual(env, want) {
+		t.Errorf("VMEnv() = %v, %v, want %v", env, err, want)
+	}
+}
+
+func TestVMEnvStopsWhenTwoSecretsGiveOneVarDifferentValues(t *testing.T) {
+	plan := Plan{Wired: []Wire{
+		{Name: "a", Definition: Definition{Vars: map[string]string{"HOST": "a.example.com"}}},
+		{Name: "b", Definition: Definition{Vars: map[string]string{"HOST": "b.example.com"}}},
+	}}
+
+	_, err := plan.VMEnv()
+
+	assertErrorMentions(t, err, "HOST")
+}

@@ -26,6 +26,11 @@ type Definition struct {
 	Vars map[string]string `yaml:"vars"`
 }
 
+// InjectsPlaceholder は host 指定の placeholder 注入か (sbx 組み込み service でないか) を返す。
+func (d Definition) InjectsPlaceholder() bool {
+	return d.Service == ""
+}
+
 // hostPattern は注入先 host の書式。egress の許可を一意に判定できるよう、glob と port は書けない。
 var hostPattern = regexp.MustCompile(`^([a-z0-9-]+\.)+[a-z0-9-]+$`)
 
@@ -79,9 +84,9 @@ func (d Definition) validate() error {
 		}
 	}
 	switch {
-	case d.Service != "" && d.Env != "":
+	case !d.InjectsPlaceholder() && d.Env != "":
 		errs = append(errs, errors.New("service と env は両方書けない (env は placeholder 注入だけが使う。service の環境変数は sbx が決める)"))
-	case d.Service == "" && !keyPattern.MatchString(d.Env):
+	case d.InjectsPlaceholder() && !keyPattern.MatchString(d.Env):
 		errs = append(errs, fmt.Errorf("env %q は VM の環境変数名で書く (placeholder 注入には env が要る)", d.Env))
 	}
 	for _, name := range slices.Sorted(maps.Keys(d.Vars)) {

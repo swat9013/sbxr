@@ -11,8 +11,16 @@ import (
 	"strings"
 )
 
-// GitHubRepoPattern は probe に使う repo の書式 (owner/name)。
-var GitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
+// gitHubRepoPattern は probe に使う repo の書式 (owner/name)。
+var gitHubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$`)
+
+// ValidateGitHubRepo は probe に使う repo が owner/name の形かを確かめる。
+func ValidateGitHubRepo(repo string) error {
+	if !gitHubRepoPattern.MatchString(repo) {
+		return fmt.Errorf("repo %q は owner/name の形で書く", repo)
+	}
+	return nil
+}
 
 // deniedByTokenMessage は fine-grained PAT が権限の無い API を叩いたときに GitHub が返す文言。
 // 403 は rate limit でも返るので、status ではなくこの文言で拒否を判定する。
@@ -25,22 +33,32 @@ type GitHubProbe struct {
 	Client  *http.Client
 }
 
-// forbiddenCapabilities は token に付けてはならない権限と、それを確かめる API。
-// どれか 1 つでも通れば過剰権限として止める。
+// forbiddenCapabilities は token に付けてはならない権限と、それを確かめる読み取りの API。
+// どれか 1 つでも通れば過剰権限として止める。permission は fine-grained PAT の画面での権限名。
+// .github/workflows を書き換える Workflows 権限は書き込み専用で、読み取りの API では確かめられない。
 var forbiddenCapabilities = []struct {
 	permission string
 	path       string
 }{
-	{"Secrets (Actions secrets)", "/actions/secrets"},
-	{"Workflows (Actions workflows)", "/actions/workflows"},
-	{"Administration (deploy keys)", "/keys"},
+	{"Secrets", "/actions/secrets"},
+	{"Actions", "/actions/workflows"},
+	{"Administration", "/keys"},
+}
+
+// ForbiddenPermissions は probe で拒否を確かめる権限の名前。
+func ForbiddenPermissions() []string {
+	names := make([]string, 0, len(forbiddenCapabilities))
+	for _, capability := range forbiddenCapabilities {
+		names = append(names, capability.permission)
+	}
+	return names
 }
 
 // Verify は repo (private) に対して、Contents を読めることと、付けてはならない権限がすべて拒否されることを確かめる。
 // 確かめられなければ (拒否でも許可でもない応答) 止める。
 func (p GitHubProbe) Verify(ctx context.Context, repo, token string) error {
-	if !GitHubRepoPattern.MatchString(repo) {
-		return fmt.Errorf("repo %q は owner/name の形で書く", repo)
+	if err := ValidateGitHubRepo(repo); err != nil {
+		return err
 	}
 	base := "/repos/" + repo
 	var metadata struct {
@@ -52,6 +70,7 @@ func (p GitHubProbe) Verify(ctx context.Context, repo, token string) error {
 	if metadata.Private == nil || !*metadata.Private {
 		return fmt.Errorf("%s は private repo でない (public repo は権限が無くても読めるので probe にならない)", repo)
 	}
+	// contents/ は commit の無い repo では 404 を返すので、probe の repo には commit が要る
 	if err := p.expectAllowed(ctx, token, base+"/contents/", nil, "Contents"); err != nil {
 		return err
 	}
@@ -60,11 +79,11 @@ func (p GitHubProbe) Verify(ctx context.Context, repo, token string) error {
 		outcome, err := p.call(ctx, token, base+capability.path)
 		switch {
 		case err != nil:
-			return fmt.Errorf("%s の権限を判定できない: %w", capability.permission, err)
+			return fmt.Errorf("%s 権限を判定できない: %w", capability.permission, err)
 		case outcome.allowed():
-			errs = append(errs, fmt.Errorf("%s の権限が付いている (過剰権限。token から外す)", capability.permission))
+			errs = append(errs, fmt.Errorf("%s 権限が付いている (過剰権限。token から外す)", capability.permission))
 		case !outcome.deniedByToken():
-			return fmt.Errorf("%s の権限を判定できない: %s", capability.permission, outcome)
+			return fmt.Errorf("%s 権限を判定できない: %s", capability.permission, outcome)
 		}
 	}
 	return errors.Join(errs...)

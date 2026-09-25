@@ -37,6 +37,7 @@ func matchLabels(patterns, labels []string) bool {
 	if len(labels) == 0 {
 		return false
 	}
-	matched, err := path.Match(patterns[0], labels[0])
+	// sbx の glob は shell と同じく [!...] で否定する。path.Match の否定は [^...] なので書き換える
+	matched, err := path.Match(strings.ReplaceAll(patterns[0], "[!", "[^"), labels[0])
 	return err == nil && matched && matchLabels(patterns[1:], labels[1:])
 }

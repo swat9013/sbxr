@@ -23,3 +23,11 @@ func TestAllowsHTTPSMatchesHostsByTheSameGlobAsSbx(t *testing.T) {
 		}
 	}
 }
+
+func TestAllowsHTTPSReadsBracketNegationTheWaySbxDoes(t *testing.T) {
+	resources := []string{"[!x]pi.example.com:443"}
+
+	if !AllowsHTTPS(resources, "api.example.com") || AllowsHTTPS(resources, "xpi.example.com") {
+		t.Errorf("AllowsHTTPS() did not read [!x] as 'any character but x'")
+	}
+}

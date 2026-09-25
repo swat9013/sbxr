@@ -99,6 +99,17 @@ func TestSecretSetupGithubWritesATokenThatPassesEveryProbe(t *testing.T) {
 	if err != nil || values["GITHUB_TOKEN"] != "ghp_good" {
 		t.Errorf("secret file = %v, %v, want GITHUB_TOKEN=ghp_good", values, err)
 	}
+}
+
+func TestSecretSetupGithubProbesWithTheEnteredToken(t *testing.T) {
+	github := &fakeGitHub{responses: recommendedToken()}
+	prompter := &fakePrompter{lines: []string{"me/private"}, hidden: []string{"ghp_good"}}
+	deps, _ := setupDeps(t, github.serve(t), prompter)
+
+	if _, err := runSbxr(t, deps, "secret", "setup", "github"); err != nil {
+		t.Fatalf("secret setup github error = %v", err)
+	}
+
 	for _, token := range github.tokens {
 		if token != "Bearer ghp_good" {
 			t.Errorf("Authorization = %q, want the entered token", token)
@@ -116,7 +127,7 @@ func TestSecretSetupGithubShowsThePermissionsBeforeAskingForInput(t *testing.T) 
 	if err != nil {
 		t.Fatalf("secret setup github error = %v", err)
 	}
-	for _, permission := range []string{"Contents", "Issues", "Pull requests", "Metadata", "Secrets", "Workflows", "Administration"} {
+	for _, permission := range []string{"Contents", "Issues", "Pull requests", "Metadata", "Secrets", "Actions", "Workflows", "Administration"} {
 		if !strings.Contains(out, permission) {
 			t.Errorf("output = %q, want it to name the %s permission", out, permission)
 		}
@@ -203,5 +214,26 @@ func TestSecretSetupCustomStopsWhenNoDefinitionInjectsIntoTheHost(t *testing.T) 
 	}
 	if _, statErr := os.Stat(secretFile); statErr == nil {
 		t.Errorf("secret file was written without a definition")
+	}
+}
+
+func TestSecretSetupCustomStopsWhenDefinitionsForTheHostUseDifferentKeys(t *testing.T) {
+	prompter := &fakePrompter{hidden: []string{"value"}}
+	deps, secretFile := setupDeps(t, "http://127.0.0.1:0", prompter)
+	userConfig := "version: 1\nsecret_defs:\n" +
+		"  a:\n    key: A_TOKEN\n    hosts: [shared.example.com]\n    env: A_TOKEN\n" +
+		"  b:\n    key: B_TOKEN\n    hosts: [shared.example.com]\n    env: B_TOKEN\n"
+	path, _ := deps.userConfigPath()
+	if err := os.WriteFile(path, []byte(userConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runSbxr(t, deps, "secret", "setup", "custom", "--host", "shared.example.com")
+
+	if err == nil || !strings.Contains(err.Error(), "A_TOKEN") || !strings.Contains(err.Error(), "B_TOKEN") {
+		t.Errorf("error = %v, want it to name both keys", err)
+	}
+	if _, statErr := os.Stat(secretFile); statErr == nil {
+		t.Errorf("secret file was written while the key is ambiguous")
 	}
 }

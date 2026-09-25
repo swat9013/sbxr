@@ -7,8 +7,10 @@ import (
 	"maps"
 	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -61,17 +63,17 @@ func newSecretSetupGithubCmd(deps dependencies) *cobra.Command {
   - Issues: Read and write
   - Pull requests: Read and write
   - Metadata: Read-only (自動で付く)
-付けない権限: Secrets / Workflows / Administration をはじめ、上に無いものすべて
+付けない権限: 上に無いものすべて (Workflows を含む)。次は token が拒否されることを API で確かめる: %s
 repo の削除と force push は token の権限では防げないので、branch protection で守る。
 
-`)
-			repo, err := deps.prompter.Line("probe に使う private repo (owner/name): ")
+`, strings.Join(secret.ForbiddenPermissions(), " / "))
+			repo, err := deps.prompter.Line("probe に使う private repo (owner/name。token が対象にし、commit が 1 つ以上あるもの): ")
 			if err != nil {
 				return err
 			}
 			repo = strings.TrimSpace(repo)
-			if !secret.GitHubRepoPattern.MatchString(repo) {
-				return fmt.Errorf("repo %q は owner/name の形で書く", repo)
+			if err := secret.ValidateGitHubRepo(repo); err != nil { // token を尋ねる前に止める
+				return err
 			}
 			token, err := readSecretValue(deps, "token: ")
 			if err != nil {
@@ -146,7 +148,7 @@ func secretKeyForHost(deps dependencies, host string) (string, error) {
 	keys := map[string][]string{} // key → それを使う定義の名前
 	for _, name := range slices.Sorted(maps.Keys(defs)) {
 		def := defs[name]
-		if def.Service == "" && slices.Contains(def.Hosts, host) {
+		if def.InjectsPlaceholder() && slices.Contains(def.Hosts, host) {
 			keys[def.Key] = append(keys[def.Key], name)
 		}
 	}
@@ -204,11 +206,32 @@ func (p terminalPrompter) Line(prompt string) (string, error) {
 }
 
 // Hidden は golang.org/x/term で入力を画面に出さずに読む。端末でなければ止める (pipe の値を黙って受けない)。
+// 入力中の Ctrl-C でも端末の echo を戻してから終わる。
 func (p terminalPrompter) Hidden(prompt string) (string, error) {
 	fd := int(os.Stdin.Fd())
 	if !term.IsTerminal(fd) {
 		return "", errors.New("値の入力には端末が要る (stdin が端末でない)")
 	}
+	state, err := term.GetState(fd)
+	if err != nil {
+		return "", fmt.Errorf("端末の状態を読めない: %w", err)
+	}
+	interrupted := make(chan os.Signal, 1)
+	signal.Notify(interrupted, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+	defer func() {
+		signal.Stop(interrupted)
+		close(done)
+	}()
+	go func() {
+		select {
+		case <-interrupted:
+			_ = term.Restore(fd, state)
+			_, _ = fmt.Fprintln(os.Stderr)
+			os.Exit(130)
+		case <-done:
+		}
+	}()
 	_, _ = fmt.Fprint(os.Stderr, prompt)
 	value, err := term.ReadPassword(fd)
 	_, _ = fmt.Fprintln(os.Stderr)

@@ -46,7 +46,7 @@ secret_defs:               # 定義 (user 設定だけが書ける。github は�
       GITLAB_HOST: gitlab.example.com
 ```
 
-値は `sbxr secret setup github` か `sbxr secret setup custom --host <host>` で secret ファイルへ書く。`setup github` は、指定した private repo で token が Contents を読めて、Secrets・Workflows・Administration を持たないことを GitHub API で確かめてから書く。
+値は `sbxr secret setup github` か `sbxr secret setup custom --host <host>` で secret ファイルへ書く。`setup github` は、指定した private repo（commit が 1 つ以上あるもの）で token が Contents を読めて、Secrets・Actions・Administration が拒否されることを GitHub API で確かめてから書く。`.github/workflows` を書き換える Workflows 権限は読み取りの API で確かめられないので、token を作るときに付けないこと。`setup custom` は `--host` を注入先に持つ secret 定義の key へ書く。
 
 repo の削除と force push は token の権限では防げない。守りたい branch には branch protection（または ruleset）を設定する。
 

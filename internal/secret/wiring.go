@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -61,8 +62,29 @@ func PlanWiring(requested []string, defs map[string]Definition, allowed []string
 	return plan, nil
 }
 
+// VMEnv は配線する secret の付随値 (vars) を 1 つの環境変数の集合にまとめる。create がこれを VM の環境変数に入れる。
+// 同じ名前を違う値で持つ secret が 2 つあれば止める。
+func (p Plan) VMEnv() (map[string]string, error) {
+	env := map[string]string{}
+	owner := map[string]string{}
+	var errs []error
+	for _, wire := range p.Wired {
+		for _, name := range slices.Sorted(maps.Keys(wire.Definition.Vars)) {
+			value := wire.Definition.Vars[name]
+			if previous, ok := env[name]; ok && previous != value {
+				errs = append(errs, fmt.Errorf("vars の %s を secret %s と %s が違う値で持つ", name, owner[name], wire.Name))
+				continue
+			}
+			env[name] = value
+			owner[name] = wire.Name
+		}
+	}
+	return env, errors.Join(errs...)
+}
+
 // Apply は計画した secret を sandbox VM に限った secret として実行基盤に置く。
-// 値がすべて secret ファイルにあることを確かめてから書き込む (一部だけ配線された VM を作らない)。
+// 値がすべて secret ファイルにあることを確かめてから書き込む (値が足りないまま一部だけ置くことはしない)。
+// 実行基盤への書き込みが途中で失敗したら、置いた分は残る。sandbox スコープの secret なので destroy で消える。
 func Apply(ctx context.Context, rt runtime.Runtime, sandbox string, plan Plan, values Values) error {
 	secrets := make([]runtime.SandboxSecret, 0, len(plan.Wired))
 	var errs []error
