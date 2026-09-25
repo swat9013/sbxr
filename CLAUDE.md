@@ -1,3 +1,7 @@
+## 開発フロー
+
+作業を始める前に `CONTRIBUTING.md` を読み、branch・worktree 運用と commit・PR 規約に従う。
+
 ## Agent skills
 
 ### Issue tracker
