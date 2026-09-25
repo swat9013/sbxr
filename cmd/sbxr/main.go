@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/swat9013/sbxr/internal/runtime"
+	"github.com/swat9013/sbxr/internal/sandbox"
 )
 
 // version は release build で -ldflags "-X main.version=..." により埋め込まれる。
@@ -25,6 +26,9 @@ type dependencies struct {
 	// githubAPI は GitHub API の root URL。
 	githubAPI string
 	prompter  prompter
+	// places は状態ディレクトリ・cache clone・user 設定の置き場を返す。
+	places func() (sandbox.Places, error)
+	clone  sandbox.Cloner
 }
 
 func main() {
@@ -35,6 +39,8 @@ func main() {
 		secretFilePath: defaultSecretFilePath,
 		githubAPI:      "https://api.github.com",
 		prompter:       newTerminalPrompter(),
+		places:         defaultPlaces,
+		clone:          sandbox.ExecClone,
 	}
 	if err := newRootCmd(resolveVersion(version, info), deps).Execute(); err != nil {
 		os.Exit(1)
@@ -47,7 +53,7 @@ func newRootCmd(version string, deps dependencies) *cobra.Command {
 		Short:   "repo を宣言 1 枚で AI coding agent 用の sandbox VM にする",
 		Version: version,
 	}
-	root.AddCommand(newPolicyCmd(deps), newSecretCmd(deps))
+	root.AddCommand(newPlanCmd(deps), newCreateCmd(deps), newDestroyCmd(deps), newStopCmd(deps), newPolicyCmd(deps), newSecretCmd(deps))
 	return root
 }
 

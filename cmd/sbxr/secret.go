@@ -20,10 +20,11 @@ import (
 	"github.com/swat9013/sbxr/internal/secret"
 )
 
-// prompter は利用者から入力を受け取る。Hidden は入力を画面に出さない。
+// prompter は利用者から入力を受け取る。Hidden は入力を画面に出さない。Confirm は y/N を尋ね、端末が無ければ error を返す。
 type prompter interface {
 	Line(prompt string) (string, error)
 	Hidden(prompt string) (string, error)
+	Confirm(prompt string) (bool, error)
 }
 
 // githubSecretName は default スコープに同梱する GitHub の secret 定義の名前。
@@ -203,6 +204,22 @@ func (p terminalPrompter) Line(prompt string) (string, error) {
 		return "", fmt.Errorf("入力を読めない: %w", err)
 	}
 	return strings.TrimRight(line, "\r\n"), nil
+}
+
+// Confirm は y か yes (大小文字を問わない) だけを承認として読む。端末でなければ止める (確認なしに進めない)。
+func (p terminalPrompter) Confirm(prompt string) (bool, error) {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		return false, errors.New("確認には端末が要る (stdin が端末でない)")
+	}
+	answer, err := p.Line(prompt)
+	if err != nil {
+		return false, err
+	}
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "y", "yes":
+		return true, nil
+	}
+	return false, nil
 }
 
 // Hidden は golang.org/x/term で入力を画面に出さずに読む。端末でなければ止める (pipe の値を黙って受けない)。
