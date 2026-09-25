@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/swat9013/sbxr/internal/assets"
 )
 
 const testDefault = `
@@ -443,4 +445,51 @@ func TestRepoCannotExcludeEgressGroups(t *testing.T) {
 	_, err := mergeYAML(t, testDefault, "", "version: 1\negress:\n  github:\n    enabled: false\n")
 
 	assertErrorMentions(t, err, "egress.github.enabled")
+}
+
+// --- herdr 連携 (ADR 0007) ---
+
+func TestRepoCannotDeclareHerdr(t *testing.T) {
+	_, err := mergeYAML(t, testDefault, "", "version: 1\nherdr:\n  enabled: true\n")
+
+	assertErrorMentions(t, err, "herdr")
+}
+
+func TestHerdrIsOffUnlessTheUserEnablesIt(t *testing.T) {
+	cfg := mustMerge(t, testDefault+"herdr:\n  enabled: false\n  version: v0.9.0\n", "", "")
+
+	if cfg.Herdr.Enabled {
+		t.Errorf("Herdr = %+v, want it disabled by default", cfg.Herdr)
+	}
+}
+
+func TestUserEnablesHerdrWithTheDefaultVersion(t *testing.T) {
+	cfg := mustMerge(t, testDefault+"herdr:\n  enabled: false\n  version: v0.9.0\n", "version: 1\nherdr:\n  enabled: true\n", "")
+
+	if cfg.Herdr != (Herdr{Enabled: true, Version: "v0.9.0"}) {
+		t.Errorf("Herdr = %+v, want enabled with the default version", cfg.Herdr)
+	}
+}
+
+func TestHerdrVersionMustBeAReleaseTag(t *testing.T) {
+	_, err := mergeYAML(t, testDefault, "version: 1\nherdr:\n  enabled: true\n  version: latest; rm -rf /\n", "")
+
+	assertErrorMentions(t, err, "herdr.version")
+}
+
+func TestEnablingHerdrWithoutAnyVersionIsAnError(t *testing.T) {
+	_, err := mergeYAML(t, testDefault, "version: 1\nherdr:\n  enabled: true\n", "")
+
+	assertErrorMentions(t, err, "herdr.version")
+}
+
+func TestEmbeddedDefaultShipsHerdrDisabledWithAPinnedVersion(t *testing.T) {
+	decl, err := Parse(ScopeDefault, "default", assets.DefaultDeclaration)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decl.Herdr.Enabled == nil || *decl.Herdr.Enabled || decl.Herdr.Version == nil || *decl.Herdr.Version != "v0.9.0" {
+		t.Errorf("default herdr = %+v, want enabled: false and version v0.9.0", decl.Herdr)
+	}
 }

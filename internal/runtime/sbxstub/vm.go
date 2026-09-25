@@ -49,7 +49,7 @@ type FakeVM struct {
 	AptBusyPolls int
 	// AptPolls は pgrep -x apt-get が呼ばれた回数。
 	AptPolls int
-	// Events は bash -c の実行 ("shell <command>") とファイルの実行 ("exec <path>") を起きた順に並べる。
+	// Events は bash -c の実行 ("shell <command>")・ファイルの実行 ("exec <path>")・herdr server の停止 ("pkill herdr") を起きた順に並べる。
 	Events []string
 }
 
@@ -120,6 +120,9 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 			return []byte("123\n"), nil
 		}
 		return nil, fmt.Errorf("exit status 1")
+	case slices.Equal(args, []string{"pkill", "-x", "herdr"}):
+		vm.Events = append(vm.Events, "pkill herdr")
+		return nil, nil
 	case len(args) == 3 && args[0] == "bash" && args[1] == "-c":
 		vm.ShellRuns = append(vm.ShellRuns, ShellRun{Dir: command.Dir, Command: args[2]})
 		vm.Events = append(vm.Events, "shell "+args[2])

@@ -8,7 +8,8 @@ import (
 // repoWritableKeys はスコープ制限表のうち、repo 宣言 (untrusted) が書ける key の allowlist。
 // ここに無い key を repo が書くと error にする (key を足したときの既定は「repo は書けない」側に倒れる)。
 // 表に無いことで表す制限: base 固定の profile key (language・env 等)、secret_defs (注入先 host を repo に指定させない。ADR 0003)、
-// egress group の enabled (repo の egress は sandbox スコープ rule で、global rule の group を除外できない)。
+// egress group の enabled (repo の egress は sandbox スコープ rule で、global rule の group を除外できない)、
+// herdr (untrusted な repo に host の herdr へ machine を登録させない。ADR 0007)。
 // egress の group 名は "*" で引く。
 // default と user (信頼済み) は制限を持たない。repo の egress は Merge が sandbox スコープ rule として別に置く。
 var repoWritableKeys = map[string]bool{

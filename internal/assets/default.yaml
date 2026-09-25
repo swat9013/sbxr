@@ -100,3 +100,9 @@ secret_defs:
     hosts:
       - github.com
       - api.github.com
+
+# herdr 連携 (ADR 0007)。user 設定で enabled: true にすると、VM に herdr を入れ、host の herdr に machine を登録する。
+# repo 宣言は書けない。version は動作を確かめた release
+herdr:
+  enabled: false
+  version: v0.9.0

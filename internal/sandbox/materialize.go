@@ -83,6 +83,7 @@ type Stage string
 
 const (
 	StageSandboxEgress Stage = "sandbox スコープ rule"
+	StageHerdr         Stage = "herdr"
 	StageMaterialize   Stage = "materialize"
 	StageReadBack      Stage = "read-back"
 	StageInit          Stage = "init"

@@ -1,0 +1,45 @@
+# herdr 連携 (ADR 0007) の VM 側。sandbox VM の起動ごとに走る。env 定義は herdr 連携が有効なときだけこの kit を入れる。
+# herdr は認証の要らない GitHub release の URL から取る (secret の要求に依存しない。宛先は default の egress の github group)。
+schemaVersion: "2"
+name: sbxr-herdr
+kind: mixin
+description: herdr を導入し、server を起動して Claude Code の integration を入れる
+
+args:
+  version:
+    required: true
+    description: 導入する herdr の release tag (herdrdev/herdr)
+
+setup:
+  startup:
+    - description: herdr を導入する (宣言の版と違うか未導入のときだけ)
+      command:
+        - bash
+        - -c
+        - |
+          set -euo pipefail
+          want='${{ kit.args.version }}'
+          if command -v herdr >/dev/null && [ "$(herdr --version 2>/dev/null)" = "herdr ${want#v}" ]; then
+            exit 0
+          fi
+          dir="$(mktemp -d)"
+          curl -fsSL -o "$dir/herdr" "https://github.com/herdrdev/herdr/releases/download/$want/herdr-linux-aarch64"
+          sudo install -m 0755 "$dir/herdr" /usr/local/bin/herdr
+          # herdr machine add は VM の ~/.local/bin/herdr を検査するので、同じ binary を置く
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$dir/herdr" "$HOME/.local/bin/herdr"
+    - description: herdr server を起動する
+      command:
+        - herdr
+        - server
+      background: true
+    - description: Claude Code の integration を入れる (server が動いてから)
+      command:
+        - bash
+        - -c
+        - |
+          for _ in $(seq 1 30); do
+            herdr status --json 2>/dev/null | grep -q '"running": *true' && break
+            sleep 1
+          done
+          herdr integration install claude
