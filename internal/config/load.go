@@ -41,3 +41,17 @@ func parseFileIfExists(scope Scope, path string) (Declaration, error) {
 	}
 	return Parse(scope, path, data)
 }
+
+// LoadGlobalEgress は同梱の default スコープと userPath の user 設定から、global rule になる egress 宣言だけを重ねて返す。
+// global rule の収束は repo 宣言と git identity を使わないので、Load と違ってそれらを要求しない。
+func LoadGlobalEgress(userPath string) (map[string]map[string]any, error) {
+	defaultDecl, err := Parse(ScopeDefault, "同梱の default 宣言", assets.DefaultDeclaration)
+	if err != nil {
+		return nil, err
+	}
+	userDecl, err := parseFileIfExists(ScopeUser, userPath)
+	if err != nil {
+		return nil, err
+	}
+	return additiveGroups(additiveGroups(nil, defaultDecl.Egress), userDecl.Egress), nil
+}

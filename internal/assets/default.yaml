@@ -24,3 +24,69 @@ profile:
       source:
         source: github
         repo: anthropics/claude-plugins-official
+
+# 全 sandbox VM に常時適用する汎用の宛先グループ (global rule)。user 設定で group を足すか、
+# 同じ名前の group に enabled: false を書いて除外する。repo 固有の宛先は repo 宣言に書く (sandbox スコープ rule)
+egress:
+  github:
+    rationale: git の push / fetch、gh api、GitHub releases からのツール導入、plugin marketplace の取得、ghcr の image
+    allow:
+      - github.com:443
+      - "**.github.com:443"
+      - "**.githubusercontent.com:443"
+      - ghcr.io:443
+  mise-tools:
+    rationale: mise 経由の言語ツールチェーンの導入元 (npm・Go・uv / Python)。registry 解決の主経路の GitHub releases は github group が担う
+    allow:
+      - mise.run:443
+      - mise-versions.jdx.dev:443
+      - registry.npmjs.org:443
+      - dl.google.com:443
+      - astral.sh:443
+      - pypi.org:443
+      - files.pythonhosted.org:443
+  docker-registry:
+    rationale: VM 内の docker daemon の image pull (Docker Hub の registry・auth・CDN) と docker CE の導入元
+    allow:
+      - docker.io:443
+      - "**.docker.io:443"
+      - production.cloudflare.docker.com:443
+      - download.docker.com:443
+  ubuntu-apt:
+    rationale: VM (Ubuntu aarch64) の apt。叩くのは ports.ubuntu.com だけで、80 は apt の既定経路
+    allow:
+      - ports.ubuntu.com:443
+      - ports.ubuntu.com:80
+  cert-validation:
+    rationale: TLS の OCSP / CRL / CA 配布。塞ぐと HTTPS の証明書検証が壊れる
+    allow:
+      - "**.lencr.org:80"
+      - "**.lencr.org:443"
+      - ocsp.digicert.com:80
+      - crl*.digicert.com:80
+      - cacerts.digicert.com:80
+      - "*.one.digicert.com:80"
+      - "*.one.au.digicert.com:80"
+      - "*.one.ch.digicert.com:80"
+      - "*.one.nl.digicert.com:80"
+      - "*.one.digicert.co.jp:80"
+      - ocsp.sectigo.com:80
+      - crl.sectigo.com:80
+      - crt.sectigo.com:80
+      - ocsp.comodoca.com:80
+      - crl.comodoca.com:80
+      - ocsp.usertrust.com:80
+      - crl.usertrust.com:80
+      - "**.pki.goog:80"
+      - "**.pki.goog:443"
+      - "**.amazontrust.com:80"
+      - "**.amazontrust.com:443"
+      - isrg.trustid.ocsp.identrust.com:80
+      - "**.pki.microsoft.com:80"
+      - "**.pki.microsoft.com:443"
+      - crl.globalsign.com:80
+      - crl.globalsign.net:80
+      - ocsp.globalsign.com:80
+      - ocsp.globalsign.com:443
+      - ocsp2.globalsign.com:80
+      - ocsp2.globalsign.com:443

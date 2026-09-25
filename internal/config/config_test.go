@@ -407,3 +407,18 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadGlobalEgressNeedsNoGitIdentity(t *testing.T) {
+	dir := t.TempDir()
+	userPath := filepath.Join(dir, "config.yaml")
+	writeFile(t, userPath, "version: 1\negress:\n  github:\n    enabled: false\n")
+
+	egress, err := LoadGlobalEgress(userPath)
+
+	if err != nil {
+		t.Fatalf("LoadGlobalEgress() error = %v", err)
+	}
+	if egress["github"]["enabled"] != false {
+		t.Errorf("egress[github] = %v, want the user override on top of the embedded default group", egress["github"])
+	}
+}
