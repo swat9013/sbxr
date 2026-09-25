@@ -104,6 +104,9 @@ func TestHerdrIsNeverCalledWhenDisabled(t *testing.T) {
 	if len(lc.herdr.Calls) != 0 {
 		t.Errorf("herdr calls = %v, want none", lc.herdr.Calls)
 	}
+	if slices.Contains(lc.stub.VM.Events, "stop herdr server") {
+		t.Errorf("VM events = %v, want the VM's herdr left alone", lc.stub.VM.Events)
+	}
 }
 
 func TestTheEnvDefinitionLeavesOutTheHerdrKitWhenDisabled(t *testing.T) {

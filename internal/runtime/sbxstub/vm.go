@@ -120,7 +120,7 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 			return []byte("123\n"), nil
 		}
 		return nil, fmt.Errorf("exit status 1")
-	case slices.Equal(args, []string{"sh", "-c", "pkill -x herdr || [ $? -eq 1 ]"}):
+	case len(args) == 3 && args[0] == "sh" && args[1] == "-c" && strings.HasPrefix(args[2], "pkill -x herdr"):
 		vm.Events = append(vm.Events, "stop herdr server")
 		return nil, nil
 	case len(args) == 3 && args[0] == "bash" && args[1] == "-c":

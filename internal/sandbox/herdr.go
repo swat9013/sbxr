@@ -54,7 +54,7 @@ func (p Prepared) RequireHerdr(client herdr.Client) error {
 }
 
 // RequireHerdrFor は、herdr 連携を有効にして作った sandbox VM なら host に herdr があることを確かめる。
-// stop / destroy が確認や VM の操作の前に呼ぶ。
+// destroy が確認の前に呼ぶ。
 func RequireHerdrFor(places Places, name string, client herdr.Client) error {
 	enabled, err := herdrEnabled(places, name)
 	if err != nil || !enabled {
@@ -124,32 +124,33 @@ func startupOutcome(log string) startup {
 	return startupRunning
 }
 
-// stopHerdrServer は VM 内の herdr server を止める。server が動いていなければ (pkill の exit 1) 成功として扱う。
-var stopHerdrServer = []string{"sh", "-c", "pkill -x herdr || [ $? -eq 1 ]"}
+// stopHerdrServer は VM 内の herdr server を止めるコマンド。
+const stopHerdrServer = "pkill -x herdr"
 
 // registerHerdrMachine は host の herdr に <name>.sbx を登録する。
 // kit が起動した server を止めてから登録する (動いたままだと herdr machine add が
 // "remote server is not ready for saved machines" で失敗する。ADR 0007 の実測)。
 // 同じ宛先の登録が残っていたら (前の VM の解除の失敗など)、この回に作っていない登録には触れずに止める。
 func registerHerdrMachine(ctx context.Context, hosts Hosts, name string, progress io.Writer) error {
-	hc := hosts.Herdr
 	target := herdr.Target(name)
-	add := fmt.Sprintf("sbx exec %s -- pkill -x herdr; %s", name, herdr.AddCommand(target, name))
-	machines, err := hc.List(ctx)
+	recovery := fmt.Sprintf("sbx exec %s -- %s; %s", name, stopHerdrServer, herdr.AddCommand(target, name))
+	machines, err := hosts.Herdr.List(ctx)
 	if err != nil {
-		return &HerdrMachineError{Err: err, Recovery: add}
+		return &HerdrMachineError{Err: err, Recovery: recovery}
 	}
 	if stale, ok := herdr.Find(machines, target); ok {
 		return &HerdrMachineError{
 			Err:      fmt.Errorf("%s の登録 %s が既にある (前の sandbox VM の残りなら解除してから登録し直す)", target, stale.ID),
-			Recovery: herdr.RemoveCommand(stale.ID) + "; " + add,
+			Recovery: herdr.RemoveCommand(stale.ID) + "; " + recovery,
 		}
 	}
-	if _, err := hosts.Runtime.ExecInSandbox(ctx, name, runtime.SandboxCommand{Args: stopHerdrServer}); err != nil {
-		return &HerdrMachineError{Err: fmt.Errorf("VM 内の herdr server を止められない: %w", err), Recovery: add}
+	// server が動いていなければ pkill は 1 で終わるので、それは成功として扱う
+	stop := runtime.SandboxCommand{Args: []string{"sh", "-c", stopHerdrServer + " || [ $? -eq 1 ]"}}
+	if _, err := hosts.Runtime.ExecInSandbox(ctx, name, stop); err != nil {
+		return &HerdrMachineError{Err: fmt.Errorf("VM 内の herdr server を止められない: %w", err), Recovery: recovery}
 	}
-	if err := hc.Add(ctx, target, name); err != nil {
-		return &HerdrMachineError{Err: err, Recovery: add}
+	if err := hosts.Herdr.Add(ctx, target, name); err != nil {
+		return &HerdrMachineError{Err: err, Recovery: recovery}
 	}
 	logf(progress, "herdr: %s を登録した\n", target)
 	return nil
@@ -205,7 +206,7 @@ func findHerdrMachine(ctx context.Context, client herdr.Client, name string) (he
 
 // Stop は sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする
 // (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。無効にしたら、有効に戻すコマンドを出す。
-// host に herdr があることは呼び出し元が RequireHerdrFor で確かめる。
+// host に herdr が無ければ、VM に触れずに error で止める。
 func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress io.Writer) error {
 	enabled, err := herdrEnabled(places, name)
 	if err != nil {
@@ -213,6 +214,9 @@ func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress
 	}
 	if !enabled {
 		return hosts.Runtime.StopSandbox(ctx, name)
+	}
+	if err := requireHerdrOnHost(hosts.Herdr); err != nil {
+		return err
 	}
 	machine, found, err := findHerdrMachine(ctx, hosts.Herdr, name)
 	if err != nil {

@@ -231,9 +231,6 @@ func newStopCmd(deps dependencies) *cobra.Command {
 			if err := inspection.RequireManaged(target.Name); err != nil {
 				return err
 			}
-			if err := sandbox.RequireHerdrFor(places, target.Name, deps.herdr); err != nil {
-				return err
-			}
 			if err := sandbox.Stop(cmd.Context(), deps.hosts(), places, target.Name, cmd.OutOrStdout()); err != nil {
 				return err
 			}
