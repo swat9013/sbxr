@@ -11,23 +11,29 @@ args:
     description: 導入する herdr の release tag (herdrdev/herdr)
 
 setup:
+  # 各段は失敗しても 0 で終わり、"sbxr-herdr: fail <段>" を log に残す。dispatcher は最初の失敗で止まるので、
+  # 0 以外で終わると後ろの kit (repo の boot) まで走らなくなる。create 時は sbxr がこの行を失敗として読む。
   startup:
     - description: herdr を導入する (宣言の版と違うか未導入のときだけ)
       command:
         - bash
         - -c
         - |
-          set -euo pipefail
           want='${{ kit.args.version }}'
           if command -v herdr >/dev/null && [ "$(herdr --version 2>/dev/null)" = "herdr ${want#v}" ]; then
             exit 0
           fi
-          dir="$(mktemp -d)"
-          curl -fsSL -o "$dir/herdr" "https://github.com/herdrdev/herdr/releases/download/$want/herdr-linux-aarch64"
-          sudo install -m 0755 "$dir/herdr" /usr/local/bin/herdr
-          # herdr machine add は VM の ~/.local/bin/herdr を検査するので、同じ binary を置く
-          mkdir -p "$HOME/.local/bin"
-          install -m 0755 "$dir/herdr" "$HOME/.local/bin/herdr"
+          if ! (
+            set -euo pipefail
+            dir="$(mktemp -d)"
+            curl -fsSL -o "$dir/herdr" "https://github.com/herdrdev/herdr/releases/download/$want/herdr-linux-$(uname -m)"
+            sudo install -m 0755 "$dir/herdr" /usr/local/bin/herdr
+            # herdr machine add は VM の ~/.local/bin/herdr を検査するので、同じ binary を置く
+            mkdir -p "$HOME/.local/bin"
+            install -m 0755 "$dir/herdr" "$HOME/.local/bin/herdr"
+          ); then
+            echo "sbxr-herdr: fail install $want"
+          fi
     - description: herdr server を起動する
       command:
         - herdr
@@ -42,4 +48,4 @@ setup:
             herdr status --json 2>/dev/null | grep -q '"running": *true' && break
             sleep 1
           done
-          herdr integration install claude
+          herdr integration install claude || echo "sbxr-herdr: fail integration"

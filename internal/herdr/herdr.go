@@ -25,6 +25,7 @@ type Client interface {
 	List(ctx context.Context) ([]Machine, error)
 	// Add は target (SSH の宛先) を label で登録する。
 	Add(ctx context.Context, target, label string) error
+	Enable(ctx context.Context, id string) error
 	Disable(ctx context.Context, id string) error
 	Remove(ctx context.Context, id string) error
 }
@@ -89,6 +90,11 @@ func (CLI) Add(ctx context.Context, target, label string) error {
 		return fmt.Errorf("host の ssh が %s の ProxyCommand を持たない (sbx の ssh 設定が済んでいるか確かめる)", target)
 	}
 	_, err = run(ctx, "herdr", "machine", "add", target, "--label", label)
+	return err
+}
+
+func (CLI) Enable(ctx context.Context, id string) error {
+	_, err := run(ctx, "herdr", "machine", "enable", id)
 	return err
 }
 

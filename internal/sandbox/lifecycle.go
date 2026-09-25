@@ -15,7 +15,6 @@ import (
 	"github.com/swat9013/sbxr/internal/assets"
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/egress"
-	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/secret"
 )
@@ -297,12 +296,13 @@ type envWorkspace struct {
 }
 
 func writeEnvironment(dir string, prepared Prepared) error {
+	selected := kits(prepared.Declaration)
 	env, err := yaml.Marshal(envDefinition{
 		SchemaVersion: "1",
 		Agent:         "claude",
 		Name:          prepared.Target.Name,
 		Workspace:     envWorkspace{Path: prepared.Target.Repo, Clone: true},
-		Kits:          kits(prepared.Declaration),
+		Kits:          selected,
 		Env:           prepared.VMEnv,
 	})
 	if err != nil {
@@ -315,7 +315,7 @@ func writeEnvironment(dir string, prepared Prepared) error {
 	if err := os.RemoveAll(filepath.Join(dir, kitsDir)); err != nil {
 		return fmt.Errorf("状態ディレクトリの kit を書き直せない: %w", err)
 	}
-	for _, kit := range kits(prepared.Declaration) {
+	for _, kit := range selected {
 		name := filepath.Base(kit.Source)
 		sub, err := fs.Sub(assets.Kits(), name)
 		if err == nil {
@@ -326,7 +326,7 @@ func writeEnvironment(dir string, prepared Prepared) error {
 		}
 	}
 	if prepared.Declaration.Herdr != nil {
-		if err := os.WriteFile(filepath.Join(dir, herdrFile), []byte(herdr.Target(prepared.Target.Name)), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, herdrFile), nil, 0o600); err != nil {
 			return fmt.Errorf("状態ディレクトリに %s を書けない: %w", herdrFile, err)
 		}
 	}
@@ -342,7 +342,8 @@ func writeEnvironment(dir string, prepared Prepared) error {
 }
 
 // kits は env 定義に入れる埋め込みの kit。herdr 連携が無効なら herdr の kit を入れない。
-// herdr を先に置く: kit startup は最初の失敗で止まるので、repo の boot の失敗で herdr を巻き込まない。
+// kit startup は最初の失敗で止まる (VM の /etc/durable-startup.d/run.sh)。herdr を先に置いて repo の boot の失敗に巻き込ませず、
+// herdr の kit は失敗しても止めずに印の行を残す (herdr の失敗で boot を飛ばさない)。
 func kits(decl Declaration) []envKit {
 	var list []envKit
 	if decl.Herdr != nil {
@@ -402,7 +403,7 @@ func Destroy(ctx context.Context, hosts Hosts, places Places, target Target, run
 		warnings = append(warnings, err)
 	}
 	if err := rt.RemoveEnvironment(ctx, stateDir); err != nil {
-		return nil, fmt.Errorf("sandbox VM %s を消せない (状態ディレクトリ %s は残した): %w", target.Name, stateDir, err)
+		return warnings, fmt.Errorf("sandbox VM %s を消せない (状態ディレクトリ %s は残した): %w", target.Name, stateDir, err)
 	}
 	if target.FromGitURL() {
 		if err := DiscardClone(places, target); err != nil {

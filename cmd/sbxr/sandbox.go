@@ -188,11 +188,11 @@ func newDestroyCmd(deps dependencies) *cobra.Command {
 			if errors.As(err, &runningErr) { // 確認の間に起動した
 				return runningError(target.Name, runningErr.Status, args[0])
 			}
-			if err != nil {
-				return err
-			}
 			for _, warning := range warnings {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "警告: %v\n", warning)
+			}
+			if err != nil {
+				return err
 			}
 			if len(warnings) > 0 {
 				return fmt.Errorf("sandbox VM %s は撤去したが、片付けに %d 件失敗した", target.Name, len(warnings))
