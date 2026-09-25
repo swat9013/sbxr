@@ -37,7 +37,8 @@ create の前に merge 結果を人間に見せて承認を得る段階。repo �
 _Avoid_: prompt, confirm
 
 **drift**:
-状態ディレクトリにある作成時の宣言と、現在の宣言との差。既存の sandbox VM は宣言の変更を取り込まないため、drift は再作成の合図になる。
+状態ディレクトリにある作成時の宣言と、現在の宣言との差のうち、既存の sandbox VM が取り込まない部分。drift は再作成の合図になる。global rule は policy sync で既存の sandbox VM にも行き渡るため、drift に含めない。
+_Avoid_: 宣言全体の差
 
 ### egress
 
@@ -50,7 +51,7 @@ user 設定の egress 宣言から作られ、全 sandbox VM に常時適用さ�
 _Avoid_: default allow
 
 **sandbox スコープ rule**:
-repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用される許可。destroy で回収される。
+repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用される許可。destroy で消える。
 
 ### secret
 
