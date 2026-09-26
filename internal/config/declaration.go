@@ -45,7 +45,7 @@ type Declaration struct {
 	Egress map[string]map[string]any `yaml:"egress"`
 	Init   []string                  `yaml:"init"`
 	Boot   []string                  `yaml:"boot"`
-	// SecretDefs の中身 (注入方式・注入先 host 等) の schema は secret 配線 (#4) で決めるまで検査しない。
+	// SecretDefs の中身 (注入方式・注入先 host 等) は secret パッケージが検査する。
 	SecretDefs map[string]map[string]any `yaml:"secret_defs"`
 	Secrets    []string                  `yaml:"secrets"`
 }

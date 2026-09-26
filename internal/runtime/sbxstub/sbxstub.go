@@ -1,11 +1,12 @@
-// Package sbxstub は sbx CLI の policy 操作を in-memory で再現する test 用の stub。
-// runtime.Sbx にコマンド実行の代わりとして渡し、実 sbx の global rule に触れずに収束を検証する。
+// Package sbxstub は sbx CLI の policy 操作と secret 操作を in-memory で再現する test 用の stub。
+// runtime.Sbx にコマンド実行の代わりとして渡し、実 sbx の global rule と secret に触れずに検証する。
 package sbxstub
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 )
@@ -24,8 +25,10 @@ type Rule struct {
 // Stub は sbx の policy の状態と、受け取った書き込みコマンドの記録を持つ。
 type Stub struct {
 	Rules []Rule
-	// Writes は受け取った allow / rm のコマンド (引数を空白で連結したもの)。
+	// Writes は受け取った書き込みコマンド (policy allow / rm、secret set / set-custom。引数を空白で連結したもの)。
 	Writes []string
+	// Inputs は書き込みコマンドが stdin で受け取った内容 (Writes と同じ順。stdin が無ければ空文字)。
+	Inputs []string
 	// DropWrites が true なら書き込みを記録だけして状態に反映しない (適用が効かない sbx の再現)。
 	DropWrites bool
 	// FailOnWrite が n (1 始まり) なら n 回目の書き込みを失敗させる。0 なら失敗させない。
@@ -38,14 +41,27 @@ func GlobalAllow(id string, resources ...string) Rule {
 	return Rule{ID: id, Scope: "global", ResourceType: "network", Decision: "allow", Resources: resources, Editable: true}
 }
 
-// Run は sbx の引数を受け取り、policy ls / allow network / rm network を再現する。
-func (s *Stub) Run(_ context.Context, args ...string) ([]byte, error) {
+// Run は sbx の引数を受け取り、policy ls / allow network / rm network と secret set / set-custom を再現する。
+func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	input := ""
+	if stdin != nil {
+		data, err := io.ReadAll(stdin)
+		if err != nil {
+			return nil, err
+		}
+		input = string(data)
+	}
 	switch {
+	case len(args) >= 2 && args[0] == "secret" && (args[1] == "set" || args[1] == "set-custom"):
+		if err := s.recordWrite(args, input); err != nil {
+			return nil, err
+		}
+		return nil, nil
 	case slices.Equal(args, []string{"policy", "ls", "--json"}):
 		// sbx は rule が無くても空の配列を返す
 		return json.Marshal(map[string][]Rule{"rules": append([]Rule{}, s.Rules...)})
 	case len(args) == 4 && slices.Equal(args[:3], []string{"policy", "allow", "network"}):
-		if err := s.recordWrite(args); err != nil {
+		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
 		if s.DropWrites {
@@ -57,7 +73,7 @@ func (s *Stub) Run(_ context.Context, args ...string) ([]byte, error) {
 		}
 		return nil, nil
 	case len(args) == 5 && slices.Equal(args[:4], []string{"policy", "rm", "network", "--id"}):
-		if err := s.recordWrite(args); err != nil {
+		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
 		if s.DropWrites {
@@ -73,10 +89,11 @@ func (s *Stub) Run(_ context.Context, args ...string) ([]byte, error) {
 	return nil, fmt.Errorf("sbxstub: 想定外の引数 %q", args)
 }
 
-func (s *Stub) recordWrite(args []string) error {
+func (s *Stub) recordWrite(args []string, input string) error {
 	if s.FailOnWrite == len(s.Writes)+1 {
 		return fmt.Errorf("sbxstub: %d 回目の書き込みを失敗させた", s.FailOnWrite)
 	}
 	s.Writes = append(s.Writes, strings.Join(args, " "))
+	s.Inputs = append(s.Inputs, input)
 	return nil
 }
