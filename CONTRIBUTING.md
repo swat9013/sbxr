@@ -22,6 +22,7 @@ sbxr は設計段階（v0.1 未リリース）。語彙は [CONTEXT.md](./CONTEX
 
 - commit 前: pre-commit の gitleaks と gofmt
 - PR / push: GitHub Actions で `go test ./...`・`golangci-lint`・`goreleaser check`
+- PR: GitHub Actions が `docs/design/sbxr/decision/` の既存 file の変更・削除・改名を拒む（decision は不変）
 - `v*` tag の push: release workflow が `go test ./...` の後に goreleaser で GitHub Release と `swat9013/homebrew-tap` の cask を出す（secret `HOMEBREW_TAP_GITHUB_TOKEN` が要る）
 
 ## commit・PR 規約

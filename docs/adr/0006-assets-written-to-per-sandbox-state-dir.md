@@ -40,3 +40,14 @@ boot は埋め込みの kit `sbxr-boot`（状態ディレクトリの `kits/` �
 - `sbx env rm` は stdin が端末でないと `--force` を要求し、`--force` は in-use の sandbox も消す。`sbx ls --json` に in-use を示す欄は無く、`sbx stop` も in-use を拒まない
 
 前提の「同じ実在ディレクトリが要る」は「destroy の時点で env 定義が実在する」に弱まるが、状態ディレクトリに env 定義を置き続ける設計はそのまま成り立つ。
+
+## 改訂（2026-09-26、#31）
+
+設計ドキュメント（[docs/design/sbxr/](../design/sbxr/)）の決定で、上の記述を次のように改める。
+
+- `--force` は、稼働中（使用中かもしれない）の VM の撤去に加えて、destroy 前の未回収の検査も省く。上の「`--force` を使用中の VM の強制撤去だけに使う」という約束は、この形に広がる（[decision/0003](../design/sbxr/decision/0003-destroy-checks-unrecovered.md)）
+- 「lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにし」は実装していない。env 定義は lifecycle を使わず、VM の中の処理は kit（bash）で完結する。sbx から sbxr への着信接続は無い
+- 状態ディレクトリには、出所に加えて投入方式と herdr 連携の有無を作成の最初に記録する。作成途中の VM の stop と destroy もこれを読む
+- 作成が終わった印（`declaration.yaml`）は、egress 自己検証が通った後に書く（[decision/0006](../design/sbxr/decision/0006-egress-self-check-from-vm.md)）
+- 作成時の宣言があっても VM が無い（VM 消失）なら、create は drift を報告せず、destroy を促して止まる
+- template を作る build 用 VM も状態ディレクトリを持ち、build の印と出所を記録する。状態ディレクトリの無い VM に触らないという約束は、build 用 VM の残骸の撤去にも及ぶ（[decision/0005](../design/sbxr/decision/0005-template-build-inputs-and-refresh.md)）

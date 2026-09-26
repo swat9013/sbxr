@@ -24,7 +24,7 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 - git URL の repo は一時ディレクトリへ clone し、default branch の HEAD の `sbxr.yaml` を現在の宣言とする（VM の cache clone には触れない。そこには VM の git remote と取り込んだ commit がある）。`--yes` で repo の egress を落として作った VM は、比べるときも落とす
 - secret の並びと注入先 host の並びは差にしない
 
-sandbox VM 内の commit は、VM の稼働中に host 側 repo で `git fetch sandbox-<name>` を実行して取り込むか、VM 内から origin へ push して取り出す。
+sandbox VM 内の commit は、VM 内から origin へ push して取り出す。sbxr は host 側 repo へ取り込む経路を持たない（[設計の決定](docs/design/sbxr/decision/0001-recover-only-via-origin.md)）。
 
 ## 置き場
 
