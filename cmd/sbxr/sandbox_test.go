@@ -404,6 +404,71 @@ func TestCreateOnAnExistingSandboxDoesNotCreateAgain(t *testing.T) {
 	}
 }
 
+// --- VM 消失 (作成時の宣言はあるが、VM が sbxr の外で撤去された) ---
+
+// removeOutsideSbxr は sbx rm で VM だけを消した状態にする。状態ディレクトリと sandbox スコープの secret は残る。
+func (lc *lifecycle) removeOutsideSbxr(name string) {
+	delete(lc.stub.Sandboxes, name)
+}
+
+func TestCreateAfterTheVMWasRemovedOutsideSbxrAsksToDestroyFirst(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.removeOutsideSbxr("app")
+	writes := len(lc.stub.Writes)
+
+	out, err := lc.run(t, "create", repo, "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "sbxr destroy "+repo) {
+		t.Errorf("error = %v, want it to ask for sbxr destroy", err)
+	}
+	if strings.Contains(out, "drift:") {
+		t.Errorf("output = %q, want no drift report for a vanished VM", out)
+	}
+	if len(lc.stub.Writes) != writes {
+		t.Errorf("sbx writes = %q, want none", lc.stub.Writes[writes:])
+	}
+}
+
+func TestStopAfterTheVMWasRemovedOutsideSbxrAsksToDestroyWithoutCallingSbx(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.removeOutsideSbxr("app")
+	writes := len(lc.stub.Writes)
+
+	_, err := lc.run(t, "stop", repo)
+
+	if err == nil || !strings.Contains(err.Error(), "sbxr destroy "+repo) {
+		t.Errorf("error = %v, want it to ask for sbxr destroy", err)
+	}
+	if len(lc.stub.Writes) != writes {
+		t.Errorf("sbx writes = %q, want none", lc.stub.Writes[writes:])
+	}
+}
+
+// destroy は VM 消失を拒否せずに片付ける (create と stop が促す先なので、VM 消失を拒否側に倒さない)。
+func TestDestroyAfterTheVMWasRemovedOutsideSbxrCleansUpTheStateDirAndSecrets(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\n")
+	secretFile, _ := lc.deps.secretFilePath()
+	if err := os.WriteFile(secretFile, []byte("GITHUB_TOKEN=ghp_x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.removeOutsideSbxr("app")
+
+	lc.mustRun(t, "destroy", repo, "--yes")
+
+	if lc.stub.SandboxSecrets["app"] != 0 {
+		t.Errorf("sandbox-scoped secrets = %d, want the token removed", lc.stub.SandboxSecrets["app"])
+	}
+	if exists(lc.places.StateDir("app")) {
+		t.Errorf("destroy left the state dir")
+	}
+}
+
 func TestCreateRefusesASandboxSbxrDidNotCreate(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
 	lc.stub.Sandboxes = map[string]string{"app": "stopped"}
