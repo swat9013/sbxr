@@ -448,6 +448,7 @@ func TestStopAfterTheVMWasRemovedOutsideSbxrAsksToDestroyWithoutCallingSbx(t *te
 	}
 }
 
+// destroy は VM 消失を拒否せずに片付ける (create と stop が促す先なので、VM 消失を拒否側に倒さない)。
 func TestDestroyAfterTheVMWasRemovedOutsideSbxrCleansUpTheStateDirAndSecrets(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\n")
 	secretFile, _ := lc.deps.secretFilePath()

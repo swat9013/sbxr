@@ -355,3 +355,19 @@ func TestCreateFailsAndKeepsTheVMWhenTheHerdrKitFails(t *testing.T) {
 		})
 	}
 }
+
+func TestStopOfAVanishedVMLeavesTheHerdrMachineAlone(t *testing.T) {
+	lc := herdrLifecycle(t)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.removeOutsideSbxr("app")
+	lc.herdr.Calls = nil
+
+	if _, err := lc.run(t, "stop", repo); err == nil {
+		t.Fatalf("stop error = nil, want it to ask for sbxr destroy")
+	}
+
+	if len(lc.herdr.Calls) != 0 {
+		t.Errorf("herdr calls = %v, want none", lc.herdr.Calls)
+	}
+}

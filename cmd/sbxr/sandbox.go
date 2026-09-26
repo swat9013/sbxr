@@ -279,7 +279,7 @@ func runningError(name string, status runtime.SandboxStatus, input string) error
 
 // vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の create と stop を止める error。
 func vanishedError(name, input string) error {
-	return fmt.Errorf("sandbox VM %s は sbxr の外で撤去されている (状態ディレクトリだけが残っている)。sbxr destroy %s で片付けてから作り直す", name, input)
+	return fmt.Errorf("sandbox VM %s は sbxr の外で撤去されている (状態ディレクトリだけが残っている)。sbxr destroy %s で片付ける", name, input)
 }
 
 func newStopCmd(deps dependencies) *cobra.Command {
