@@ -1,0 +1,243 @@
+@startuml sbxr-domain
+' 記述規約:
+' 1. 全属性に {field} を必須とする。PlantUML は () の有無でフィールド / メソッドを判定するため、
+'    括弧を含む属性は hide methods 系の設定下でメソッド扱いされ、画像から無言で消える (構文検査は exit 0 のまま)。
+'    render-puml.py がこの規約を機械検査する
+' 2. 検査は必ず exit code で判定する。-tsvg / -tpng は syntax error でもエラー画像を生成して exit 0 を返しうるので、
+'    生成物の有無を成功判定に使わない
+' 3. class の stereotype は CONTEXT.md の語。集約は package 枠、集約間は ID 参照 (..>) + 多重度、
+'    不変条件は所有オブジェクトに束縛した note に書く
+hide circle
+hide empty members
+skinparam packageStyle rectangle
+
+package "集約: sandbox VM (1 つの出所から作った VM の管理)" as AggVM {
+  class SandboxVM <<sandbox VM>> {
+    {field} 名前 : 出所から決まる (英数字と . _ -)
+    {field} 出所 : repo の絶対 path | git URL
+    {field} 投入方式 : clone | copy | mount
+    {field} herdr 連携 : 有効 | 無効
+    {field} 状態 : statechart.puml の 6 状態
+  }
+  class CreationDeclaration <<作成時の宣言>> {
+    {field} profile : agent runtime profile
+    {field} git : name・email
+    {field} init・boot : コマンド列
+    {field} sandbox スコープ rule の宛先 : host[:port] の列
+    {field} repo の egress の扱い : 残す | 落とす
+    {field} herdr の版 : 無効なら無し
+    {field} template の hash : cache 層が無ければ無し
+  }
+  class WiredSecret <<配線した secret>> {
+    {field} 名前 : secret 定義の名前
+    {field} 注入 : service | hosts + env
+  }
+  class CacheClone <<cache clone>> {
+    {field} path : cache root 直下の <名前>
+  }
+}
+
+package "集約: template (出所ごとの cache 層の snapshot)" as AggTemplate {
+  class Template <<template>> {
+    {field} 出所 : repo の絶対 path | git URL
+    {field} tag : sbxr-<小文字の名前>-<出所の hash>:<cache 層の hash>
+    {field} cache 層の hash : run と inputs の内容から
+    {field} 作成日時
+  }
+  class BuildVM <<build 用 VM>> {
+    {field} 名前 : sbxr-build-<出所の hash>
+    {field} 状態ディレクトリ : build の印と出所
+    {field} 置くもの : inputs のファイルだけ
+  }
+}
+
+package "集約: 宣言 (1 スコープ分の宣言ファイル)" as AggDecl {
+  class Declaration <<宣言>> {
+    {field} スコープ : default | user | repo
+    {field} version : 1
+    {field} profile・git・init・boot
+  }
+  class EgressGroup <<egress 宣言>> {
+    {field} group 名
+    {field} rationale
+    {field} allow : host[:port] の列
+    {field} enabled : 既定 true
+  }
+  class SecretDefinition <<secret 定義>> {
+    {field} 名前
+    {field} 注入方式 : service | env
+    {field} key : secret ファイルのキー
+    {field} hosts : 注入先 host
+    {field} vars : 秘密でない付随値
+  }
+  class SecretRequest <<secret 要求>> {
+    {field} 名前 : secret 定義の名前
+  }
+  class CacheLayer <<cache 層>> {
+    {field} run : コマンド列
+    {field} inputs : repo root からの相対 path の列
+    {field} max_age_days : template の期限 (default 7)
+  }
+  class HerdrDeclaration <<herdr 連携>> {
+    {field} enabled
+    {field} version : vX.Y.Z
+  }
+}
+
+package "集約: secret ファイル" as AggSecretFile {
+  class SecretFile <<secret ファイル>> {
+    {field} path : ~/.config/sbxr/secrets.env
+    {field} mode : 0600
+    {field} キー = 値 : 実値
+  }
+}
+
+package "集約: global rule (sbx 側の実体)" as AggGlobal {
+  class GlobalRule <<global rule>> {
+    {field} id : sbx が振る
+    {field} decision : allow | deny
+    {field} resources : 宛先の列
+  }
+}
+
+class HerdrMachine <<herdr machine>> {
+  {field} id : herdr が振る
+  {field} target : <名前>.sbx
+  {field} 有効か
+}
+
+class Unrecovered <<未回収>> {
+  {field} 未 push の commit : origin から到達できない local branch の commit
+  {field} 未 commit の変更 : tracked の変更・ignored でない untracked
+  {field} stash
+}
+
+SandboxVM "1" *-- "0..1" CreationDeclaration : 作成時の宣言
+CreationDeclaration "1" *-- "0..n" WiredSecret
+SandboxVM "1" *-- "0..1" CacheClone : git URL のときだけ
+Template "1" *-- "0..1" BuildVM : 作成中だけ
+
+Declaration "1" *-- "0..n" EgressGroup
+Declaration "1" *-- "0..n" SecretDefinition
+Declaration "1" *-- "0..n" SecretRequest
+Declaration "1" *-- "0..1" CacheLayer
+Declaration "1" *-- "0..1" HerdrDeclaration
+
+Declaration "1..3" .down.> "1" CreationDeclaration : merge して現在の宣言を確定\n(作成時の宣言との差が drift)
+SandboxVM "0..n" .right.> "0..1" Template : ID参照 tag
+SandboxVM "1" .left.> "0..1" HerdrMachine : ID参照 target
+SandboxVM "1" .up.> "0..1" Unrecovered : destroy の前に導出
+SecretRequest "0..n" ..> "1" SecretDefinition : ID参照 名前
+WiredSecret "0..n" ..> "1" SecretDefinition : ID参照 名前
+SecretDefinition "0..n" .down.> "1" SecretFile : ID参照 key
+EgressGroup "0..n" ..> "0..n" GlobalRule : default・user の group が期待集合
+
+note top of SandboxVM
+  状態ディレクトリがあることが sbxr の管理下の印。
+  無い VM (管理外) と出所が違う VM (別出所) には create・stop・destroy のどれも触らない。
+  名前 1 つに出所は 1 つ。
+  出所・投入方式・herdr 連携の有無は作成の最初に状態ディレクトリへ記録する
+  (作成途中の VM の stop・destroy もこれを読んで herdr machine を扱う)。
+  作成時の宣言がある ⇔ 作成済み (稼働中・停止中・VM 消失)。
+  作成時の宣言は egress 自己検証が通った後にだけ書く。
+  git URL の VM の投入方式は clone だけ。
+  destroy (--force 無し) は止まっている VM だけ。
+  作成済みの clone・copy の VM は未回収が空のときだけ。
+  drift は作成時の投入方式と repo の egress の扱いを再現して比べる。
+end note
+
+note bottom of CreationDeclaration
+  secret の値を持たない。git の name・email はどちらも空でない。
+  配線した secret の注入先 host はすべて egress で許可されている
+  (global rule の期待集合 ∪ sandbox スコープ rule の宛先)。
+  配線した secret の vars は、同じ環境変数名を違う値で持たない。
+  repo の egress を落として確定したら、sandbox スコープ rule の宛先は空。
+  現在の宣言も同じ形で、同じ扱いで確定する。
+  drift は secret の並びと注入先 host の並びを差にしない。
+end note
+
+note right of CacheClone
+  cache root 直下のものだけを消す (利用者の repo を消さない)。
+  destroy で消える。作成が記録前に止まったら、その場で消す。
+end note
+
+note top of Template
+  識別は出所 (名前ではない)。名前が同じでも出所が違えば別の template。
+  出所ごとに最新は 1 つ。新しい hash の template を作ったら同じ出所の旧いものを消す
+  (消せなければ残して警告)。destroy では消さない。
+  期限切れの作り直しは同じ tag を新しい image に付け替える。
+  実値の secret を含まない (placeholder 注入なので)。
+  記録は状態ディレクトリとは別の置き場に置く (destroy の後も残る)。
+end note
+
+note right of BuildVM
+  template の作成が終われば成否によらず撤去する。
+  残骸は同じ出所の次の create が撤去する。撤去するのは build の印と出所が
+  一致するものだけ (管理外・別出所には触れない)。
+  egress と secret の配線は作る sandbox VM と同じ。
+end note
+
+note right of Declaration
+  3 スコープで同じ schema (version: 1)。1 つの YAML document に書く。
+  未知の key、値の無い key、空の値は error (黙って下の層の値に落とさない)。
+  repo 宣言は制限表の allowlist の key だけを書ける
+  (secret_defs・herdr・egress の enabled・template.max_age_days・
+  base 固定の profile key は書けない)。
+  default → user → repo の順に重ねる:
+  map は additive (同じ key は後の層が勝つ)、scalar は override、
+  init・boot・template.run は並べて足し、secrets・template.inputs は和集合。
+  profile.enabledPlugins は true だけを書ける (下の層の plugin は消せない)。
+  egress の group は名前ごとに field を重ね、allow は和集合。
+  git.name・git.email はどこかのスコープに要る。
+  herdr を有効にするなら version が要る。
+end note
+
+note bottom of CacheLayer
+  run は並べて足し、inputs は和集合、max_age_days は override。
+  inputs は repo root からの相対 path で、repo の外
+  (..・絶対 path・外を指す symlink) を指さない。
+end note
+
+note bottom of SecretDefinition
+  default と user スコープだけが書ける。
+  hosts は glob・port を書けない。
+end note
+
+note bottom of SecretFile
+  mode 0600 以外は拒否する。secret の値の唯一の取得元。
+end note
+
+note bottom of GlobalRule
+  sbxr が触るのは editable な global rule だけ。
+  期待集合に無いもの (deny・複数の宛先・重複を含む) は消す。
+  宣言に残る宛先を塞がないよう、足してから消す。
+end note
+
+note bottom of HerdrDeclaration
+  default と user スコープだけが書ける。
+  VM 内の導入は default の github group の egress に頼る
+  (secret 要求には頼らない)。
+end note
+
+note bottom of EgressGroup
+  rationale と allow が要る (enabled: false で除外した group も)。
+  allow は小文字の host[:port]。末尾の 2 label は glob を含まない。
+  port は 1〜65535。URL・カンマ・IPv6・CIDR は書けない。
+  default・user の group は global rule の期待集合、
+  repo の group は sandbox スコープ rule になる。
+end note
+
+note left of HerdrMachine
+  herdr 連携を有効にして作った VM にだけある。
+  sbxr が登録したものにだけ触れる (同じ target の登録が既にあれば止まる)。
+  sbxr stop の後は無効。
+end note
+
+note right of Unrecovered
+  対象は作成済みの clone・copy の VM だけ
+  (mount は host の作業ツリーに直接書くので失われない)。
+  origin は VM 内で fetch した後の remote-tracking で見る。
+  fetch には origin の host の egress 許可と secret の配線が要る
+  (VM に ssh 鍵は無く、token は HTTPS にだけ注入される)。
+end note
+@enduml

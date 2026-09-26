@@ -1,0 +1,71 @@
+@startuml sbxr-statechart
+' sandbox VM の状態機械 (sbxr から見た 1 つの sandbox VM)。
+' 記述規約:
+' 1. 状態は平坦に並べる (複合状態・並行領域を使わない)。組合せ検査 check-statechart.py の対応範囲に収める
+' 2. 状態 id は ASCII、表示名は CONTEXT.md の語。イベント名は空白を含めない
+' 3. 同じイベントの結果の分岐は [guard] で、遷移に伴う副作用は / action で書く
+' 4. 管理外・別出所の VM はこの状態機械の外 (create / stop / destroy のどれも触らずに止まる)
+' 5. 検査は必ず exit code で判定する。-tsvg / -tpng は syntax error でもエラー画像を生成して exit 0 を返しうる
+hide empty description
+
+state "未作成" as Absent
+state "作成途中・停止" as IncompleteStopped
+state "作成途中・稼働" as IncompleteRunning
+state "稼働中" as Running
+state "停止中" as Stopped
+state "VM 消失" as VMGone
+
+[*] --> Absent
+
+' --- create ---
+Absent --> Running : create [成功] / template を用意・作成時の宣言を書く・herdr machine を登録 (失敗しても稼働中)
+Absent --> Absent : create [記録前に失敗] / cache clone と build 用 VM を片付ける
+Absent --> IncompleteStopped : create [VM 作成前に失敗]
+Absent --> IncompleteRunning : create [VM 作成後に失敗] / VM を調べられるよう残す
+IncompleteStopped --> IncompleteStopped : create / 拒否 (destroy を促す)
+IncompleteRunning --> IncompleteRunning : create / 拒否 (stop → destroy を促す)
+Running --> Running : create / drift を報告 (差分があれば非 0)
+Stopped --> Stopped : create / drift を報告 (差分があれば非 0)
+VMGone --> VMGone : create / 拒否 (destroy を促す)
+
+' --- stop ---
+Absent --> Absent : stop / 拒否 (VM が無い)
+IncompleteStopped --> IncompleteStopped : stop / 止まっている
+IncompleteRunning --> IncompleteStopped : stop
+Running --> Stopped : stop / herdr machine を無効にしてから止める
+Stopped --> Stopped : stop / 止まっている
+VMGone --> VMGone : stop / 拒否 (destroy を促す)
+
+' --- destroy ---
+Absent --> Absent : destroy / 拒否 (VM が無い)
+IncompleteStopped --> Absent : destroy / 未回収を検査せずに撤去
+IncompleteRunning --> IncompleteRunning : destroy [--force 無し] / 拒否 (使用中か確かめられない)
+IncompleteRunning --> Absent : destroy [--force] / 撤去
+Running --> Running : destroy [--force 無し] / 拒否 (使用中か確かめられない)
+Running --> Absent : destroy [--force] / 未回収を検査せずに撤去
+Stopped --> Stopped : destroy [未回収あり ∨ 検査に失敗] / 一時起動して検査し、止め直して拒否
+Stopped --> Absent : destroy [未回収なし ∨ 検査対象外] / 一時起動して検査し、止め直して撤去
+Stopped --> Absent : destroy [--force] / 未回収を検査せずに撤去
+VMGone --> Absent : destroy / VM が無くても sandbox スコープの secret を消して撤去
+
+' --- sbxr の外で起きること (sbx exec・herdr の再接続・sbx stop・sbx rm) ---
+IncompleteStopped --> IncompleteRunning : 外部起動 [VM がある]
+Stopped --> Running : 外部起動 / boot を再生
+IncompleteRunning --> IncompleteStopped : 外部停止
+Running --> Stopped : 外部停止 / herdr machine は有効のまま (herdr が起こし直しうる)
+IncompleteStopped --> IncompleteStopped : 外部撤去 [VM がある]
+IncompleteRunning --> IncompleteStopped : 外部撤去
+Running --> VMGone : 外部撤去
+Stopped --> VMGone : 外部撤去
+
+' uncovered: Absent x 外部起動 — VM が無い (sbxr の外で同じ名前の VM が作られたら管理外で、この状態機械の外)
+' uncovered: Absent x 外部停止 — VM が無い
+' uncovered: Absent x 外部撤去 — VM が無い
+' uncovered: IncompleteStopped x 外部停止 — 止まっているか VM が無いので、止める対象が無い
+' uncovered: IncompleteRunning x 外部起動 — 既に稼働している
+' uncovered: Running x 外部起動 — 既に稼働している
+' uncovered: Stopped x 外部停止 — 既に止まっている
+' uncovered: VMGone x 外部起動 — VM が無い
+' uncovered: VMGone x 外部停止 — VM が無い
+' uncovered: VMGone x 外部撤去 — VM が無い
+@enduml
