@@ -77,7 +77,6 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
 - herdr machine の登録・無効化・解除と、destroy の一時起動は、遷移の action として書く
 - plan・policy sync・secret setup は VM の状態を変えないので、イベントに含めない
-- 現行の実装は、VM 消失でも create が「既にある」として drift を報告する。設計では destroy を促して止まる（実装は follow-up）
 
 却下: VM と herdr machine の 2 枚の状態機械。理由: herdr machine の状態は VM の遷移の action として変わるだけで、独立したイベントを持たない（herdr の再接続は VM の外部起動として現れる）。2 枚にすると、同期を note でしか縛れない。
 
@@ -100,10 +99,11 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 4. copy 方式の持ち込み: `sbx cp` は host の uid と mode のまま置く（ADR 0006）。`sbx exec -i` の stdin で流し込み、VM の agent から読み書きできるか
 5. mount 方式: env 定義で `workspace.clone: false` にしたとき、host の作業ツリーが VM の agent から読み書きできる uid で見えるか
 6. VM 内から許可外の宛先への通信が proxy で拒否され、curl が失敗として返るか（egress 自己検証の判定）
+7. sbx が global rule の host の大小文字や port の無い pattern（例: `*.example.com`）を正規化して保存するか。書き換えるなら、`sbxr policy sync` はその宛先を毎回消して足し直す（ADR 0008）
 
 ### 実測（2026-09-27、sbx v0.45.1、#33）
 
-1〜5 は成り立ち、6 は後半が成り立たない。env 定義は sbxr が書く形（`schemaVersion: "1"`・`agent: claude`）にそろえ、`sbx env create -y` で probe の VM を 1 つずつ作って確かめた。probe の repo の origin は `https://github.com/example/sbxr-probe.git`（実在しない）。global policy は default deny だった（`sbx policy check network example.com:443` → Denied、`github.com:443` → Allowed）。
+1〜6 を確かめた。1〜5 は成り立ち、6 は後半が成り立たない。7 は #33 の後に足した前提で、確かめていない。env 定義は sbxr が書く形（`schemaVersion: "1"`・`agent: claude`）にそろえ、`sbx env create -y` で probe の VM を 1 つずつ作って確かめた。probe の repo の origin は `https://github.com/example/sbxr-probe.git`（実在しない）。global policy は default deny だった（`sbx policy check network example.com:443` → Denied、`github.com:443` → Allowed）。
 
 1. **成り立つ**
    - template を指定する key は `sandboxOptions.template`。top-level の `template:`・`image:` は `field not found in type sbxenv.Config` で拒否される

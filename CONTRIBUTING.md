@@ -1,6 +1,6 @@
 # Contributing
 
-sbxr は設計段階（v0.1 未リリース）。語彙は [CONTEXT.md](./CONTEXT.md)、設計判断は [docs/adr/](./docs/adr/) を正本とする。
+sbxr は v0.1.0 を release 済み。語彙は [CONTEXT.md](./CONTEXT.md)、設計判断は [docs/adr/](./docs/adr/) を正本とする。
 
 ## セットアップ
 

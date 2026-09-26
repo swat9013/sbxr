@@ -51,7 +51,7 @@ type sbxRule struct {
 }
 
 // ListGlobalEgressRules は scope=global・resource_type=network・editable=true の rule を返す。
-// editable でない rule (sbx 自身が管理する既定の rule) と sandbox スコープ rule は対象外。
+// editable でない rule (sbx 自身が管理する既定の rule) と sandbox スコープ rule は対象外 (ADR 0008)。
 func (s *Sbx) ListGlobalEgressRules(ctx context.Context) ([]EgressRule, error) {
 	out, err := s.run(ctx, nil, "policy", "ls", "--json")
 	if err != nil {
