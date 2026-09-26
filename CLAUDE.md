@@ -21,4 +21,4 @@ Issue は GitHub Issues (swat9013/sbxr) で管理し、`gh` CLI で操作する�
 
 ### Domain docs
 
-single-context: root の `CONTEXT.md` と `docs/adr/`。See `docs/agents/domain.md`.
+single-context: root の `CONTEXT.md` と `docs/adr/`。See `docs/agents/domain.md`. 実装に入る前に、設計ドキュメントの索引 `docs/design/sbxr/README.md` も読む。
