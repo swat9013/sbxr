@@ -29,22 +29,10 @@ repo 宣言は `enabled` を書けない（ADR 0004 のスコープ制限表の 
 
 ## 未確認
 
-sbx が host の大小文字や port の無い pattern を正規化して保存するかは確かめていない（[system.md](../design/sbxr/system.md) の未実測の前提 7）。確かめるには実 sbx の global rule へ書き込む必要があり、その書き込みは稼働中の全 sandbox VM に即座に効く。確かめる手順は PR #20 の「実機での確認」にある。
+sbx が host の大小文字や port の無い pattern を正規化して保存するかは確かめていない（[system.md](../design/sbxr/system.md) の未実測の前提 7）。確かめるには実 sbx の global rule へ書き込む必要があり、その書き込みは稼働中の全 sandbox VM に即座に効く。確かめる手順は PR #20 の「実機での確認」の「人間に返す確認」にある。
 
 ## Considered Options
 
-退けた代替案は、実装時の記録（PR #20 の「設計判断」と欠陥探し、#3 の triage）にあるものに限る。
-
-- allow の書式
-  - 末尾 2 label が glob だけの宛先（`**.*:443` など）を通す: 全開に近い指定が global rule になり、全 sandbox VM に効く
-  - 大文字の host を受け付ける: sbx が保存する形と文字列で一致せず、毎回の sync で消して足し直す
-  - 範囲外の port を受け付ける: 欠陥探しで退けた（理由の記録なし）
-  - 宛先ごとの型（`Resource`）を作る: 期待集合を作る経路は検証済みの group からの 1 本だけで、型で守るものが無い
-  - IPv6 と CIDR、カンマ: 記録なし
-- group の除外
-  - 除外した group には中身を求めない: 除外したい group 名の書き違いが、中身の無い新しい group として黙って通る
-  - 除外を scalar の `enabled: false` 以外で書く: 記録なし（採った理由は上の「group の除外」）
-  - repo 宣言に `enabled` を書かせる: 記録なし
-- global rule の収束
-  - 削除を `--prune` のような opt-in にする: 宣言に無い rule は手で足したものも消すと先に決めた（#3 の triage）ので、opt-in にする理由が無い
-  - 消してから足す: 複数 resource の rule を分ける間、宣言に残る宛先が塞がる
+- 宛先ごとの型（`Resource`）を作り、検証済みの宛先を型で表す: 期待集合を作る経路は検証済みの group からの 1 本だけで、型で守るものが無い
+- 削除を `--prune` のような opt-in にする: 宣言に無い rule は手で足したものも消し、消えるものは `--check` で事前に見せると先に決めた（#3 の triage）
+- allow の書式の各制限、除外した group に中身を求めること、repo 宣言に `enabled` を書かせないこと、足してから消す順序: 退けた代替案の記録なし。採った理由は各節に書いた
