@@ -169,6 +169,8 @@ const (
 	Incomplete
 	// Ready は sbxr が作り終えた VM。
 	Ready
+	// Vanished は作成時の宣言があるのに、VM が sbxr の外で撤去されている (VM 消失)。destroy で片付ける。
+	Vanished
 )
 
 // Inspection は Inspect の結果。
@@ -201,6 +203,9 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 		return Inspection{Situation: Incomplete, Status: status}, nil
 	} else if err != nil {
 		return Inspection{}, err
+	}
+	if status == runtime.SandboxAbsent {
+		return Inspection{Situation: Vanished, Status: status}, nil
 	}
 	return Inspection{Situation: Ready, Status: status}, nil
 }

@@ -96,6 +96,8 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 				return reportExisting(cmd, deps, places, target, args[0])
 			case sandbox.Incomplete:
 				return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから作る", target.Name, args[0])
+			case sandbox.Vanished:
+				return vanishedError(target.Name, args[0])
 			case sandbox.Unmanaged, sandbox.OtherSource:
 				return inspection.RequireManaged(target.Name)
 			}
@@ -275,6 +277,11 @@ func runningError(name string, status runtime.SandboxStatus, input string) error
 	return fmt.Errorf("sandbox VM %s は %s (使用中かを確かめられない)。sbxr stop %s で止めてから撤去するか、--force で撤去する", name, status, input)
 }
 
+// vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の create と stop を止める error。
+func vanishedError(name, input string) error {
+	return fmt.Errorf("sandbox VM %s は sbxr の外で撤去されている (状態ディレクトリだけが残っている)。sbxr destroy %s で片付けてから作り直す", name, input)
+}
+
 func newStopCmd(deps dependencies) *cobra.Command {
 	return &cobra.Command{
 		Use:   "stop <repo>",
@@ -292,6 +299,9 @@ func newStopCmd(deps dependencies) *cobra.Command {
 			}
 			if err := inspection.RequireManaged(target.Name); err != nil {
 				return err
+			}
+			if inspection.Situation == sandbox.Vanished { // 止める VM が無い。herdr machine にも触れない
+				return vanishedError(target.Name, args[0])
 			}
 			if err := sandbox.Stop(cmd.Context(), deps.hosts(), places, target.Name, cmd.OutOrStdout()); err != nil {
 				return err
