@@ -18,6 +18,13 @@ type Config struct {
 	Boot          []string
 	SecretDefs    map[string]map[string]any
 	Secrets       []string
+	Herdr         Herdr
+}
+
+// Herdr は merge 後の herdr 連携。Enabled なら Version は空でない。
+type Herdr struct {
+	Enabled bool
+	Version string
 }
 
 // Identity は merge 後の git identity。name と email はどちらも空でない。
@@ -32,7 +39,9 @@ type Identity struct {
 func Merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 	var cfg Config
 	var git GitDeclaration
+	var herdr HerdrDeclaration
 	for _, decl := range []Declaration{defaultDecl, userDecl, repoDecl} {
+		herdr = HerdrDeclaration{Enabled: override(herdr.Enabled, decl.Herdr.Enabled), Version: override(herdr.Version, decl.Herdr.Version)}
 		cfg.Profile = cfg.Profile.overlay(decl.Profile)
 		git = GitDeclaration{Name: override(git.Name, decl.Git.Name), Email: override(git.Email, decl.Git.Email)}
 		cfg.Init = append(cfg.Init, decl.Init...)
@@ -53,6 +62,13 @@ func Merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 	}
 	if git.Email == nil {
 		errs = append(errs, errors.New("git.email がどのスコープにも無い (user 設定か repo 宣言で宣言する)"))
+	}
+	if herdr.Enabled != nil && *herdr.Enabled {
+		if herdr.Version == nil {
+			errs = append(errs, errors.New("herdr.version がどのスコープにも無い (herdr を有効にするには版を宣言する)"))
+		} else {
+			cfg.Herdr = Herdr{Enabled: true, Version: *herdr.Version}
+		}
 	}
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, err

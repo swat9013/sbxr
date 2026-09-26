@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/sandbox"
 )
@@ -29,6 +30,11 @@ type dependencies struct {
 	// places は状態ディレクトリ・cache clone・user 設定の置き場を返す。
 	places func() (sandbox.Places, error)
 	clone  sandbox.Cloner
+	herdr  herdr.Client
+}
+
+func (d dependencies) hosts() sandbox.Hosts {
+	return sandbox.Hosts{Runtime: d.runtime, Herdr: d.herdr}
 }
 
 func main() {
@@ -41,6 +47,7 @@ func main() {
 		prompter:       newTerminalPrompter(),
 		places:         defaultPlaces,
 		clone:          sandbox.ExecClone,
+		herdr:          herdr.CLI{},
 	}
 	if err := newRootCmd(resolveVersion(version, info), deps).Execute(); err != nil {
 		os.Exit(1)

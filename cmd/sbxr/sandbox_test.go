@@ -19,6 +19,7 @@ const lifecycleUserConfig = "version: 1\ngit:\n  name: tester\n  email: tester@e
 type lifecycle struct {
 	deps     dependencies
 	stub     *sbxstub.Stub
+	herdr    *fakeHerdr
 	places   sandbox.Places
 	prompter *fakePrompter
 	// clonedRepoDecl は fake clone が作る repo に置く repo 宣言。空なら置かない。
@@ -31,6 +32,7 @@ func newLifecycle(t *testing.T, userConfig string) *lifecycle {
 	root := t.TempDir()
 	lc := &lifecycle{
 		stub:     &sbxstub.Stub{VM: &sbxstub.FakeVM{}},
+		herdr:    &fakeHerdr{},
 		prompter: &fakePrompter{},
 		places: sandbox.Places{
 			StateRoot:  filepath.Join(root, "state", "sbxr", "sandboxes"),
@@ -47,6 +49,7 @@ func newLifecycle(t *testing.T, userConfig string) *lifecycle {
 		secretFilePath: fixedPath(filepath.Join(root, "secrets.env")),
 		prompter:       lc.prompter,
 		places:         func() (sandbox.Places, error) { return lc.places, nil },
+		herdr:          lc.herdr,
 		clone: func(_ context.Context, url, dir string) error {
 			lc.clones = append(lc.clones, url)
 			if err := os.MkdirAll(dir, 0o700); err != nil {

@@ -57,6 +57,13 @@ type Declaration struct {
 	SandboxEgress []string `yaml:"sandbox_egress"`
 	// Secrets は配線する secret。
 	Secrets []WiredSecret `yaml:"secrets"`
+	// Herdr は herdr 連携。無効なら書かない。
+	Herdr *HerdrPin `yaml:"herdr,omitempty"`
+}
+
+// HerdrPin は作成時に確定した herdr 連携 (VM に入れる版)。
+type HerdrPin struct {
+	Version string `yaml:"version"`
 }
 
 // WiredSecret は配線する secret のうち、VM に効く部分。値は持たない。
@@ -137,6 +144,9 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	decl.Git.Name, decl.Git.Email = cfg.Git.Name, cfg.Git.Email
 	decl.Init, decl.Boot = cfg.Init, cfg.Boot
 	decl.SandboxEgress = sandboxEgress
+	if cfg.Herdr.Enabled {
+		decl.Herdr = &HerdrPin{Version: cfg.Herdr.Version}
+	}
 	for _, wire := range prepared.Wiring.Wired {
 		decl.Secrets = append(decl.Secrets, WiredSecret{Name: wire.Name, Service: wire.Definition.Service, Hosts: wire.Definition.Hosts, Env: wire.Definition.Env})
 	}
@@ -215,7 +225,8 @@ func (i Inspection) NotRunning() bool {
 // (materialize → read-back → init → boot)。secret は作成前に置く (作成時に VM の環境変数へ placeholder が入る)。
 // rule は作成後にしか置けない (ADR 0006 の実測)。途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
 // 作成が終わった印 (declaration.yaml) は最後に書く。VM の中の段の失敗は *StageError で返す。
-func Create(ctx context.Context, rt runtime.Runtime, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
+func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
+	rt := hosts.Runtime
 	name := prepared.Target.Name
 	stateDir := places.StateDir(name)
 	if err := writeEnvironment(stateDir, prepared); err != nil {
@@ -232,10 +243,22 @@ func Create(ctx context.Context, rt runtime.Runtime, places Places, prepared Pre
 			return stageError(StageSandboxEgress, fmt.Errorf("%s を足せない: %w", resource, err))
 		}
 	}
+	if prepared.Declaration.Herdr != nil {
+		// herdr の kit が settings.json に integration を書き終えてから materialize する (書き込みを競合させない)
+		if err := stageError(StageHerdr, waitKitStartup(ctx, rt, name)); err != nil {
+			return err
+		}
+	}
 	if err := setUpInside(ctx, rt, prepared, progress); err != nil {
 		return err
 	}
-	return writeDeclaration(stateDir, prepared.Declaration)
+	if err := writeDeclaration(stateDir, prepared.Declaration); err != nil {
+		return err
+	}
+	if prepared.Declaration.Herdr != nil {
+		return registerHerdrMachine(ctx, hosts, name, progress)
+	}
+	return nil
 }
 
 // envDefinition は sbx env create に渡す env 定義。repo は VM 内の clone として渡す (host の作業ツリーを書き換えさせない)。
@@ -245,9 +268,30 @@ type envDefinition struct {
 	Agent         string            `yaml:"agent"`
 	Name          string            `yaml:"name"`
 	Workspace     envWorkspace      `yaml:"workspace"`
-	Kits          []string          `yaml:"kits"`
+	Kits          []envKit          `yaml:"kits"`
 	Env           map[string]string `yaml:"env,omitempty"`
 }
+
+// envKit は env 定義の kits の 1 要素。
+type envKit struct {
+	Source string            `yaml:"source"`
+	Args   map[string]string `yaml:"args,omitempty"`
+}
+
+// 埋め込みの kit の名前 (internal/assets/kits の下のディレクトリ名)。
+const (
+	bootKit  = "sbxr-boot"
+	herdrKit = "sbxr-herdr"
+)
+
+// embeddedKit は env 定義に入れる埋め込みの kit。
+type embeddedKit struct {
+	name string
+	args map[string]string
+}
+
+// source は env 定義から kit を指す相対 path。
+func (k embeddedKit) source() string { return "./" + kitsDir + "/" + k.name }
 
 // kitsDir は状態ディレクトリの中で埋め込みの kit を置くディレクトリ。env 定義からは相対 path で指す
 // (sbx は ./ で始まる kit を env 定義のディレクトリ基準で解決する)。
@@ -259,12 +303,17 @@ type envWorkspace struct {
 }
 
 func writeEnvironment(dir string, prepared Prepared) error {
+	selected := kits(prepared.Declaration)
+	var refs []envKit
+	for _, kit := range selected {
+		refs = append(refs, envKit{Source: kit.source(), Args: kit.args})
+	}
 	env, err := yaml.Marshal(envDefinition{
 		SchemaVersion: "1",
 		Agent:         "claude",
 		Name:          prepared.Target.Name,
 		Workspace:     envWorkspace{Path: prepared.Target.Repo, Clone: true},
-		Kits:          kitReferences(),
+		Kits:          refs,
 		Env:           prepared.VMEnv,
 	})
 	if err != nil {
@@ -277,8 +326,14 @@ func writeEnvironment(dir string, prepared Prepared) error {
 	if err := os.RemoveAll(filepath.Join(dir, kitsDir)); err != nil {
 		return fmt.Errorf("状態ディレクトリの kit を書き直せない: %w", err)
 	}
-	if err := os.CopyFS(filepath.Join(dir, kitsDir), assets.Kits()); err != nil {
-		return fmt.Errorf("状態ディレクトリに kit を書けない: %w", err)
+	for _, kit := range selected {
+		sub, err := fs.Sub(assets.Kits(), kit.name)
+		if err == nil {
+			err = os.CopyFS(filepath.Join(dir, kitsDir, kit.name), sub)
+		}
+		if err != nil {
+			return fmt.Errorf("状態ディレクトリに kit %s を書けない: %w", kit.name, err)
+		}
 	}
 	for _, file := range []struct {
 		name string
@@ -291,17 +346,14 @@ func writeEnvironment(dir string, prepared Prepared) error {
 	return nil
 }
 
-// kitReferences は埋め込みの kit を env 定義から指す相対 path。
-func kitReferences() []string {
-	entries, err := fs.ReadDir(assets.Kits(), ".")
-	if err != nil {
-		panic(err) // 埋め込みの資材は build 時に決まる
+// kits は env 定義に入れる埋め込みの kit。herdr 連携が無効なら herdr の kit を入れない。
+// herdr を先に置く (順序の理由は ADR 0007)。
+func kits(decl Declaration) []embeddedKit {
+	var list []embeddedKit
+	if decl.Herdr != nil {
+		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": decl.Herdr.Version}})
 	}
-	var refs []string
-	for _, entry := range entries {
-		refs = append(refs, "./"+kitsDir+"/"+entry.Name())
-	}
-	return refs
+	return append(list, embeddedKit{name: bootKit})
 }
 
 func writeDeclaration(dir string, decl Declaration) error {
@@ -337,7 +389,8 @@ func (e *RunningError) Error() string {
 // Destroy は sandbox VM を消し、cache clone と状態ディレクトリを片付ける。
 // 撤去の直前に状態を読み直し、稼働中なら running に従う。VM が無くても env rm を呼ぶ (作成前に置いた sandbox スコープの secret を消すため。ADR 0006)。
 // VM を消せなければ、env 定義を残すために状態ディレクトリを消さずに止める。その後段の失敗は warnings に集めて撤去を続ける。
-func Destroy(ctx context.Context, rt runtime.Runtime, places Places, target Target, running RunningPolicy) (warnings []error, err error) {
+func Destroy(ctx context.Context, hosts Hosts, places Places, target Target, running RunningPolicy) (warnings []error, err error) {
+	rt := hosts.Runtime
 	inspection, err := Inspect(ctx, rt, places, target)
 	if err != nil {
 		return nil, err
@@ -349,8 +402,12 @@ func Destroy(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 		return nil, &RunningError{Status: inspection.Status}
 	}
 	stateDir := places.StateDir(target.Name)
+	// herdr machine の解除は VM を消す前に行う。失敗しても撤去は続ける
+	if err := removeHerdrMachine(ctx, hosts, places, target.Name); err != nil {
+		warnings = append(warnings, err)
+	}
 	if err := rt.RemoveEnvironment(ctx, stateDir); err != nil {
-		return nil, fmt.Errorf("sandbox VM %s を消せない (状態ディレクトリ %s は残した): %w", target.Name, stateDir, err)
+		return warnings, fmt.Errorf("sandbox VM %s を消せない (状態ディレクトリ %s は残した): %w", target.Name, stateDir, err)
 	}
 	if target.FromGitURL() {
 		if err := DiscardClone(places, target); err != nil {

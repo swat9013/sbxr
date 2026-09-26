@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"regexp"
 	"slices"
 
 	"go.yaml.in/yaml/v3"
@@ -48,6 +49,13 @@ type Declaration struct {
 	// SecretDefs の中身 (注入方式・注入先 host 等) は secret パッケージが検査する。
 	SecretDefs map[string]map[string]any `yaml:"secret_defs"`
 	Secrets    []string                  `yaml:"secrets"`
+	Herdr      HerdrDeclaration          `yaml:"herdr"`
+}
+
+// HerdrDeclaration は herdr 連携の宣言 (ADR 0007)。default と user スコープだけが書ける。
+type HerdrDeclaration struct {
+	Enabled *bool   `yaml:"enabled"`
+	Version *string `yaml:"version"`
 }
 
 // Profile は agent runtime profile の宣言。VM 内の Claude Code の settings.json へ入る key だけを持つ。
@@ -72,6 +80,9 @@ type GitDeclaration struct {
 	Name  *string `yaml:"name"`
 	Email *string `yaml:"email"`
 }
+
+// herdrVersionPattern は herdr の release tag の形。VM 内で release の URL に入るので、形を絞る。
+var herdrVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // Parse は 1 つのスコープの宣言を読み、値とスコープ制限を検証する。
 // source は error に載せる出所 (ファイル path など)。未知の key は error にする。
@@ -134,7 +145,7 @@ func listWrittenKeys(data []byte) ([]writtenKey, error) {
 	for _, top := range mappingEntries(documentBody(&root), "", "") {
 		keys = append(keys, top)
 		switch top.key {
-		case "profile", "git":
+		case "profile", "git", "herdr":
 			keys = append(keys, mappingEntries(top.value, top.key, top.key)...)
 		case "egress":
 			for _, group := range mappingEntries(top.value, "egress", "egress") {
@@ -195,6 +206,9 @@ func (d Declaration) validate() error {
 		if !d.Profile.EnabledPlugins[name] {
 			errs = append(errs, fmt.Errorf("profile.enabledPlugins.%s: true だけを書ける (additive のみ。下の層の plugin は消せない)", name))
 		}
+	}
+	if d.Herdr.Version != nil && !herdrVersionPattern.MatchString(*d.Herdr.Version) {
+		errs = append(errs, fmt.Errorf("herdr.version: %q は v<major>.<minor>.<patch> の形で書く", *d.Herdr.Version))
 	}
 	for _, list := range []struct {
 		key     string

@@ -18,7 +18,7 @@ sandbox VM 内の commit は、VM の稼働中に host 側 repo で `git fetch s
 
 ## 置き場
 
-- 状態ディレクトリ: `${XDG_STATE_HOME:-~/.local/state}/sbxr/sandboxes/<name>/`（env 定義と作成時の宣言。destroy が消す）
+- 状態ディレクトリ: `${XDG_STATE_HOME:-~/.local/state}/sbxr/sandboxes/<name>/`（env 定義・作成時の宣言・埋め込みの kit。destroy が消す）
 - git URL の cache clone: `${XDG_CACHE_HOME:-~/.cache}/sbxr/repos/<name>/`（destroy が消す）
 
 ## init と boot
@@ -27,9 +27,26 @@ sandbox VM 内の commit は、VM の稼働中に host 側 repo で `git fetch s
 - `boot` は create のときに init の後で 1 回走り、その後は sandbox VM の起動ごとに走る。走るのは作成時に確定した内容で、起動のたびに宣言を読み直しはしない
 - 2 回目以降の起動での boot の出力と失敗（`boot[N] fail`）は host からは見えない。VM 内の `/var/log/sbx-kit-startup.log` に残る（`sbx exec <name> -- cat /var/log/sbx-kit-startup.log`）
 
+## herdr 連携（opt-in）
+
+user 設定で有効にすると、VM に [herdr](https://github.com/herdrdev/herdr) を入れ、host の herdr に `<name>.sbx` を machine として登録する。repo 宣言には書けない。
+
+```yaml
+# ~/.config/sbxr/config.yaml
+herdr:
+  enabled: true
+  version: v0.9.0   # 省略すると同梱の動作確認済みの版
+```
+
+- VM 内では起動ごとに、宣言の版と違うときだけ GitHub release から herdr を入れ、`herdr server` を起動し、`herdr integration install claude` を実行する
+- create の後に登録し、destroy の前に解除する。stop の前には machine を無効にする（有効なままだと herdr が繋ぎ直して VM が起動する）。起動し直したら、stop が表示した `herdr machine enable <id>` で有効に戻す
+- 有効なのに host に herdr が無ければ、create / stop / destroy は確認や VM の操作の前に止まる。登録に失敗したら VM を残して止まり、登録し直す手順を表示する（同じ `<name>.sbx` の登録が残っているときも、それには触れずに止まる）
+- VM 内の herdr の失敗は `/var/log/sbx-kit-startup.log` に `sbxr-herdr: fail` の行で残る。create のときは create が失敗として止まる
+
 ## 必要なもの
 
 - [`sbx`](https://docs.docker.com/ai/sandboxes/)（Docker Sandboxes CLI）
+- herdr 連携を有効にするときだけ、host の `herdr`
 - macOS、または sbx が公式に対応する Linux（Ubuntu 24.04 以上 + KVM。Linux の実機動作は未確認）
 
 ## 設定ファイル

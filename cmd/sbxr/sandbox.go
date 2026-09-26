@@ -114,6 +114,9 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 		return false, err
 	}
 	printWarnings(cmd, prepared.Warnings)
+	if err := prepared.RequireHerdr(deps.herdr); err != nil { // 確認関門の前に止める
+		return false, err
+	}
 	if len(prepared.DroppedRepoEgress) > 0 {
 		printf(cmd, "git URL を --yes で通したので、repo 宣言の egress (%d 件) を落とした\n", len(prepared.DroppedRepoEgress))
 	}
@@ -124,7 +127,11 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 	if err != nil {
 		return false, err
 	}
-	if err := sandbox.Create(cmd.Context(), deps.runtime, places, prepared, values, cmd.OutOrStdout()); err != nil {
+	if err := sandbox.Create(cmd.Context(), deps.hosts(), places, prepared, values, cmd.OutOrStdout()); err != nil {
+		var herdrErr *sandbox.HerdrMachineError
+		if errors.As(err, &herdrErr) { // VM は作り終えている
+			return true, fmt.Errorf("%w\nsandbox VM %s は作った。復旧: %s", err, target.Name, herdrErr.Recovery)
+		}
 		var stageErr *sandbox.StageError
 		if errors.As(err, &stageErr) { // VM は作れていて、稼働している (destroy は稼働中の VM を拒むので先に止める)
 			return true, fmt.Errorf("%w\nsandbox VM %s は調べられるように残した。復旧: sbxr stop %s → sbxr destroy %s → sbxr create %s", err, target.Name, input, input, input)
@@ -172,20 +179,23 @@ func newDestroyCmd(deps dependencies) *cobra.Command {
 			if !inspection.NotRunning() && running == sandbox.RefuseRunning {
 				return runningError(target.Name, inspection.Status, args[0])
 			}
+			if err := sandbox.RequireHerdrFor(places, target.Name, deps.herdr); err != nil {
+				return err
+			}
 			printf(cmd, "sandbox VM %s を撤去する。VM 内の commit と変更は失われる\n", target.Name)
 			if err := confirm(deps, yes, "撤去する? [y/N]: "); err != nil {
 				return err
 			}
-			warnings, err := sandbox.Destroy(ctx, deps.runtime, places, target, running)
+			warnings, err := sandbox.Destroy(ctx, deps.hosts(), places, target, running)
 			var runningErr *sandbox.RunningError
 			if errors.As(err, &runningErr) { // 確認の間に起動した
 				return runningError(target.Name, runningErr.Status, args[0])
 			}
-			if err != nil {
-				return err
-			}
 			for _, warning := range warnings {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "警告: %v\n", warning)
+			}
+			if err != nil {
+				return err
 			}
 			if len(warnings) > 0 {
 				return fmt.Errorf("sandbox VM %s は撤去したが、片付けに %d 件失敗した", target.Name, len(warnings))
@@ -221,7 +231,7 @@ func newStopCmd(deps dependencies) *cobra.Command {
 			if err := inspection.RequireManaged(target.Name); err != nil {
 				return err
 			}
-			if err := deps.runtime.StopSandbox(cmd.Context(), target.Name); err != nil {
+			if err := sandbox.Stop(cmd.Context(), deps.hosts(), places, target.Name, cmd.OutOrStdout()); err != nil {
 				return err
 			}
 			printf(cmd, "sandbox VM %s を止めた\n", target.Name)
