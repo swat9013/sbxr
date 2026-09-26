@@ -355,3 +355,17 @@ func TestCreateFailsAndKeepsTheVMWhenTheHerdrKitFails(t *testing.T) {
 		})
 	}
 }
+
+func TestStopOfAVanishedVMLeavesTheHerdrMachineAlone(t *testing.T) {
+	lc := herdrLifecycle(t)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.removeOutsideSbxr("app")
+	lc.herdr.Calls = nil
+
+	_, _ = lc.run(t, "stop", repo) // 拒否されることは TestStopAfterTheVMWasRemovedOutsideSbxrAsksToDestroyWithoutCallingSbx が見る
+
+	if len(lc.herdr.Calls) != 0 {
+		t.Errorf("herdr calls = %v, want none", lc.herdr.Calls)
+	}
+}
