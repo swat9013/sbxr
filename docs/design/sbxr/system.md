@@ -100,3 +100,38 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 4. copy 方式の持ち込み: `sbx cp` は host の uid と mode のまま置く（ADR 0006）。`sbx exec -i` の stdin で流し込み、VM の agent から読み書きできるか
 5. mount 方式: env 定義で `workspace.clone: false` にしたとき、host の作業ツリーが VM の agent から読み書きできる uid で見えるか
 6. VM 内から許可外の宛先への通信が proxy で拒否され、curl が失敗として返るか（egress 自己検証の判定）
+
+### 実測（2026-09-27、sbx v0.45.1、#33）
+
+1〜5 は成り立ち、6 は後半が成り立たない。env 定義は sbxr が書く形（`schemaVersion: "1"`・`agent: claude`）にそろえ、`sbx env create -y` で probe の VM を 1 つずつ作って確かめた。probe の repo の origin は `https://github.com/example/sbxr-probe.git`（実在しない）。global policy は default deny だった（`sbx policy check network example.com:443` → Denied、`github.com:443` → Allowed）。
+
+1. **成り立つ**
+   - template を指定する key は `sandboxOptions.template`。top-level の `template:`・`image:` は `field not found in type sbxenv.Config` で拒否される
+   - 手順: clone 方式の VM に marker（`/home/agent/.sbxr-probe-template-marker`）を置き、`sbx template save <VM> sbxr-probe:t1` で save した。別の VM を `sandboxOptions.template: docker.io/library/sbxr-probe:t1`・`pullPolicy: never` で作ると、create の出力の image がその tag になり、marker があった
+   - save した tag は `docker.io/library/<name>:<tag>` に正規化される
+   - `template save` は稼働中の VM を拒む（`cannot save a running sandbox`）。止めてから save する
+   - `sbx env plan` は存在しない image を指定しても通る。image の有無は create まで分からない
+   - 確かめたのは `pullPolicy: never` のときだけ。既定の `always` で local にしか無い tag を指定したときは確かめていない
+2. **成り立つ**
+   - 手順: probe の repo から clone 方式（`workspace.clone: true`）の VM を作り、`sbx exec -w <repo> <VM> git remote -v`・`git branch -vv`・`git for-each-ref` で VM 内を見た。host 側 repo は、create の後と `sbx env rm` の後に `git for-each-ref` と `git remote -v` で見た
+   - VM 内の repo の `git remote -v` は origin だけで、host 側 repo の origin URL を指す。`main` は `origin/main` を追跡する
+   - fetch の前の VM の `refs/remotes/origin/*` は、実際の origin ではなく、create 時の host の local branch を写したもの（origin に無い host の commit を指していた）。未回収の検査を「VM 内で fetch した後」の remote-tracking で行う decision/0003 の定義は、この理由でも外せない
+   - host 側 repo には `sandbox-<name>` remote（`git://127.0.0.1:<port>/<repo>`）と `refs/sandboxes/<name>/*` が足される。`sbx env rm` の後、remote は消え、`refs/sandboxes/<name>/*` は残る
+3. **成り立つ**
+   - 手順: 1 の VM が稼働中のまま、その image の tag を `sbx template rm --force sbxr-probe:t1` で消した。`Removed` で 0 で終わり、`sbx template ls` から消えた
+   - `sbx template rm` は stdin が端末でないと `--force` を要求する。`--force` は確認を省くだけ
+   - 消した後も VM は動き続け、`sbx stop` の後の `sbx exec` による再起動も通った
+4. **成り立つ**
+   - 手順: workspace を持たない VM（env 定義に `workspace:` を書かない）で、host で `tar -cf -` した `.git`・tracked・ignored でない untracked のファイルを `sbx exec -i <VM> tar -xf - -C <dir>` に流した。展開したファイルは agent（uid 1000）の所有になり、agent で追加のファイルを作って commit できた
+   - 確かめた置き場は `/home/agent/workspace/<repo>`（exec の既定の cwd で、agent の所有）。host と同じ path に置くときの親ディレクトリの作成は確かめていない
+   - 対照として、`sbx cp` で置いたファイルは host の uid（1917701712）と gid 0 のままだった（ADR 0006 の記述どおり）
+5. **成り立つ**
+   - 手順: `workspace.clone: false` の VM で、VM 内の host と同じ path の作業ツリーを見た。ファイルは uid 1000（agent）の所有に見え、agent でファイルを作り、commit できた。VM で作ったファイルは host では host の uid で、commit は host 側 repo の log に現れた
+   - ignored のファイル（`.gitignore` に書いた `ignored.txt`）も VM から読めた。decision/0002 が確認関門で示すとしたリスクのとおり
+6. **前半は成り立ち、後半は成り立たない** → #39
+   - 手順: 2 の VM で `sbx exec <VM> curl -sS -o /dev/null -w '%{http_code}' https://example.com` と、同じ形の `https://github.com` を実行した。あわせて `-f`・`--noproxy '*'`・`http://` の変形と、body の中身を見た
+   - 許可外の `https://example.com` は proxy（`gateway.docker.internal:3128`）が拒否する。ただし応答は HTTP 403 で、既定の `curl` は exit 0 で返る
+   - 403 の body は `Blocked by network policy: domain example.com:443`。TLS は proxy が終端しているので、状態コードだけでは宛先自身の 403 と区別できない
+   - `curl -f` は許可外で exit 22、許可先の `https://github.com` で exit 0 を返す。ただし、宛先が 4xx を返すと誤判定する
+   - `--noproxy '*'` では、許可外は exit 6（名前解決の失敗）、許可先は 200 だった。`http://example.com` も 403 で拒否された
+   - decision/0006 の核（VM 内から実際の通信で 1 往復ずつ確かめる）は成り立つ。「届く」「届かない」の判定の決め方を #39 で見直す
