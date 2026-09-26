@@ -167,6 +167,19 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 	return nil, fmt.Errorf("sbxstub: 想定外の引数 %q", args)
 }
 
+// Start は止まった sandbox の起動 (sbx exec や sbx run による再起動) を再現する。sandbox を running にし、
+// VM があれば kit の startup を走らせる。sbx の起動コマンドの引数は再現しない (受け入れテストが起動の後だけを見るため)。
+func (s *Stub) Start(name string) error {
+	if _, ok := s.Sandboxes[name]; !ok {
+		return fmt.Errorf("sbxstub: sandbox %s が無い", name)
+	}
+	s.Sandboxes[name] = "running"
+	if s.VM != nil {
+		s.VM.Startup()
+	}
+	return nil
+}
+
 // exec は sbx exec [-i] [-w dir] <sandbox> -- <args> を VM へ渡す。
 func (s *Stub) exec(args []string, input string) ([]byte, error) {
 	command := VMCommand{}
