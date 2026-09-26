@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,9 +55,22 @@ func (f *fakeGitHub) serve(t *testing.T) string {
 
 // fakePrompter は入力を順に返し、受け取った prompt を記録する。
 type fakePrompter struct {
-	lines   []string
-	hidden  []string
-	prompts []string
+	lines    []string
+	hidden   []string
+	confirms []bool
+	// noTerminal なら Confirm は端末が無いときと同じ error を返す。
+	noTerminal bool
+	prompts    []string
+}
+
+func (p *fakePrompter) Confirm(prompt string) (bool, error) {
+	p.prompts = append(p.prompts, prompt)
+	if p.noTerminal {
+		return false, errors.New("確認には端末が要る (stdin が端末でない)")
+	}
+	answer := p.confirms[0]
+	p.confirms = p.confirms[1:]
+	return answer, nil
 }
 
 func (p *fakePrompter) Line(prompt string) (string, error) {

@@ -107,3 +107,57 @@ func (s *Sbx) SetSandboxSecret(ctx context.Context, sandbox string, secret Sandb
 	_, err := s.run(ctx, strings.NewReader(secret.Value+"\n"), args...)
 	return err
 }
+
+// SandboxStatus は sbx ls --json から sandbox の status を引く。
+func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error) {
+	out, err := s.run(ctx, nil, "ls", "--json")
+	if err != nil {
+		return "", err
+	}
+	var listing map[string]json.RawMessage
+	if err := json.Unmarshal(out, &listing); err != nil {
+		return "", fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
+	}
+	raw, ok := listing["sandboxes"]
+	if !ok {
+		return "", fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
+	}
+	var sandboxes []struct { // sandbox が 1 つも無ければ null でも空でもよい
+		Name   string `json:"name"`
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &sandboxes); err != nil {
+		return "", fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
+	}
+	for _, sb := range sandboxes {
+		if sb.Name == sandbox {
+			return SandboxStatus(sb.Status), nil
+		}
+	}
+	return SandboxAbsent, nil
+}
+
+// CreateEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --auto-approve を渡す。
+func (s *Sbx) CreateEnvironment(ctx context.Context, envDir string) error {
+	_, err := s.run(ctx, nil, "env", "create", "--auto-approve", envDir)
+	return err
+}
+
+// RemoveEnvironment は sbx env rm で消す。sbx は stdin が端末でないと --force を要求し、--force は使用中の sandbox も消す。
+// sandbox が無いときも「not found」を出して sandbox スコープの secret を消し、0 で終わる (実測。ADR 0006)。
+func (s *Sbx) RemoveEnvironment(ctx context.Context, envDir string) error {
+	_, err := s.run(ctx, nil, "env", "rm", "--force", envDir)
+	return err
+}
+
+// StopSandbox は sbx stop で止める。
+func (s *Sbx) StopSandbox(ctx context.Context, sandbox string) error {
+	_, err := s.run(ctx, nil, "stop", sandbox)
+	return err
+}
+
+// AllowSandboxEgress は sbx policy allow network --sandbox で sandbox スコープ rule を足す。
+func (s *Sbx) AllowSandboxEgress(ctx context.Context, sandbox, resource string) error {
+	_, err := s.run(ctx, nil, "policy", "allow", "network", "--sandbox", sandbox, resource)
+	return err
+}

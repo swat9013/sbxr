@@ -7,8 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // Rule は sbx policy ls --json が返す rule のうち、sbxr が読む field。
@@ -33,7 +38,15 @@ type Stub struct {
 	DropWrites bool
 	// FailOnWrite が n (1 始まり) なら n 回目の書き込みを失敗させる。0 なら失敗させない。
 	FailOnWrite int
-	nextID      int
+	// FailOn は、引数を空白で連結したものがこの前置きで始まるコマンドを失敗させる。空なら失敗させない。
+	FailOn string
+	// Sandboxes は sandbox の名前と status。env create で running になり、env rm で消える。
+	Sandboxes map[string]string
+	// SandboxRules は sandbox スコープ rule の宛先。sandbox と一緒に消える。
+	SandboxRules map[string][]string
+	// SandboxSecrets は sandbox スコープの secret の数。sandbox と一緒に消える。
+	SandboxSecrets map[string]int
+	nextID         int
 }
 
 // GlobalAllow は scope=global・network・editable の allow rule を作る。
@@ -51,11 +64,72 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		}
 		input = string(data)
 	}
+	if s.FailOn != "" && strings.HasPrefix(strings.Join(args, " "), s.FailOn) {
+		return nil, fmt.Errorf("sbxstub: %q を失敗させた", s.FailOn)
+	}
 	switch {
 	case len(args) >= 2 && args[0] == "secret" && (args[1] == "set" || args[1] == "set-custom"):
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
+		if index := slices.Index(args, "--sandbox"); index >= 0 && index+1 < len(args) {
+			s.ensureMaps()
+			s.SandboxSecrets[args[index+1]]++
+		}
+		return nil, nil
+	case slices.Equal(args, []string{"ls", "--json"}):
+		type sandbox struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		}
+		list := []sandbox{}
+		for _, name := range slices.Sorted(maps.Keys(s.Sandboxes)) {
+			list = append(list, sandbox{Name: name, Status: s.Sandboxes[name]})
+		}
+		return json.Marshal(map[string][]sandbox{"sandboxes": list})
+	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--auto-approve"}):
+		name, err := envName(args[3])
+		if err != nil {
+			return nil, err
+		}
+		if err := s.recordWrite(args, input); err != nil {
+			return nil, err
+		}
+		s.ensureMaps()
+		s.Sandboxes[name] = "running"
+		return nil, nil
+	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "rm", "--force"}):
+		// 実 sbx と同じく、env 定義が無ければ消せない。sandbox が無くても sandbox スコープの secret は消して成功する
+		name, err := envName(args[3])
+		if err != nil {
+			return nil, err
+		}
+		if err := s.recordWrite(args, input); err != nil {
+			return nil, err
+		}
+		delete(s.Sandboxes, name)
+		delete(s.SandboxRules, name)
+		delete(s.SandboxSecrets, name)
+		return nil, nil
+	case len(args) == 2 && args[0] == "stop":
+		if err := s.recordWrite(args, input); err != nil {
+			return nil, err
+		}
+		if _, ok := s.Sandboxes[args[1]]; !ok {
+			return nil, fmt.Errorf("sbxstub: sandbox %s が無い", args[1])
+		}
+		s.Sandboxes[args[1]] = "stopped"
+		return nil, nil
+	case len(args) == 6 && slices.Equal(args[:4], []string{"policy", "allow", "network", "--sandbox"}):
+		// 実 sbx と同じく、sandbox の作成前には置けない
+		if _, ok := s.Sandboxes[args[4]]; !ok {
+			return nil, fmt.Errorf("sbxstub: sandbox %q not found", args[4])
+		}
+		if err := s.recordWrite(args, input); err != nil {
+			return nil, err
+		}
+		s.ensureMaps()
+		s.SandboxRules[args[4]] = append(s.SandboxRules[args[4]], args[5])
 		return nil, nil
 	case slices.Equal(args, []string{"policy", "ls", "--json"}):
 		// sbx は rule が無くても空の配列を返す
@@ -87,6 +161,33 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		return nil, nil
 	}
 	return nil, fmt.Errorf("sbxstub: 想定外の引数 %q", args)
+}
+
+func (s *Stub) ensureMaps() {
+	if s.Sandboxes == nil {
+		s.Sandboxes = map[string]string{}
+	}
+	if s.SandboxRules == nil {
+		s.SandboxRules = map[string][]string{}
+	}
+	if s.SandboxSecrets == nil {
+		s.SandboxSecrets = map[string]int{}
+	}
+}
+
+// envName は env 定義 (<dir>/sbxenv.yaml) の name を読む。
+func envName(dir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "sbxenv.yaml"))
+	if err != nil {
+		return "", fmt.Errorf("sbxstub: no sbxenv.yaml found at %s: %w", dir, err)
+	}
+	var env struct {
+		Name string `yaml:"name"`
+	}
+	if err := yaml.Unmarshal(data, &env); err != nil || env.Name == "" {
+		return "", fmt.Errorf("sbxstub: %s/sbxenv.yaml の name を読めない", dir)
+	}
+	return env.Name, nil
 }
 
 func (s *Stub) recordWrite(args []string, input string) error {

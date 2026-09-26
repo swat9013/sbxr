@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"io"
 	"reflect"
 	"testing"
 
@@ -97,5 +98,17 @@ func TestSbxSetsAPlaceholderSecretForEveryHost(t *testing.T) {
 	want := []string{"secret set-custom --sandbox vm1 --host a.example.com --host b.example.com --env TOKEN"}
 	if !reflect.DeepEqual(stub.Writes, want) {
 		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
+	}
+}
+
+func TestSbxReadsAnEmptyOrNullSandboxListAsAbsent(t *testing.T) {
+	for _, listing := range []string{`{"sandboxes":[]}`, `{"sandboxes":null}`} {
+		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
+
+		status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
+
+		if err != nil || status != SandboxAbsent {
+			t.Errorf("SandboxStatus(%s) = %q, %v, want absent", listing, status, err)
+		}
 	}
 }

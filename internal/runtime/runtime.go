@@ -14,7 +14,27 @@ type Runtime interface {
 	RemoveGlobalEgressRule(ctx context.Context, id string) error
 	// SetSandboxSecret は 1 つの sandbox VM に限った secret を置く。sandbox VM の destroy で消える。
 	SetSandboxSecret(ctx context.Context, sandbox string, secret SandboxSecret) error
+
+	// SandboxStatus は sandbox VM の状態を返す。無ければ SandboxAbsent。
+	SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error)
+	// CreateEnvironment は envDir の env 定義から sandbox VM を作り、起動する。
+	CreateEnvironment(ctx context.Context, envDir string) error
+	// RemoveEnvironment は envDir の env 定義が指す sandbox VM を、sandbox スコープの secret と rule ごと消す。
+	// VM が無くても sandbox スコープの secret は消す。使用中の VM も消す。
+	RemoveEnvironment(ctx context.Context, envDir string) error
+	// StopSandbox は sandbox VM を止める。状態は残る。
+	StopSandbox(ctx context.Context, sandbox string) error
+	// AllowSandboxEgress は 1 つの宛先を許可する sandbox スコープ rule を足す。sandbox VM の作成後にしか置けない。
+	AllowSandboxEgress(ctx context.Context, sandbox, resource string) error
 }
+
+// SandboxStatus は sandbox VM の状態。実行基盤が返す値をそのまま持ち、sbxr が扱う値だけを定数にする。
+type SandboxStatus string
+
+const (
+	SandboxAbsent  SandboxStatus = "absent"
+	SandboxStopped SandboxStatus = "stopped"
+)
 
 // SandboxSecret は sandbox VM に配線する secret。VM には placeholder だけが入り、実値は host 側の proxy が差し込む。
 type SandboxSecret struct {
