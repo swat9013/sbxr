@@ -59,7 +59,7 @@ git -C "$FIXTURE" add sbxr.yaml
 git -C "$FIXTURE" -c user.name=sbxr-fixture -c user.email=sbxr-fixture@example.invalid commit -q -m fixture
 ```
 
-marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）に追記される。host の `$FIXTURE` には書かれない（env 定義は repo を VM 内へ clone する）。
+marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）に追記される。host の `$FIXTURE` にも現れるか（env 定義の `workspace.clone: true` の形）は未確認なので、見えたら結果に残す。判定は VM 内を `sbx exec -w` で見るので、どちらでも成り立つ。
 
 ## 2. create（init と 1 回目の boot）
 
@@ -102,10 +102,12 @@ kit の startup は起動の後に走るので、行が増えるまで数秒待�
 
 ```sh
 sbx exec -w "$FIXTURE" sbxr-fixture -- wc -l .sbxr-init-marker .sbxr-boot-marker   # init 1 行のまま、boot 2 行
-sbx exec sbxr-fixture -- cat /var/log/sbx-kit-startup.log                           # 起動の回ごとに boot[1]: start があり、boot[1] fail が無い
+sbx exec sbxr-fixture -- cat /var/log/sbx-kit-startup.log                           # 再起動の回に boot[1]: start があり、boot[1] fail が無い
 ```
 
-init は増えず、boot だけが 1 行増えていれば、boot が起動ごとに再生されている。
+判定の主軸は marker の行数にする。init は増えず、boot だけが 1 行増えていれば、boot が起動ごとに再生されている。
+
+`/var/log/sbx-kit-startup.log` の create 時の回には `boot[1]: start` が無いのが正しい。create 時の kit の startup は boot.sh を書く前に走って何もせず、1 回目の boot は sbxr が直接実行して出力を host に出すため（ADR 0006）。
 
 ## 6. destroy
 
