@@ -80,6 +80,8 @@ func TestAcceptanceRepoDeclarationCannotWriteRestrictedKeys(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lc := newLifecycle(t, lifecycleUserConfig)
+			// 制限が効かずに herdr が有効になっても、kit の起動を待たずに別の error で止まって test が落ちるようにする
+			lc.herdr.Missing = true
 			repo := localRepo(t, "app", tc.repoDecl)
 
 			_, err := lc.run(t, "create", repo, "--yes")
