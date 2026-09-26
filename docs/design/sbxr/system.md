@@ -77,7 +77,6 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
 - herdr machine の登録・無効化・解除と、destroy の一時起動は、遷移の action として書く
 - plan・policy sync・secret setup は VM の状態を変えないので、イベントに含めない
-- 現行の実装は、VM 消失でも create が「既にある」として drift を報告する。設計では destroy を促して止まる（実装は follow-up）
 
 却下: VM と herdr machine の 2 枚の状態機械。理由: herdr machine の状態は VM の遷移の action として変わるだけで、独立したイベントを持たない（herdr の再接続は VM の外部起動として現れる）。2 枚にすると、同期を note でしか縛れない。
 
