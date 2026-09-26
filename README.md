@@ -2,9 +2,9 @@
 
 repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) の sandbox VM）にする CLI。
 
-> Status: 設計段階（v0.1 未リリース）。語彙は [CONTEXT.md](./CONTEXT.md)、設計判断は [docs/adr/](./docs/adr/) を参照。
+> Status: v0.1.0 を release 済み。語彙は [CONTEXT.md](./CONTEXT.md)、設計判断は [docs/adr/](./docs/adr/) を参照。
 
-## できること（v0.1 の予定）
+## できること
 
 - `sbxr plan <repo>` — 何が作られるかを表示する。VM が既にあれば、作成時の宣言からの差分（drift）も表示する
 - `sbxr create <repo>` — repo 宣言（`sbxr.yaml`）を user 設定と merge し、確認のうえ sandbox VM を作る。egress 許可・secret 配線・agent runtime profile・init / boot を適用する
@@ -88,7 +88,7 @@ secret_defs:               # 定義 (user 設定だけが書ける。github は�
 
 repo の削除と force push は token の権限では防げない。守りたい branch には branch protection（または ruleset）を設定する。
 
-## インストール（v0.1 以降）
+## インストール
 
 Homebrew（macOS、Linux）:
 
