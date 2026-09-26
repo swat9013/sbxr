@@ -59,7 +59,7 @@ git -C "$FIXTURE" add sbxr.yaml
 git -C "$FIXTURE" -c user.name=sbxr-fixture -c user.email=sbxr-fixture@example.invalid commit -q -m fixture
 ```
 
-marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）に追記される。host の `$FIXTURE` にも現れるか（env 定義の `workspace.clone: true` の形）は未確認なので、見えたら結果に残す。判定は VM 内を `sbx exec -w` で見るので、どちらでも成り立つ。
+marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）に追記される。host の `$FIXTURE` には現れない（env 定義の `workspace.clone: true` は repo を VM 内へ clone する。2026-09-26、sbx v0.45.1 で確認）。そのため marker は `sbx exec -w` で VM 内を見る。
 
 ## 2. create（init と 1 回目の boot）
 
@@ -67,6 +67,8 @@ marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）
 "$WORK/sbxr" plan "$FIXTURE"
 "$WORK/sbxr" create "$FIXTURE"     # 確認関門で要約を読み、y で承認する
 ```
+
+確認への答えは端末から 1 行読む。複数行をまとめて貼り付けると、続きの行が答えとして読まれて `中止した` で止まることがある。コマンドは 1 行ずつ実行する。
 
 期待する結果:
 
@@ -87,14 +89,12 @@ sbx ls                            # sbxr-fixture が stopped
 
 ## 4. start（sbx の起動コマンドを直接使う）
 
-sbxr に start は無い。`sbx exec` は、止まった sandbox を先に起動してからコマンドを実行する（`sbx exec --help`）。
+sbxr に start は無い。`sbx exec` は、止まった sandbox を先に起動してからコマンドを実行する（`sbx exec --help`）。この起動でも kit の startup が走る（2026-09-26、sbx v0.45.1 で確認）。
 
 ```sh
-sbx exec sbxr-fixture -- true
+sbx exec sbxr-fixture -- true     # Sandbox sbxr-fixture started successfully
 sbx ls                            # sbxr-fixture が running
 ```
-
-`sbx exec` で起動したときに kit の startup が走るかは、この手順で確かめる事項の 1 つ。走らなかったら、`sbx run --name sbxr-fixture --detached claude` を試し、使ったコマンドを結果に残す。
 
 ## 5. boot の再実行を確かめる
 
