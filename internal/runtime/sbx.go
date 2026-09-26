@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// CommandRunner は sbx を引数付きで実行し、stdout を返す。stdin が nil なら何も渡さない (null device になる)。
+// CommandRunner は sbx を引数付きで実行し、stdout を返す (失敗したときも得られた分を返す)。stdin が nil なら何も渡さない (null device になる)。
 // secret の値は argv に載せると process 一覧から見えるので、stdin で渡す。
 type CommandRunner func(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error)
 
@@ -32,7 +32,8 @@ func ExecSbx(ctx context.Context, stdin io.Reader, args ...string) ([]byte, erro
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("sbx %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		// 失敗しても stdout は返す (VM 内のコマンドが失敗の経緯を stdout に書くことがある)
+		return out, fmt.Errorf("sbx %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
 }
@@ -160,4 +161,19 @@ func (s *Sbx) StopSandbox(ctx context.Context, sandbox string) error {
 func (s *Sbx) AllowSandboxEgress(ctx context.Context, sandbox, resource string) error {
 	_, err := s.run(ctx, nil, "policy", "allow", "network", "--sandbox", sandbox, resource)
 	return err
+}
+
+// ExecInSandbox は sbx exec で VM 内のコマンドを実行する。Input があるときだけ -i で stdin を渡す。
+func (s *Sbx) ExecInSandbox(ctx context.Context, sandbox string, command SandboxCommand) ([]byte, error) {
+	args := []string{"exec"}
+	var stdin io.Reader
+	if command.Input != nil {
+		args = append(args, "-i")
+		stdin = bytes.NewReader(command.Input)
+	}
+	if command.Dir != "" {
+		args = append(args, "-w", command.Dir)
+	}
+	args = append(append(args, sandbox, "--"), command.Args...)
+	return s.run(ctx, stdin, args...)
 }

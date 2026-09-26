@@ -30,7 +30,7 @@ func newLifecycle(t *testing.T, userConfig string) *lifecycle {
 	t.Helper()
 	root := t.TempDir()
 	lc := &lifecycle{
-		stub:     &sbxstub.Stub{},
+		stub:     &sbxstub.Stub{VM: &sbxstub.FakeVM{}},
 		prompter: &fakePrompter{},
 		places: sandbox.Places{
 			StateRoot:  filepath.Join(root, "state", "sbxr", "sandboxes"),

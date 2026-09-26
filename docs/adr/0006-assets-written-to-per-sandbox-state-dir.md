@@ -18,6 +18,12 @@ destroy は、稼働中の sandbox VM を `--force` 無しでは撤去しない�
 
 lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにし、書き出す資材を減らす。
 
+boot は埋め込みの kit `sbxr-boot`（状態ディレクトリの `kits/` に書き出し、env 定義から相対 path で指す）で、sandbox VM の起動ごとに再生する。
+
+- create 時に確定した boot を、VM の `~/.config/sbxr/boot.sh` に書く。kit の startup は起動ごとにそれを実行するだけで、起動のたびに宣言を読み直さない
+- create 時の kit startup は boot.sh が書かれる前に走るので、create 時の 1 回は sbxr が実行する
+- VM 内へのファイルの書き込みは、`sbx exec -i` の stdin を VM 内の shell で書く。`sbx cp` は host の uid と mode のまま置くので、VM の agent から読めないことがある（旧実装の実測、sbx v0.43.0）
+
 ## Considered Options
 
 - CLI の版ごとの共有ディレクトリ（`~/.local/share/sbxr/<version>/`）: create と destroy の間に sbxr を更新すると path が変わり、`env rm` が壊れる

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/swat9013/sbxr/internal/assets"
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/egress"
 	"github.com/swat9013/sbxr/internal/runtime"
@@ -75,6 +77,10 @@ type Prepared struct {
 	DroppedRepoEgress []string
 	Wiring            secret.Plan
 	VMEnv             map[string]string
+	// OriginHost は repo の origin の host。VM の git で ssh 形をこの host の https へ書き換える。origin が無ければ空。
+	OriginHost string
+	// Warnings は作成を止めないが、利用者に見せる警告。
+	Warnings []error
 }
 
 // RepoEgressPolicy は repo 宣言の egress を sandbox スコープ rule にするか。
@@ -88,10 +94,11 @@ const (
 )
 
 // Prepare は 3 スコープの宣言を merge して作る内容を確定する。git URL の Target は呼び出し側が clone してから渡す。
-func Prepare(places Places, target Target, repoEgress RepoEgressPolicy) (Prepared, error) {
+func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoEgressPolicy) (Prepared, error) {
 	if info, err := os.Stat(target.Repo); err != nil || !info.IsDir() {
 		return Prepared{}, fmt.Errorf("repo のディレクトリ %s が無い", target.Repo)
 	}
+	host, warning := originHost(ctx, target.Repo)
 	cfg, err := config.Load(places.UserConfig, filepath.Join(target.Repo, RepoDeclarationFile))
 	if err != nil {
 		return Prepared{}, err
@@ -104,7 +111,10 @@ func Prepare(places Places, target Target, repoEgress RepoEgressPolicy) (Prepare
 	if err != nil {
 		return Prepared{}, err
 	}
-	prepared := Prepared{Target: target, GlobalEgress: egress.DesiredResources(globalGroups)}
+	prepared := Prepared{Target: target, GlobalEgress: egress.DesiredResources(globalGroups), OriginHost: host}
+	if warning != nil {
+		prepared.Warnings = append(prepared.Warnings, warning)
+	}
 	sandboxEgress := egress.DesiredResources(sandboxGroups)
 	if repoEgress == DropRepoEgress {
 		prepared.DroppedRepoEgress, sandboxEgress = sandboxEgress, nil
@@ -201,10 +211,11 @@ func (i Inspection) NotRunning() bool {
 	return i.Status == runtime.SandboxStopped || i.Status == runtime.SandboxAbsent
 }
 
-// Create は状態ディレクトリを書き、secret を配線し、sandbox VM を作って sandbox スコープ rule を足す。
-// secret は作成前に置く (作成時に VM の環境変数へ placeholder が入る)。rule は作成後にしか置けない (ADR 0006 の実測)。
-// 途中で失敗したら状態ディレクトリを残す (destroy がそれを使って片付ける)。作成が終わった印 (declaration.yaml) は最後に書く。
-func Create(ctx context.Context, rt runtime.Runtime, places Places, prepared Prepared, values secret.Values) error {
+// Create は状態ディレクトリを書き、secret を配線し、sandbox VM を作って sandbox スコープ rule を足し、VM の中を宣言どおりにする
+// (materialize → read-back → init → boot)。secret は作成前に置く (作成時に VM の環境変数へ placeholder が入る)。
+// rule は作成後にしか置けない (ADR 0006 の実測)。途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
+// 作成が終わった印 (declaration.yaml) は最後に書く。VM の中の段の失敗は *StageError で返す。
+func Create(ctx context.Context, rt runtime.Runtime, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
 	name := prepared.Target.Name
 	stateDir := places.StateDir(name)
 	if err := writeEnvironment(stateDir, prepared); err != nil {
@@ -218,8 +229,11 @@ func Create(ctx context.Context, rt runtime.Runtime, places Places, prepared Pre
 	}
 	for _, resource := range prepared.Declaration.SandboxEgress {
 		if err := rt.AllowSandboxEgress(ctx, name, resource); err != nil {
-			return fmt.Errorf("sandbox スコープ rule %s を足せない: %w", resource, err)
+			return stageError(StageSandboxEgress, fmt.Errorf("%s を足せない: %w", resource, err))
 		}
+	}
+	if err := setUpInside(ctx, rt, prepared, progress); err != nil {
+		return err
 	}
 	return writeDeclaration(stateDir, prepared.Declaration)
 }
@@ -231,8 +245,13 @@ type envDefinition struct {
 	Agent         string            `yaml:"agent"`
 	Name          string            `yaml:"name"`
 	Workspace     envWorkspace      `yaml:"workspace"`
+	Kits          []string          `yaml:"kits"`
 	Env           map[string]string `yaml:"env,omitempty"`
 }
+
+// kitsDir は状態ディレクトリの中で埋め込みの kit を置くディレクトリ。env 定義からは相対 path で指す
+// (sbx は ./ で始まる kit を env 定義のディレクトリ基準で解決する)。
+const kitsDir = "kits"
 
 type envWorkspace struct {
 	Path  string `yaml:"path"`
@@ -245,6 +264,7 @@ func writeEnvironment(dir string, prepared Prepared) error {
 		Agent:         "claude",
 		Name:          prepared.Target.Name,
 		Workspace:     envWorkspace{Path: prepared.Target.Repo, Clone: true},
+		Kits:          kitReferences(),
 		Env:           prepared.VMEnv,
 	})
 	if err != nil {
@@ -252,6 +272,13 @@ func writeEnvironment(dir string, prepared Prepared) error {
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("状態ディレクトリ %s を作れない: %w", dir, err)
+	}
+	// CopyFS は既存のファイルを上書きしないので、前回の残りを消してから書く
+	if err := os.RemoveAll(filepath.Join(dir, kitsDir)); err != nil {
+		return fmt.Errorf("状態ディレクトリの kit を書き直せない: %w", err)
+	}
+	if err := os.CopyFS(filepath.Join(dir, kitsDir), assets.Kits()); err != nil {
+		return fmt.Errorf("状態ディレクトリに kit を書けない: %w", err)
 	}
 	for _, file := range []struct {
 		name string
@@ -262,6 +289,19 @@ func writeEnvironment(dir string, prepared Prepared) error {
 		}
 	}
 	return nil
+}
+
+// kitReferences は埋め込みの kit を env 定義から指す相対 path。
+func kitReferences() []string {
+	entries, err := fs.ReadDir(assets.Kits(), ".")
+	if err != nil {
+		panic(err) // 埋め込みの資材は build 時に決まる
+	}
+	var refs []string
+	for _, entry := range entries {
+		refs = append(refs, "./"+kitsDir+"/"+entry.Name())
+	}
+	return refs
 }
 
 func writeDeclaration(dir string, decl Declaration) error {
