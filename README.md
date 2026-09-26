@@ -90,11 +90,19 @@ repo の削除と force push は token の権限では防げない。守りた�
 
 ## インストール（v0.1 以降）
 
+Homebrew（macOS、Linux）:
+
 ```sh
 brew install swat9013/tap/sbxr
-# または
+```
+
+Go（`go.mod` の版以上の Go が要る）:
+
+```sh
 go install github.com/swat9013/sbxr/cmd/sbxr@latest
 ```
+
+`sbxr --version` で入った版を確かめられる。
 
 ## License
 

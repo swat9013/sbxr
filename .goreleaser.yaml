@@ -15,4 +15,18 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# homebrew_casks は #11 (v0.1 release) で有効化する
+homebrew_casks:
+  - repository:
+      owner: swat9013
+      name: homebrew-tap
+      # GITHUB_TOKEN は sbxr repo にしか書けないので、tap repo の Contents だけを書ける token を別に渡す
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/swat9013/sbxr
+    description: repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI
+    hooks:
+      post:
+        # 署名・公証をしていないので、quarantine 属性を外さないと macOS が実行を拒否する
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/sbxr"]
+          end
