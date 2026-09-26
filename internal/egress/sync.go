@@ -29,7 +29,7 @@ func Diff(ctx context.Context, rt runtime.Runtime, desired []string) (Changes, e
 }
 
 // Converge は global rule を期待集合へ収束させ、行った変更を返す。
-// 宣言に残る宛先が途中で塞がらないよう、足してから消す。途中で失敗したら、そこまでに行った変更を error と一緒に返す。
+// 宣言に残る宛先が途中で塞がらないよう、足してから消す (ADR 0008)。途中で失敗したら、そこまでに行った変更を error と一緒に返す。
 // 適用後に読み直して一致しなければ error にする。
 func Converge(ctx context.Context, rt runtime.Runtime, desired []string) (Changes, error) {
 	changes, err := Diff(ctx, rt, desired)
@@ -60,7 +60,7 @@ func Converge(ctx context.Context, rt runtime.Runtime, desired []string) (Change
 }
 
 // plan は残す rule を「allow で 1 resource、期待集合にあり、他の rule がまだ担っていない」ものに限る。
-// それ以外 (期待外・deny・複数 resource・重複) は消し、担い手を失った宛先を足す。
+// それ以外 (期待外・deny・複数 resource・重複) は消し、担い手を失った宛先を足す。手で足した rule も消す (ADR 0008)。
 func plan(live []runtime.EgressRule, desired []string) Changes {
 	var changes Changes
 	covered := map[string]bool{}
