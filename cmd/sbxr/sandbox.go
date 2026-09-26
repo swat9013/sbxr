@@ -97,7 +97,7 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 			case sandbox.Incomplete:
 				return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから作る", target.Name, args[0])
 			case sandbox.Vanished:
-				return vanishedError(target.Name, args[0])
+				return fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(target.Name, args[0]), args[0])
 			case sandbox.Unmanaged, sandbox.OtherSource:
 				return inspection.RequireManaged(target.Name)
 			}

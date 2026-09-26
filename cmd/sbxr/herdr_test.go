@@ -363,9 +363,7 @@ func TestStopOfAVanishedVMLeavesTheHerdrMachineAlone(t *testing.T) {
 	lc.removeOutsideSbxr("app")
 	lc.herdr.Calls = nil
 
-	if _, err := lc.run(t, "stop", repo); err == nil {
-		t.Fatalf("stop error = nil, want it to ask for sbxr destroy")
-	}
+	_, _ = lc.run(t, "stop", repo) // 拒否されることは TestStopAfterTheVMWasRemovedOutsideSbxrAsksToDestroyWithoutCallingSbx が見る
 
 	if len(lc.herdr.Calls) != 0 {
 		t.Errorf("herdr calls = %v, want none", lc.herdr.Calls)
