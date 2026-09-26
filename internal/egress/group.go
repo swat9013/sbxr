@@ -28,7 +28,7 @@ func (g Group) enabled() bool {
 // resourcePattern は allow の 1 entry の書式: sbx が受け付ける host pattern (*・**・?・[] の glob) と任意の :port。
 // 末尾の 2 label は glob を含まない (「**.com」のような広すぎる指定を通さない)。host は小文字だけにし、
 // sbx が保存する形と宣言を文字列で突き合わせられるようにする。カンマは sbx が複数の宛先の区切りとして読むので通さない。
-// IPv4 は host と同じ書式として通り、IPv6 と CIDR は扱わない。
+// IPv4 は host と同じ書式として通り、IPv6 と CIDR は扱わない (ADR 0008)。
 var resourcePattern = regexp.MustCompile(`^([a-z0-9*?\[\]!-]+\.)*[a-z0-9-]+\.[a-z0-9-]+(:(\d{1,5}))?$`)
 
 // ParseGroups は config が要素を検査せずに持つ egress 宣言を Group へ読み、検証する。
@@ -68,7 +68,7 @@ func parseGroup(raw map[string]any) (Group, error) {
 }
 
 // validate は除外した group にも rationale と allow を求める。除外は既存の group に enabled: false を重ねて書くので、
-// 中身の無い group は除外したい group の名前の書き違いになる。
+// 中身の無い group は除外したい group の名前の書き違いになる (ADR 0008)。
 func (g Group) validate() error {
 	var errs []error
 	if g.Rationale == "" {
