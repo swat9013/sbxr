@@ -80,6 +80,8 @@ type Prepared struct {
 	Declaration Declaration
 	// GlobalEgress は全 sandbox VM に効く global rule の宛先 (sbxr policy sync が収束させる)。
 	GlobalEgress []string
+	// RepoEgress は repo の egress をどう扱って確定したか。作成時の記録に残し、drift を比べるときに同じ扱いを再現する。
+	RepoEgress RepoEgressPolicy
 	// DroppedRepoEgress は git URL を --yes で通したために落とした repo の egress の宛先。
 	DroppedRepoEgress []string
 	Wiring            secret.Plan
@@ -118,7 +120,7 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	if err != nil {
 		return Prepared{}, err
 	}
-	prepared := Prepared{Target: target, GlobalEgress: egress.DesiredResources(globalGroups), OriginHost: host}
+	prepared := Prepared{Target: target, RepoEgress: repoEgress, GlobalEgress: egress.DesiredResources(globalGroups), OriginHost: host}
 	if warning != nil {
 		prepared.Warnings = append(prepared.Warnings, warning)
 	}
@@ -184,16 +186,16 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 		return Inspection{}, err
 	}
 	dir := places.StateDir(target.Name)
-	recorded, err := os.ReadFile(filepath.Join(dir, sourceFile))
+	recorded, found, err := recordedSource(dir)
 	switch {
-	case errors.Is(err, fs.ErrNotExist) && status == runtime.SandboxAbsent:
-		return Inspection{Situation: Absent, Status: status}, nil
-	case errors.Is(err, fs.ErrNotExist):
-		return Inspection{Situation: Unmanaged, Status: status}, nil
 	case err != nil:
-		return Inspection{}, fmt.Errorf("状態ディレクトリ %s を読めない: %w", dir, err)
-	case string(recorded) != target.Source():
-		return Inspection{Situation: OtherSource, Status: status, recordedSource: string(recorded)}, nil
+		return Inspection{}, err
+	case !found && status == runtime.SandboxAbsent:
+		return Inspection{Situation: Absent, Status: status}, nil
+	case !found:
+		return Inspection{Situation: Unmanaged, Status: status}, nil
+	case recorded != target.Source():
+		return Inspection{Situation: OtherSource, Status: status, recordedSource: recorded}, nil
 	}
 	if _, err := os.Stat(filepath.Join(dir, declarationFile)); errors.Is(err, fs.ErrNotExist) {
 		return Inspection{Situation: Incomplete, Status: status}, nil
@@ -252,7 +254,7 @@ func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, 
 	if err := setUpInside(ctx, rt, prepared, progress); err != nil {
 		return err
 	}
-	if err := writeDeclaration(stateDir, prepared.Declaration); err != nil {
+	if err := writeRecord(stateDir, Record{Declaration: prepared.Declaration, RepoEgress: prepared.RepoEgress}); err != nil {
 		return err
 	}
 	if prepared.Declaration.Herdr != nil {
@@ -354,17 +356,6 @@ func kits(decl Declaration) []embeddedKit {
 		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": decl.Herdr.Version}})
 	}
 	return append(list, embeddedKit{name: bootKit})
-}
-
-func writeDeclaration(dir string, decl Declaration) error {
-	data, err := yaml.Marshal(decl)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dir, declarationFile), data, 0o600); err != nil {
-		return fmt.Errorf("状態ディレクトリに %s を書けない: %w", declarationFile, err)
-	}
-	return nil
 }
 
 // RunningPolicy は稼働中の VM を撤去するか。
