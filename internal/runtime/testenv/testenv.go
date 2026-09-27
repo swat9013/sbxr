@@ -16,13 +16,13 @@ const file = "sbxenv.yaml"
 func Name(dir string) (string, error) {
 	data, err := os.ReadFile(filepath.Join(dir, file))
 	if err != nil {
-		return "", fmt.Errorf("no sbxenv.yaml found at %s: %w", dir, err)
+		return "", fmt.Errorf("testenv: no %s found at %s: %w", file, dir, err)
 	}
 	var env struct {
 		Name string `yaml:"name"`
 	}
 	if err := yaml.Unmarshal(data, &env); err != nil || env.Name == "" {
-		return "", fmt.Errorf("%s/sbxenv.yaml の name を読めない", dir)
+		return "", fmt.Errorf("testenv: %s/%s の name を読めない", dir, file)
 	}
 	return env.Name, nil
 }

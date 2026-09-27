@@ -20,7 +20,8 @@ type Harness struct {
 }
 
 // Contract は adapter が実行基盤として満たす振る舞いを確かめる。newHarness は test ごとに空の実行基盤を返す。
-// 振る舞いは sbx の実測に基づく (ADR 0006)。
+// 振る舞いは sbx の実測に基づく (ADR 0006)。止まった VM への VM 内の操作は契約に入れない
+// (実 sbx の exec は止まった VM を起こし直すが、2 つの test 用の実行基盤は稼働中の VM にしか届かない)。
 func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 	ctx := context.Background()
 	const boot = "/home/agent/.config/sbxr/boot.sh"
@@ -103,37 +104,6 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		}
 	})
 
-	t.Run("止まった VM ではコマンドを走らせられない", func(t *testing.T) {
-		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
-		must(t, h.Runtime.StopSandbox(ctx, "app"))
-
-		if _, err := h.Runtime.ExecInSandbox(ctx, "app", runtime.SandboxCommand{Args: []string{"true"}}); err == nil {
-			t.Errorf("ExecInSandbox on a stopped VM = nil, want an error")
-		}
-	})
-
-	t.Run("止まった VM のファイルは読めない", func(t *testing.T) {
-		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
-		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755))
-		must(t, h.Runtime.StopSandbox(ctx, "app"))
-
-		if _, err := h.Runtime.ReadSandboxFile(ctx, "app", boot); err == nil {
-			t.Errorf("ReadSandboxFile on a stopped VM = nil, want an error")
-		}
-	})
-
-	t.Run("止まった VM にはファイルを書けない", func(t *testing.T) {
-		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
-		must(t, h.Runtime.StopSandbox(ctx, "app"))
-
-		if err := h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755); err == nil {
-			t.Errorf("WriteSandboxFile on a stopped VM = nil, want an error")
-		}
-	})
-
 	t.Run("VM に書いたファイルは読める", func(t *testing.T) {
 		h := newHarness(t)
 		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
@@ -146,17 +116,27 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		}
 	})
 
-	t.Run("VM に書いたファイルと、その親ディレクトリはある", func(t *testing.T) {
+	t.Run("VM に書いたファイルはある", func(t *testing.T) {
 		h := newHarness(t)
 		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
 		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), runtime.KeepMode))
 
-		for _, path := range []string{boot, filepath.Dir(boot)} {
-			found, err := h.Runtime.SandboxFileExists(ctx, "app", path)
+		found, err := h.Runtime.SandboxFileExists(ctx, "app", boot)
 
-			if err != nil || !found {
-				t.Errorf("SandboxFileExists(%s) = %v, %v, want true", path, found, err)
-			}
+		if err != nil || !found {
+			t.Errorf("SandboxFileExists = %v, %v, want true", found, err)
+		}
+	})
+
+	t.Run("VM に書いたファイルの親ディレクトリはある", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), runtime.KeepMode))
+
+		found, err := h.Runtime.SandboxFileExists(ctx, "app", filepath.Dir(boot))
+
+		if err != nil || !found {
+			t.Errorf("SandboxFileExists = %v, %v, want true", found, err)
 		}
 	})
 
@@ -205,7 +185,7 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		}
 	})
 
-	t.Run("足した global rule は 1 宛先ずつ一覧に出る", func(t *testing.T) {
+	t.Run("足した global rule は allow の rule として一覧に出る", func(t *testing.T) {
 		h := newHarness(t)
 		must(t, h.Runtime.AllowGlobalEgress(ctx, "github.com:443"))
 
@@ -220,7 +200,9 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		h := newHarness(t)
 		must(t, h.Runtime.AllowGlobalEgress(ctx, "github.com:443"))
 		rules, err := h.Runtime.ListGlobalEgressRules(ctx)
-		must(t, err)
+		if err != nil || len(rules) != 1 {
+			t.Fatalf("ListGlobalEgressRules = %+v, %v, want the added rule", rules, err)
+		}
 
 		must(t, h.Runtime.RemoveGlobalEgressRule(ctx, rules[0].ID))
 

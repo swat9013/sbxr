@@ -109,10 +109,11 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
+		_, existed := s.Sandboxes[name]
 		delete(s.Sandboxes, name)
 		delete(s.SandboxRules, name)
 		delete(s.SandboxSecrets, name)
-		if s.VM != nil { // 撤去した VM の中身は、作り直した VM に残らない
+		if existed && s.VM != nil { // 撤去した VM の中身は、作り直した VM に残らない (fake VM は 1 つなので、sandbox は 1 つを前提にする)
 			s.VM.Files, s.VM.Modes = nil, nil
 		}
 		return nil, nil

@@ -114,22 +114,22 @@ func (s *Sbx) SetSandboxSecret(ctx context.Context, sandbox string, secret Sandb
 func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error) {
 	out, err := s.run(ctx, nil, "ls", "--json")
 	if err != nil {
-		return 0, err
+		return SandboxUnknown, err
 	}
 	var listing map[string]json.RawMessage
 	if err := json.Unmarshal(out, &listing); err != nil {
-		return 0, fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
 	}
 	raw, ok := listing["sandboxes"]
 	if !ok {
-		return 0, fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
 	}
 	var sandboxes []struct { // sandbox が 1 つも無ければ null でも空でもよい
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
 	if err := json.Unmarshal(raw, &sandboxes); err != nil {
-		return 0, fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
 	}
 	for _, sb := range sandboxes {
 		if sb.Name == sandbox {

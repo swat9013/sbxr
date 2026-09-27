@@ -131,17 +131,23 @@ func runInsideLocally(ctx context.Context, stdin io.Reader, args ...string) ([]b
 	return cmd.Output()
 }
 
-func TestSbxWritesAFileMakingItsParentAndSettingTheGivenMode(t *testing.T) {
+func TestSbxWritesAFileMakingItsParentDirectory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "boot.sh")
+
+	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte("echo boot\n"), KeepMode)
+
+	if data, readErr := os.ReadFile(path); err != nil || readErr != nil || string(data) != "echo boot\n" {
+		t.Errorf("WriteSandboxFile = %v, file = %q, %v, want the data written with its parent made", err, data, readErr)
+	}
+}
+
+func TestSbxWritesAFileWithTheGivenMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "boot.sh")
 
 	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte("echo boot\n"), 0o755)
 
-	data, readErr := os.ReadFile(path)
-	if err != nil || readErr != nil || string(data) != "echo boot\n" {
-		t.Fatalf("WriteSandboxFile = %v, file = %q, %v, want the data written with its parent made", err, data, readErr)
-	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o755 {
-		t.Errorf("mode = %v, want 0755", info.Mode().Perm())
+	if info, statErr := os.Stat(path); err != nil || statErr != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("WriteSandboxFile = %v, stat = %v, want mode 0755", err, statErr)
 	}
 }
 

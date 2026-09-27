@@ -188,7 +188,7 @@ func (r *Runtime) WriteSandboxFile(_ context.Context, sandbox, path string, data
 	if err != nil {
 		return err
 	}
-	if sb.Files == nil {
+	if sb.Files == nil { // test が Sandbox を直接組み立てたとき
 		sb.Files = map[string]File{}
 	}
 	if mode == runtime.KeepMode {

@@ -56,6 +56,7 @@ type SandboxCommand struct {
 }
 
 // KeepMode は WriteSandboxFile で mode を変えない (既存のファイルの mode を保ち、新しいファイルは既定の mode になる)。
+// 値は 0 なので、mode 0000 で置くことは表せない (sbxr が VM に置くファイルは agent が読むので、0000 は要らない)。
 const KeepMode fs.FileMode = 0
 
 // SandboxStatus は sandbox VM の状態。実行基盤の値をどの状態と読むかは adapter が決める。
@@ -63,8 +64,10 @@ const KeepMode fs.FileMode = 0
 type SandboxStatus int
 
 const (
+	// SandboxUnknown はどの状態でもない (状態を得られなかった)。ゼロ値。
+	SandboxUnknown SandboxStatus = iota
 	// SandboxAbsent は VM が無い。
-	SandboxAbsent SandboxStatus = iota + 1
+	SandboxAbsent
 	// SandboxStopped は VM が止まっている。
 	SandboxStopped
 	// SandboxRunning は VM が止まっていない (使用中かもしれない)。
@@ -79,6 +82,8 @@ func (s SandboxStatus) String() string {
 		return "stopped"
 	case SandboxRunning:
 		return "running"
+	case SandboxUnknown:
+		return "unknown"
 	}
 	return fmt.Sprintf("SandboxStatus(%d)", int(s))
 }
