@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/swat9013/sbxr/internal/egress"
+	"github.com/swat9013/sbxr/internal/secret"
 )
 
 // SchemaVersion は本 CLI が読める宣言の schema の版。
@@ -40,17 +43,15 @@ func (s Scope) String() string {
 // Declaration は 1 つのスコープの宣言。3 スコープで同じ型を使い、スコープ差は制限表 (restrictions.go) で表す。
 // scalar の pointer と map の nil は「そのスコープが書いていない」を表す。
 type Declaration struct {
-	Version int            `yaml:"version"`
-	Profile Profile        `yaml:"profile"`
-	Git     GitDeclaration `yaml:"git"`
-	// Egress の要素 (宛先グループ) の形式は egress (#3) で決めるまで検査しない。
-	Egress map[string]map[string]any `yaml:"egress"`
-	Init   []string                  `yaml:"init"`
-	Boot   []string                  `yaml:"boot"`
-	// SecretDefs の中身 (注入方式・注入先 host 等) は secret パッケージが検査する。
-	SecretDefs map[string]map[string]any `yaml:"secret_defs"`
-	Secrets    []string                  `yaml:"secrets"`
-	Herdr      HerdrDeclaration          `yaml:"herdr"`
+	Version    int                                `yaml:"version"`
+	Profile    Profile                            `yaml:"profile"`
+	Git        GitDeclaration                     `yaml:"git"`
+	Egress     map[string]egress.GroupDeclaration `yaml:"egress"`
+	Init       []string                           `yaml:"init"`
+	Boot       []string                           `yaml:"boot"`
+	SecretDefs map[string]secret.Definition       `yaml:"secret_defs"`
+	Secrets    []string                           `yaml:"secrets"`
+	Herdr      HerdrDeclaration                   `yaml:"herdr"`
 }
 
 // HerdrDeclaration は herdr 連携の宣言 (ADR 0007)。default と user スコープだけが書ける。
@@ -227,6 +228,18 @@ func (d Declaration) validate() error {
 	}
 	if d.Herdr.Version != nil && !herdrVersionPattern.MatchString(*d.Herdr.Version) {
 		errs = append(errs, fmt.Errorf("herdr.version: %q は v<major>.<minor>.<patch> の形で書く", *d.Herdr.Version))
+	}
+	// egress の group と secret 定義の書式は、書いたファイルの中で確かめる (誤りのファイルとスコープを error に出すため)。
+	// group の中身が揃っているかは、層を重ねた後に Merge が確かめる
+	for _, name := range slices.Sorted(maps.Keys(d.Egress)) {
+		if err := d.Egress[name].Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("egress.%s: %w", name, err))
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(d.SecretDefs)) {
+		if err := d.SecretDefs[name].Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("secret_defs.%s: %w", name, err))
+		}
 	}
 	for _, list := range []struct {
 		key     string

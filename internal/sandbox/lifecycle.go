@@ -12,7 +12,6 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/swat9013/sbxr/internal/config"
-	"github.com/swat9013/sbxr/internal/egress"
 	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/secret"
@@ -91,27 +90,20 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	if err != nil {
 		return Prepared{}, err
 	}
-	globalGroups, err := egress.ParseGroups(cfg.GlobalEgress)
+	identity, err := cfg.GitIdentity()
 	if err != nil {
 		return Prepared{}, err
 	}
-	sandboxGroups, err := egress.ParseGroups(cfg.SandboxEgress)
-	if err != nil {
-		return Prepared{}, err
-	}
-	prepared := Prepared{Target: target, RepoEgress: repoEgress, GlobalEgress: egress.DesiredResources(globalGroups), OriginHost: host}
+	prepared := Prepared{Target: target, RepoEgress: repoEgress, GlobalEgress: cfg.GlobalEgress, OriginHost: host}
 	if warning != nil {
 		prepared.Warnings = append(prepared.Warnings, warning)
 	}
-	sandboxEgress := egress.DesiredResources(sandboxGroups)
+	// 落とす repo の egress も config が検証済み (落とすかどうかで plan と create の error を変えない)
+	sandboxEgress := cfg.SandboxEgress
 	if repoEgress == DropRepoEgress {
 		prepared.DroppedRepoEgress, sandboxEgress = sandboxEgress, nil
 	}
-	defs, err := secret.ParseDefinitions(cfg.SecretDefs)
-	if err != nil {
-		return Prepared{}, err
-	}
-	prepared.Wiring, err = secret.PlanWiring(cfg.Secrets, defs, append(slices.Clone(prepared.GlobalEgress), sandboxEgress...))
+	prepared.Wiring, err = secret.PlanWiring(cfg.Secrets, cfg.SecretDefs, append(slices.Clone(prepared.GlobalEgress), sandboxEgress...))
 	if err != nil {
 		return Prepared{}, err
 	}
@@ -122,7 +114,7 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 
 	decl := &prepared.Declaration
 	decl.Profile = cfg.Profile
-	decl.Git.Name, decl.Git.Email = cfg.Git.Name, cfg.Git.Email
+	decl.Git.Name, decl.Git.Email = identity.Name, identity.Email
 	decl.Init, decl.Boot = cfg.Init, cfg.Boot
 	decl.SandboxEgress = sandboxEgress
 	if cfg.Herdr.Enabled {

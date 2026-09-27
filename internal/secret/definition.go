@@ -1,15 +1,16 @@
 package secret
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"maps"
 	"regexp"
 	"slices"
-
-	"go.yaml.in/yaml/v3"
+	"strings"
 )
+
+// GitHubName は同梱の default 宣言が持つ GitHub の secret 定義の名前 (sbxr secret setup github が書く)。
+const GitHubName = "github"
 
 // Definition は secret 定義 (secret_defs.<name>)。default と user スコープだけが書ける (ADR 0003)。
 type Definition struct {
@@ -34,43 +35,8 @@ func (d Definition) InjectsPlaceholder() bool {
 // hostPattern は注入先 host の書式。egress の許可を一意に判定できるよう、glob と port は書けない。
 var hostPattern = regexp.MustCompile(`^([a-z0-9-]+\.)+[a-z0-9-]+$`)
 
-// ParseDefinitions は config が中身を検査せずに持つ secret_defs を Definition へ読み、検証する。
-func ParseDefinitions(raw map[string]map[string]any) (map[string]Definition, error) {
-	defs := make(map[string]Definition, len(raw))
-	var errs []error
-	for _, name := range slices.Sorted(maps.Keys(raw)) {
-		def, err := parseDefinition(raw[name])
-		if err == nil {
-			err = def.validate()
-		}
-		if err != nil {
-			errs = append(errs, fmt.Errorf("secret_defs.%s: %w", name, err))
-			continue
-		}
-		defs[name] = def
-	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	return defs, nil
-}
-
-func parseDefinition(raw map[string]any) (Definition, error) {
-	// 未知の field を error にするため、YAML に戻して KnownFields で読み直す
-	data, err := yaml.Marshal(raw)
-	if err != nil {
-		return Definition{}, err
-	}
-	var def Definition
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&def); err != nil {
-		return Definition{}, err
-	}
-	return def, nil
-}
-
-func (d Definition) validate() error {
+// Validate は 1 つの secret 定義を検証する。定義は層ごとに丸ごと置き換わるので、書いたファイルの中で完結している。
+func (d Definition) Validate() error {
 	var errs []error
 	if !keyPattern.MatchString(d.Key) {
 		errs = append(errs, fmt.Errorf("key %q は secret ファイルのキー (英数字と _) で書く", d.Key))
@@ -95,4 +61,24 @@ func (d Definition) validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// PlaceholderKeyForHost は host へ placeholder 注入する secret 定義の key を返す。候補が 1 つに決まらなければ止める。
+func PlaceholderKeyForHost(defs map[string]Definition, host string) (string, error) {
+	keys := map[string][]string{} // key → それを使う定義の名前
+	for _, name := range slices.Sorted(maps.Keys(defs)) {
+		def := defs[name]
+		if def.InjectsPlaceholder() && slices.Contains(def.Hosts, host) {
+			keys[def.Key] = append(keys[def.Key], name)
+		}
+	}
+	switch len(keys) {
+	case 0:
+		return "", fmt.Errorf("%s へ placeholder 注入する secret 定義が無い (user 設定の secret_defs に定義してから実行する)", host)
+	case 1:
+		for key := range keys {
+			return key, nil
+		}
+	}
+	return "", fmt.Errorf("%s へ注入する secret 定義の key が複数ある (%s)。1 つに揃える", host, strings.Join(slices.Sorted(maps.Keys(keys)), ", "))
 }

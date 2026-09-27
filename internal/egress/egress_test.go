@@ -3,83 +3,88 @@ package egress
 import (
 	"context"
 	"fmt"
-	"maps"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
 
 // --- 宣言の検証 ---
 
-func TestParseGroupsRejectsInvalidDeclarations(t *testing.T) {
+func TestValidateRejectsResourcesOutsideTheHostPortFormat(t *testing.T) {
 	tests := []struct {
-		name   string
-		group  map[string]any
-		needle string
+		name     string
+		resource string
+		needle   string
 	}{
-		{name: "全 host の許可 **", group: map[string]any{"rationale": "x", "allow": []any{"**"}}, needle: "host[:port]"},
-		{name: "全 host の許可 *", group: map[string]any{"rationale": "x", "allow": []any{"*"}}, needle: "host[:port]"},
-		{name: "URL", group: map[string]any{"rationale": "x", "allow": []any{"https://x.example.com/path"}}, needle: "host[:port]"},
-		{name: "カンマで複数の宛先を 1 entry に詰める", group: map[string]any{"rationale": "x", "allow": []any{"a.example.com,b.example.com"}}, needle: "host[:port]"},
-		{name: "wildcard だけの広すぎる宛先", group: map[string]any{"rationale": "x", "allow": []any{"**.*:443"}}, needle: "host[:port]"},
-		{name: "TLD 全体の wildcard", group: map[string]any{"rationale": "x", "allow": []any{"**.com:443"}}, needle: "host[:port]"},
-		{name: "範囲外の port", group: map[string]any{"rationale": "x", "allow": []any{"api.example.com:99999"}}, needle: "1〜65535"},
-		{name: "port 0", group: map[string]any{"rationale": "x", "allow": []any{"api.example.com:0"}}, needle: "1〜65535"},
-		{name: "大文字の host", group: map[string]any{"rationale": "x", "allow": []any{"GitHub.com:443"}}, needle: "小文字"},
-		{name: "rationale が無い", group: map[string]any{"allow": []any{"x.example.com:443"}}, needle: "rationale"},
-		{name: "allow が空", group: map[string]any{"rationale": "x"}, needle: "allow"},
-		{name: "未知の field", group: map[string]any{"rationale": "x", "allow": []any{"x.example.com"}, "hosts": []any{"y.example.com"}}, needle: "hosts"},
-		{name: "enabled が bool でない", group: map[string]any{"rationale": "x", "allow": []any{"x.example.com"}, "enabled": "maybe"}, needle: "into bool"},
+		{name: "全 host の許可 **", resource: "**", needle: "host[:port]"},
+		{name: "全 host の許可 *", resource: "*", needle: "host[:port]"},
+		{name: "URL", resource: "https://x.example.com/path", needle: "host[:port]"},
+		{name: "カンマで複数の宛先を 1 entry に詰める", resource: "a.example.com,b.example.com", needle: "host[:port]"},
+		{name: "wildcard だけの広すぎる宛先", resource: "**.*:443", needle: "host[:port]"},
+		{name: "TLD 全体の wildcard", resource: "**.com:443", needle: "host[:port]"},
+		{name: "範囲外の port", resource: "api.example.com:99999", needle: "1〜65535"},
+		{name: "port 0", resource: "api.example.com:0", needle: "1〜65535"},
+		{name: "大文字の host", resource: "GitHub.com:443", needle: "小文字"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseGroups(map[string]map[string]any{"g": tt.group})
+			err := GroupDeclaration{Allow: []string{tt.resource}}.Validate()
 
 			if err == nil || !strings.Contains(err.Error(), tt.needle) {
-				t.Errorf("ParseGroups() error = %v, want an error mentioning %q", err, tt.needle)
+				t.Errorf("Validate() error = %v, want an error mentioning %q", err, tt.needle)
 			}
 		})
 	}
 }
 
-func TestParseGroupsAcceptsSbxHostPatterns(t *testing.T) {
-	allow := []any{"github.com:443", "*.example.com", "**.github.com:443", "crl*.digicert.com:80", "api?.example.com", "api[12].example.com"}
+func TestValidateAcceptsSbxHostPatterns(t *testing.T) {
+	allow := []string{"github.com:443", "*.example.com", "**.github.com:443", "crl*.digicert.com:80", "api?.example.com", "api[12].example.com"}
 
-	_, err := ParseGroups(map[string]map[string]any{"g": {"rationale": "x", "allow": allow}})
-
-	if err != nil {
-		t.Errorf("ParseGroups() error = %v, want sbx の host pattern を受け入れる", err)
+	if err := (GroupDeclaration{Allow: allow}).Validate(); err != nil {
+		t.Errorf("Validate() error = %v, want sbx の host pattern を受け入れる", err)
 	}
 }
 
-func TestExcludingAGroupThatDoesNotExistIsAnError(t *testing.T) {
-	_, err := ParseGroups(map[string]map[string]any{"githb": {"enabled": false}})
+func TestCompleteRequiresARationaleAndAllow(t *testing.T) {
+	for name, tt := range map[string]struct {
+		group  GroupDeclaration
+		needle string
+	}{
+		"rationale が無い":  {group: GroupDeclaration{Allow: []string{"x.example.com:443"}}, needle: "rationale"},
+		"allow が空":       {group: GroupDeclaration{Rationale: ptr("x")}, needle: "allow"},
+		"除外だけを書いた group": {group: GroupDeclaration{Enabled: ptr(false)}, needle: "rationale"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := tt.group.Complete()
 
-	if err == nil || !strings.Contains(err.Error(), "egress.githb") {
-		t.Errorf("ParseGroups() error = %v, want the misspelled exclusion to be reported", err)
+			if err == nil || !strings.Contains(err.Error(), tt.needle) {
+				t.Errorf("Complete() error = %v, want an error mentioning %q", err, tt.needle)
+			}
+		})
 	}
 }
 
-func TestExcludingAnExistingGroupIsValid(t *testing.T) {
-	_, err := ParseGroups(map[string]map[string]any{"github": {"rationale": "GitHub", "allow": []any{"github.com:443"}, "enabled": false}})
+func TestCompleteKeepsAnExcludedGroupWithItsContents(t *testing.T) {
+	group, err := GroupDeclaration{Rationale: ptr("GitHub"), Allow: []string{"github.com:443"}, Enabled: ptr(false)}.Complete()
 
-	if err != nil {
-		t.Errorf("ParseGroups() error = %v, want enabled: false on top of an existing group to be valid", err)
+	if err != nil || group.Enabled {
+		t.Errorf("Complete() = %+v, error = %v, want a valid group that is excluded", group, err)
 	}
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func TestDesiredResourcesSkipDisabledGroupsAndDeduplicate(t *testing.T) {
-	disabled := false
 	groups := map[string]Group{
-		"github": {Rationale: "GitHub", Allow: []string{"github.com:443", "ghcr.io:443"}},
-		"mirror": {Rationale: "mirror", Allow: []string{"github.com:443"}},
-		"apt":    {Rationale: "apt", Allow: []string{"ports.ubuntu.com:80"}, Enabled: &disabled},
+		"github": {Rationale: "GitHub", Allow: []string{"github.com:443", "ghcr.io:443"}, Enabled: true},
+		"mirror": {Rationale: "mirror", Allow: []string{"github.com:443"}, Enabled: true},
+		"apt":    {Rationale: "apt", Allow: []string{"ports.ubuntu.com:80"}},
 	}
 
 	got := DesiredResources(groups)
@@ -244,24 +249,5 @@ func TestConvergeFailsWhenTheReadBackStillDiffers(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "適用後") {
 		t.Errorf("Converge() error = %v, want a read-back failure", err)
-	}
-}
-
-// --- 同梱の default スコープ ---
-
-func TestEmbeddedDefaultGroupsAreValid(t *testing.T) {
-	declared, err := config.LoadGlobalEgress(filepath.Join(t.TempDir(), "no-user-config.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	groups, err := ParseGroups(declared)
-
-	if err != nil {
-		t.Fatalf("ParseGroups(default) error = %v", err)
-	}
-	want := []string{"cert-validation", "docker-registry", "github", "mise-tools", "ubuntu-apt"}
-	if got := slices.Sorted(maps.Keys(groups)); !reflect.DeepEqual(got, want) {
-		t.Errorf("default groups = %v, want %v", got, want)
 	}
 }

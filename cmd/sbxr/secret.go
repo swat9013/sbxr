@@ -3,9 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -14,9 +12,6 @@ import (
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/secret"
 )
-
-// githubSecretName は default スコープに同梱する GitHub の secret 定義の名前。
-const githubSecretName = "github"
 
 func newSecretCmd(deps dependencies) *cobra.Command {
 	secretCmd := &cobra.Command{
@@ -42,7 +37,7 @@ func newSecretSetupGithubCmd(deps dependencies) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cmd.SilenceUsage = true
-			def, err := loadSecretDef(deps, githubSecretName)
+			def, err := loadSecretDef(deps, secret.GitHubName)
 			if err != nil {
 				return err
 			}
@@ -109,11 +104,11 @@ func loadSecretDefs(deps dependencies) (map[string]secret.Definition, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw, err := config.LoadSecretDefs(userConfigPath)
+	cfg, err := config.LoadTrusted(userConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	return secret.ParseDefinitions(raw)
+	return cfg.SecretDefs, nil
 }
 
 func loadSecretDef(deps dependencies, name string) (secret.Definition, error) {
@@ -128,28 +123,12 @@ func loadSecretDef(deps dependencies, name string) (secret.Definition, error) {
 	return def, nil
 }
 
-// secretKeyForHost は host へ placeholder 注入する secret 定義の key を返す。候補が 1 つに決まらなければ止める。
 func secretKeyForHost(deps dependencies, host string) (string, error) {
 	defs, err := loadSecretDefs(deps)
 	if err != nil {
 		return "", err
 	}
-	keys := map[string][]string{} // key → それを使う定義の名前
-	for _, name := range slices.Sorted(maps.Keys(defs)) {
-		def := defs[name]
-		if def.InjectsPlaceholder() && slices.Contains(def.Hosts, host) {
-			keys[def.Key] = append(keys[def.Key], name)
-		}
-	}
-	switch len(keys) {
-	case 0:
-		return "", fmt.Errorf("%s へ placeholder 注入する secret 定義が無い (user 設定の secret_defs に定義してから実行する)", host)
-	case 1:
-		for key := range keys {
-			return key, nil
-		}
-	}
-	return "", fmt.Errorf("%s へ注入する secret 定義の key が複数ある (%s)。1 つに揃える", host, strings.Join(slices.Sorted(maps.Keys(keys)), ", "))
+	return secret.PlaceholderKeyForHost(defs, host)
 }
 
 func readSecretValue(deps dependencies, prompt string) (string, error) {
