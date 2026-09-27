@@ -8,6 +8,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -134,28 +135,14 @@ func decode(data []byte) (Declaration, error) {
 	return decl, nil
 }
 
-// listWrittenKeys は書かれた key を top-level と profile / git の 1 段下まで列挙する。
+// listWrittenKeys は書かれた key をすべての深さまで列挙する (スコープ制限の表を fail-closed に引くため。ADR 0004 の改訂)。
 // 型へ読み込んだ後では、null を書いた key と書いていない key を区別できないため YAML node から数える。
 func listWrittenKeys(data []byte) ([]writtenKey, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
 	}
-	var keys []writtenKey
-	for _, top := range mappingEntries(documentBody(&root), "", "") {
-		keys = append(keys, top)
-		switch top.key {
-		case "profile", "git", "herdr":
-			keys = append(keys, mappingEntries(top.value, top.key, top.key)...)
-		case "egress":
-			for _, group := range mappingEntries(top.value, "egress", "egress") {
-				group.tableName = "egress.*"
-				keys = append(keys, group)
-				keys = append(keys, mappingEntries(group.value, group.name(), "egress.*")...)
-			}
-		}
-	}
-	return keys, nil
+	return writtenKeysUnder(documentBody(&root), "", ""), nil
 }
 
 func documentBody(root *yaml.Node) *yaml.Node {
@@ -165,21 +152,41 @@ func documentBody(root *yaml.Node) *yaml.Node {
 	return root
 }
 
-// mappingEntries は mapping の key を列挙する。tableParent は制限表で引く名前の親の部分。
-func mappingEntries(node *yaml.Node, parent, tableParent string) []writtenKey {
-	if node.Kind != yaml.MappingNode {
-		return nil
-	}
-	var entries []writtenKey
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		key := node.Content[i].Value
-		tableName := key
-		if tableParent != "" {
-			tableName = tableParent + "." + key
+// writtenKeysUnder は node の下に書かれた key を列挙する。parent は key 名の親、tableParent は制限表で引く名前の親。
+// list の要素の下の key は list の key の下として数え、alias は参照先まで降りる (表の外の key を alias で隠させない)。
+func writtenKeysUnder(node *yaml.Node, parent, tableParent string) []writtenKey {
+	var keys []writtenKey
+	switch node.Kind {
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			name := node.Content[i].Value
+			key := writtenKey{parent: parent, key: name, value: node.Content[i+1], tableName: childTableName(tableParent, name)}
+			keys = append(keys, key)
+			keys = append(keys, writtenKeysUnder(key.value, key.name(), key.tableName)...)
 		}
-		entries = append(entries, writtenKey{parent: parent, key: key, value: node.Content[i+1], tableName: tableName})
+	case yaml.SequenceNode:
+		for _, item := range node.Content {
+			keys = append(keys, writtenKeysUnder(item, parent, tableParent)...)
+		}
+	case yaml.AliasNode:
+		keys = append(keys, writtenKeysUnder(node.Alias, parent, tableParent)...)
 	}
-	return entries
+	return keys
+}
+
+// checksEmptyValue は、値の書き忘れ (null) と空文字を止める key か。型が読む key (profile・git・herdr の下) と
+// egress の group の下までを見る。それより深い key (profile.env の変数など) の値は、空でも利用者の意図として通す。
+func (k writtenKey) checksEmptyValue() bool {
+	top, rest, nested := strings.Cut(k.tableName, ".")
+	switch depth := strings.Count(k.tableName, ".") + 1; {
+	case !nested || depth == 1:
+		return true
+	case depth == 2:
+		return top == "profile" || top == "git" || top == "herdr" || top == "egress"
+	case depth == 3:
+		return top == "egress" && strings.HasPrefix(rest, "*.")
+	}
+	return false
 }
 
 // checkWrittenValues は書いた key の値の書き忘れ (null) と、profile / git の空文字を止める。
@@ -188,6 +195,7 @@ func checkWrittenValues(keys []writtenKey) error {
 	var errs []error
 	for _, key := range keys {
 		switch {
+		case !key.checksEmptyValue():
 		case key.value.Tag == "!!null":
 			errs = append(errs, fmt.Errorf("%s に値が無い", key.name()))
 		case key.parent != "" && key.value.Tag == "!!str" && key.value.Value == "":
