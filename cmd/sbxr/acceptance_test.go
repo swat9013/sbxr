@@ -260,9 +260,26 @@ func TestAcceptanceRepoEgressIsDroppedOnlyForAGitURLPassedWithYes(t *testing.T) 
 	}
 }
 
+// invalidRepoEgress は host[:port] の書式でない宛先を持つ repo 宣言。
+const invalidRepoEgress = "version: 1\negress:\n  api:\n    rationale: API\n    allow: [https://api.example.com]\n"
+
 func TestAcceptanceRepoEgressDroppedWithYesIsStillValidatedAndStopsTheCreation(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
-	lc.clonedRepoDecl = "version: 1\negress:\n  api:\n    rationale: API\n    allow: [https://api.example.com]\n"
+	lc.clonedRepoDecl = invalidRepoEgress
+
+	_, err := lc.run(t, "create", "https://example.com/me/app.git", "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "egress.api") {
+		t.Errorf("error = %v, want the invalid repo group named", err)
+	}
+	if _, created := lc.stub.Sandboxes["app"]; created {
+		t.Errorf("sandbox was created, want the creation stopped")
+	}
+}
+
+func TestAcceptancePlanAndCreateWithYesStopOnTheSameRepoEgressError(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	lc.clonedRepoDecl = invalidRepoEgress
 	url := "https://example.com/me/app.git"
 
 	_, planErr := lc.run(t, "plan", url)
@@ -271,12 +288,6 @@ func TestAcceptanceRepoEgressDroppedWithYesIsStillValidatedAndStopsTheCreation(t
 	// plan と create は別の clone を読むので、ファイルの path より後ろを比べる
 	if withoutPath(createErr) == "" || withoutPath(createErr) != withoutPath(planErr) {
 		t.Errorf("create error = %v, plan error = %v, want the same error whether or not the repo egress is dropped", createErr, planErr)
-	}
-	if createErr != nil && !strings.Contains(createErr.Error(), "egress.api") {
-		t.Errorf("create error = %v, want the invalid repo group named", createErr)
-	}
-	if _, created := lc.stub.Sandboxes["app"]; created {
-		t.Errorf("sandbox was created, want the creation stopped")
 	}
 }
 

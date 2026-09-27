@@ -20,7 +20,7 @@ func Load(userPath, repoPath string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Merge(defaultDecl, userDecl, repoDecl)
+	return merge(defaultDecl, userDecl, repoDecl)
 }
 
 func parseFileIfExists(scope Scope, path string) (Declaration, error) {
@@ -45,7 +45,7 @@ func LoadTrusted(userPath string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Merge(defaultDecl, userDecl, Declaration{})
+	return merge(defaultDecl, userDecl, Declaration{})
 }
 
 // parseTrustedScopes は同梱の default 宣言と userPath の user 設定を読む。

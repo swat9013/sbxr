@@ -107,7 +107,7 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 type writtenKey struct {
 	path  []string // top-level から辿った key 名の列 ("egress", "github", "enabled")
 	value *yaml.Node
-	// table は制限表で引く列。egress の group 名は利用者が付けるので "*" に置き換える ("egress", "*", "enabled")
+	// table は制限表で引く列。利用者が名前を付ける map の key (egress の group 名) は "*" に置き換える ("egress", "*", "enabled")
 	table []string
 }
 
@@ -230,7 +230,7 @@ func (d Declaration) validate() error {
 		errs = append(errs, fmt.Errorf("herdr.version: %q は v<major>.<minor>.<patch> の形で書く", *d.Herdr.Version))
 	}
 	// egress の group と secret 定義の書式は、書いたファイルの中で確かめる (誤りのファイルとスコープを error に出すため)。
-	// group の中身が揃っているかは、層を重ねた後に Merge が確かめる
+	// group の中身が揃っているかは、層を重ねた後に merge が確かめる
 	for _, name := range slices.Sorted(maps.Keys(d.Egress)) {
 		if err := d.Egress[name].Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("egress.%s: %w", name, err))

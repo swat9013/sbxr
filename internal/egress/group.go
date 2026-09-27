@@ -20,9 +20,8 @@ type GroupDeclaration struct {
 
 // Group は層を重ね終えた、中身の揃った宛先グループ。
 type Group struct {
-	Rationale string
-	Allow     []string
-	Enabled   bool
+	Allow   []string
+	Enabled bool
 }
 
 // resourcePattern は allow の 1 entry の書式: sbx が受け付ける host pattern (*・**・?・[] の glob) と任意の :port。
@@ -47,6 +46,25 @@ func (d GroupDeclaration) Validate() error {
 	return errors.Join(errs...)
 }
 
+// Overlay は下の層の group に上の層の group を重ねる。allow は下の層の後ろに上の層の要素を重複なく足した和集合、
+// それ以外は上の層が書いた field が勝つ。user が default の group に宛先を足したり、除外の enabled だけを重ねたりするため。
+func (d GroupDeclaration) Overlay(upper GroupDeclaration) GroupDeclaration {
+	allow := slices.Clone(d.Allow)
+	for _, resource := range upper.Allow {
+		if !slices.Contains(allow, resource) {
+			allow = append(allow, resource)
+		}
+	}
+	overlaid := GroupDeclaration{Rationale: d.Rationale, Allow: allow, Enabled: d.Enabled}
+	if upper.Rationale != nil {
+		overlaid.Rationale = upper.Rationale
+	}
+	if upper.Enabled != nil {
+		overlaid.Enabled = upper.Enabled
+	}
+	return overlaid
+}
+
 // Complete は層を重ねた group に rationale と allow が揃っていることを確かめる。除外した group にも求める。
 // 除外は既存の group に enabled: false を重ねて書くので、中身の無い group は除外したい group の名前の書き違いになる (ADR 0008)。
 func (d GroupDeclaration) Complete() (Group, error) {
@@ -60,7 +78,7 @@ func (d GroupDeclaration) Complete() (Group, error) {
 	if err := errors.Join(errs...); err != nil {
 		return Group{}, err
 	}
-	return Group{Rationale: *d.Rationale, Allow: d.Allow, Enabled: d.Enabled == nil || *d.Enabled}, nil
+	return Group{Allow: d.Allow, Enabled: d.Enabled == nil || *d.Enabled}, nil
 }
 
 func validPort(digits string) bool {

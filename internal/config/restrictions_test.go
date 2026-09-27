@@ -11,7 +11,7 @@ func TestTheScopeTableClassifiesExactlyTheKeysOfTheDeclaration(t *testing.T) {
 	keys := declarationKeys(t, reflect.TypeFor[Declaration](), "")
 
 	for _, key := range keys {
-		if _, classified := repoScopeTable[key]; !classified {
+		if _, classified := repoScopeTable[key]; !classified && !belowACannotWriteRow(key) {
 			t.Errorf("%s は repo が書けるかを表で分類していない", key)
 		}
 	}
@@ -20,6 +20,17 @@ func TestTheScopeTableClassifiesExactlyTheKeysOfTheDeclaration(t *testing.T) {
 			t.Errorf("表の %s は宣言の型に無い key", row)
 		}
 	}
+}
+
+// belowACannotWriteRow は key の祖先に「書けない」行があるか。
+func belowACannotWriteRow(key string) bool {
+	for ancestor := key; strings.Contains(ancestor, "."); {
+		ancestor = ancestor[:strings.LastIndex(ancestor, ".")]
+		if access, ok := repoScopeTable[ancestor]; ok && access == repoCannotWrite {
+			return true
+		}
+	}
+	return false
 }
 
 func TestTheScopeTableNeverTakesADottedKeyNameForADeeperKey(t *testing.T) {
@@ -34,7 +45,8 @@ func TestTheScopeTableNeverTakesADottedKeyNameForADeeperKey(t *testing.T) {
 	}
 }
 
-// 宣言の型に無い key は decode が先に止めるので、表の引き方は書かれた key の列挙から直接確かめる。
+// 今の宣言の型では、次の key は decode が先に止める。表の引き方は、型が中身を決めない map (#13 の template の
+// inputs など) を足したときの多層防御として、書かれた key の列挙から直接確かめる。
 
 func TestRepoCannotWriteBelowAKeyTheTableAllowsAlone(t *testing.T) {
 	err := repoRestrictions(t, "egress:\n  api:\n    rationale:\n      note: hidden\n")

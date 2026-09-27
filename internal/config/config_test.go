@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/assets"
+	"github.com/swat9013/sbxr/internal/secret"
 )
 
 const testDefault = `
@@ -55,7 +56,7 @@ func mergeYAML(t *testing.T, defaultYAML, userYAML, repoYAML string) (Config, er
 		}
 		decls[i] = decl
 	}
-	return Merge(decls[0], decls[1], decls[2])
+	return merge(decls[0], decls[1], decls[2])
 }
 
 func mustMerge(t *testing.T, defaultYAML, userYAML, repoYAML string) Config {
@@ -336,13 +337,13 @@ func TestMergeCarriesEveryProfileFieldFromTheUserScope(t *testing.T) {
 	identity := "probe"
 	user := Declaration{Profile: profile, Git: GitDeclaration{Name: &identity, Email: &identity}}
 
-	cfg, err := Merge(Declaration{}, user, Declaration{})
+	cfg, err := merge(Declaration{}, user, Declaration{})
 
 	if err != nil {
-		t.Fatalf("Merge() error = %v", err)
+		t.Fatalf("merge() error = %v", err)
 	}
 	if !reflect.DeepEqual(cfg.Profile, profile) {
-		t.Errorf("Merge().Profile = %+v, want every field of %+v", cfg.Profile, profile)
+		t.Errorf("merge().Profile = %+v, want every field of %+v", cfg.Profile, profile)
 	}
 }
 
@@ -469,13 +470,31 @@ func TestLoadTrustedStacksTheUserExclusionOnTheDefaultGroup(t *testing.T) {
 }
 
 func TestEmbeddedDefaultEgressAndSecretDefsAreValid(t *testing.T) {
-	cfg, err := LoadTrusted(filepath.Join(t.TempDir(), "no-user-config.yaml"))
-
-	if err != nil {
+	if _, err := LoadTrusted(filepath.Join(t.TempDir(), "no-user-config.yaml")); err != nil {
 		t.Fatalf("LoadTrusted() error = %v", err)
 	}
-	if !slices.Contains(cfg.GlobalEgress, "github.com:443") || cfg.SecretDefs["github"].Key != "GITHUB_TOKEN" {
-		t.Errorf("GlobalEgress = %v, SecretDefs = %v, want the embedded github group and secret definition", cfg.GlobalEgress, cfg.SecretDefs)
+
+	decl, _ := Parse(ScopeDefault, "同梱の default 宣言", assets.DefaultDeclaration)
+	want := []string{"cert-validation", "docker-registry", "github", "mise-tools", "ubuntu-apt"}
+	if got := slices.Sorted(maps.Keys(decl.Egress)); !reflect.DeepEqual(got, want) {
+		t.Errorf("default groups = %v, want %v", got, want)
+	}
+	if _, ok := decl.SecretDefs[secret.GitHubName]; !ok {
+		t.Errorf("SecretDefs = %v, want the definition that sbxr secret setup github writes (%s)", decl.SecretDefs, secret.GitHubName)
+	}
+}
+
+func TestAnUpperScopeReplacesASecretDefinitionWhole(t *testing.T) {
+	_, err := mergeYAML(t, testDefault, "version: 1\nsecret_defs:\n  github:\n    key: OTHER_TOKEN\n", "")
+
+	assertErrorMentions(t, err, "secret_defs.github: hosts が空")
+}
+
+func TestUserMayWriteAnEmptyServiceToMeanPlaceholderInjection(t *testing.T) {
+	user := "version: 1\nsecret_defs:\n  api:\n    service: ''\n    key: API_TOKEN\n    hosts: [api.example.com]\n    env: API_TOKEN\n"
+
+	if _, err := mergeYAML(t, testDefault, user, ""); err != nil {
+		t.Errorf("merge error = %v, want an empty service accepted as placeholder injection", err)
 	}
 }
 

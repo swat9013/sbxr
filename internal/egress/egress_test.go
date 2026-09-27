@@ -76,15 +76,26 @@ func TestCompleteKeepsAnExcludedGroupWithItsContents(t *testing.T) {
 	}
 }
 
+func TestOverlayUnionsAllowAndLetsTheUpperScopeOverrideTheRest(t *testing.T) {
+	lower := GroupDeclaration{Rationale: ptr("GitHub"), Allow: []string{"github.com:443"}}
+
+	got := lower.Overlay(GroupDeclaration{Allow: []string{"ghe.example.com:443", "github.com:443"}, Enabled: ptr(false)})
+
+	want := GroupDeclaration{Rationale: ptr("GitHub"), Allow: []string{"github.com:443", "ghe.example.com:443"}, Enabled: ptr(false)}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Overlay() = %+v, want %+v", got, want)
+	}
+}
+
 func ptr[T any](v T) *T {
 	return &v
 }
 
 func TestDesiredResourcesSkipDisabledGroupsAndDeduplicate(t *testing.T) {
 	groups := map[string]Group{
-		"github": {Rationale: "GitHub", Allow: []string{"github.com:443", "ghcr.io:443"}, Enabled: true},
-		"mirror": {Rationale: "mirror", Allow: []string{"github.com:443"}, Enabled: true},
-		"apt":    {Rationale: "apt", Allow: []string{"ports.ubuntu.com:80"}},
+		"github": {Allow: []string{"github.com:443", "ghcr.io:443"}, Enabled: true},
+		"mirror": {Allow: []string{"github.com:443"}, Enabled: true},
+		"apt":    {Allow: []string{"ports.ubuntu.com:80"}},
 	}
 
 	got := DesiredResources(groups)

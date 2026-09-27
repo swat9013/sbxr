@@ -35,7 +35,7 @@ func (d Definition) InjectsPlaceholder() bool {
 // hostPattern は注入先 host の書式。egress の許可を一意に判定できるよう、glob と port は書けない。
 var hostPattern = regexp.MustCompile(`^([a-z0-9-]+\.)+[a-z0-9-]+$`)
 
-// Validate は 1 つの secret 定義を検証する。定義は層ごとに丸ごと置き換わるので、書いたファイルの中で完結している。
+// Validate は 1 つの secret 定義を検証する。
 func (d Definition) Validate() error {
 	var errs []error
 	if !keyPattern.MatchString(d.Key) {
