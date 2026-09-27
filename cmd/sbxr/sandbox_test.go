@@ -234,6 +234,10 @@ func TestCreateWiresRequestedSecretsBeforeCreatingTheSandbox(t *testing.T) {
 
 func TestCreateStopsBeforeTheStateDirWhenASecretValueIsMissing(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\n")
+	secretFile, _ := lc.deps.secretFilePath()
+	if err := os.WriteFile(secretFile, []byte("OTHER_TOKEN=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	repo := localRepo(t, "app", "")
 
 	_, err := lc.run(t, "create", repo, "--yes")
