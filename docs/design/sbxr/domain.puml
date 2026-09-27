@@ -31,6 +31,8 @@ package "集約: sandbox VM (1 つの出所から作った VM の管理)" as Agg
   class WiredSecret <<配線した secret>> {
     {field} 名前 : secret 定義の名前
     {field} 注入 : service | hosts + env
+    {field} key : secret ファイルのキー
+    {field} vars : 秘密でない付随値 (環境変数名 → 値)
   }
   class CacheClone <<cache clone>> {
     {field} path : cache root 直下の <名前>
@@ -154,6 +156,8 @@ note bottom of CreationDeclaration
   repo の egress を落として確定したら、sandbox スコープ rule の宛先は空。
   現在の宣言も同じ形で、同じ扱いで確定する。
   drift は secret の並びと注入先 host の並びを差にしない。
+  配線した secret の key・vars を記録していない (v0.1.0 の) 記録は、
+  その secret の key・vars を比べず、比べていないと注記する。
 end note
 
 note right of CacheClone
