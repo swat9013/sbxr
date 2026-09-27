@@ -47,7 +47,7 @@ func (d GroupDeclaration) Validate() error {
 }
 
 // Overlay は下の層の group に上の層の group を重ねる。allow は下の層の後ろに上の層の要素を重複なく足した和集合、
-// それ以外は上の層が書いた field が勝つ。user が default の group に宛先を足したり、除外の enabled だけを重ねたりするため。
+// それ以外は上の層が書いた field が勝つ。上の層が宛先だけを足したり、除外の enabled だけを重ねたりできるようにするため。
 func (d GroupDeclaration) Overlay(upper GroupDeclaration) GroupDeclaration {
 	allow := slices.Clone(d.Allow)
 	for _, resource := range upper.Allow {

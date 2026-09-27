@@ -469,19 +469,36 @@ func TestLoadTrustedStacksTheUserExclusionOnTheDefaultGroup(t *testing.T) {
 	}
 }
 
-func TestEmbeddedDefaultEgressAndSecretDefsAreValid(t *testing.T) {
+func TestEmbeddedDefaultLoadsWithoutAUserConfig(t *testing.T) {
 	if _, err := LoadTrusted(filepath.Join(t.TempDir(), "no-user-config.yaml")); err != nil {
-		t.Fatalf("LoadTrusted() error = %v", err)
+		t.Errorf("LoadTrusted() error = %v", err)
 	}
+}
 
-	decl, _ := Parse(ScopeDefault, "同梱の default 宣言", assets.DefaultDeclaration)
+func TestEmbeddedDefaultShipsTheKnownEgressGroups(t *testing.T) {
+	decl := embeddedDefault(t)
+
 	want := []string{"cert-validation", "docker-registry", "github", "mise-tools", "ubuntu-apt"}
 	if got := slices.Sorted(maps.Keys(decl.Egress)); !reflect.DeepEqual(got, want) {
 		t.Errorf("default groups = %v, want %v", got, want)
 	}
+}
+
+func TestEmbeddedDefaultShipsTheGitHubSecretDefinitionThatSecretSetupWrites(t *testing.T) {
+	decl := embeddedDefault(t)
+
 	if _, ok := decl.SecretDefs[secret.GitHubName]; !ok {
-		t.Errorf("SecretDefs = %v, want the definition that sbxr secret setup github writes (%s)", decl.SecretDefs, secret.GitHubName)
+		t.Errorf("SecretDefs = %v, want %s", decl.SecretDefs, secret.GitHubName)
 	}
+}
+
+func embeddedDefault(t *testing.T) Declaration {
+	t.Helper()
+	decl, err := Parse(ScopeDefault, "同梱の default 宣言", assets.DefaultDeclaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decl
 }
 
 func TestAnUpperScopeReplacesASecretDefinitionWhole(t *testing.T) {
