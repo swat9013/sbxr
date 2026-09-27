@@ -114,22 +114,22 @@ func (s *Sbx) SetSandboxSecret(ctx context.Context, sandbox string, secret Sandb
 func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error) {
 	out, err := s.run(ctx, nil, "ls", "--json")
 	if err != nil {
-		return SandboxAbsent, err
+		return 0, err
 	}
 	var listing map[string]json.RawMessage
 	if err := json.Unmarshal(out, &listing); err != nil {
-		return SandboxAbsent, fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
+		return 0, fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
 	}
 	raw, ok := listing["sandboxes"]
 	if !ok {
-		return SandboxAbsent, fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
+		return 0, fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
 	}
 	var sandboxes []struct { // sandbox が 1 つも無ければ null でも空でもよい
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
 	if err := json.Unmarshal(raw, &sandboxes); err != nil {
-		return SandboxAbsent, fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
+		return 0, fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
 	}
 	for _, sb := range sandboxes {
 		if sb.Name == sandbox {
@@ -203,7 +203,7 @@ func (s *Sbx) ReadSandboxFile(ctx context.Context, sandbox, path string) ([]byte
 // WriteSandboxFile は VM 内の shell で stdin から書く (VM の agent の持ち主で置くため)。
 func (s *Sbx) WriteSandboxFile(ctx context.Context, sandbox, path string, data []byte, mode fs.FileMode) error {
 	args := []string{"sh", "-c", writeFileScript, "sh", path}
-	if mode != 0 {
+	if mode != KeepMode {
 		args = append(args, fmt.Sprintf("%04o", mode.Perm()))
 	}
 	_, err := s.ExecInSandbox(ctx, sandbox, SandboxCommand{Args: args, Input: data})

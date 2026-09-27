@@ -7,13 +7,11 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
-
-	"go.yaml.in/yaml/v3"
+	"strings"
 
 	"github.com/swat9013/sbxr/internal/runtime"
+	"github.com/swat9013/sbxr/internal/runtime/testenv"
 )
 
 // Runtime は実行基盤の状態を memory に持つ。
@@ -48,7 +46,7 @@ type Sandbox struct {
 // File は VM 内の 1 つのファイル。
 type File struct {
 	Data []byte
-	// Mode は書き込みで指定した mode。指定が無ければ 0。
+	// Mode は書き込みで指定した mode。一度も指定していなければ KeepMode。
 	Mode fs.FileMode
 }
 
@@ -76,16 +74,6 @@ func (r *Runtime) Sandbox(name string) *Sandbox {
 		r.Sandboxes[name] = sb
 	}
 	return sb
-}
-
-// Start は sbxr の外で止まった VM が起動したこと (herdr の繋ぎ直しや sbx exec) を再現する。
-func (r *Runtime) Start(name string) error {
-	sb := r.Sandbox(name)
-	if sb.Status == runtime.SandboxAbsent {
-		return fmt.Errorf("inmemory: sandbox %s が無い", name)
-	}
-	sb.Status = runtime.SandboxRunning
-	return nil
 }
 
 func (r *Runtime) ListGlobalEgressRules(context.Context) ([]runtime.EgressRule, error) {
@@ -135,7 +123,7 @@ func (r *Runtime) SandboxStatus(_ context.Context, sandbox string) (runtime.Sand
 }
 
 func (r *Runtime) CreateEnvironment(_ context.Context, envDir string) error {
-	name, err := envName(envDir)
+	name, err := testenv.Name(envDir)
 	if err != nil {
 		return err
 	}
@@ -145,7 +133,7 @@ func (r *Runtime) CreateEnvironment(_ context.Context, envDir string) error {
 
 // RemoveEnvironment は VM を、置かれた secret と rule ごと消す。VM が無くても secret を消して成功する (sbx の実測)。
 func (r *Runtime) RemoveEnvironment(_ context.Context, envDir string) error {
-	name, err := envName(envDir)
+	name, err := testenv.Name(envDir)
 	if err != nil {
 		return err
 	}
@@ -200,6 +188,12 @@ func (r *Runtime) WriteSandboxFile(_ context.Context, sandbox, path string, data
 	if err != nil {
 		return err
 	}
+	if sb.Files == nil {
+		sb.Files = map[string]File{}
+	}
+	if mode == runtime.KeepMode {
+		mode = sb.Files[path].Mode
+	}
 	sb.Files[path] = File{Data: slices.Clone(data), Mode: mode}
 	return nil
 }
@@ -209,8 +203,13 @@ func (r *Runtime) SandboxFileExists(_ context.Context, sandbox, path string) (bo
 	if err != nil {
 		return false, err
 	}
-	_, ok := sb.Files[path]
-	return ok, nil
+	// 書いたファイルの親ディレクトリもある (書き込みは親を作る)
+	for written := range sb.Files {
+		if written == path || strings.HasPrefix(written, strings.TrimSuffix(path, "/")+"/") {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (r *Runtime) SSHTarget(sandbox string) string {
@@ -224,19 +223,4 @@ func (r *Runtime) running(sandbox string) (*Sandbox, error) {
 		return nil, fmt.Errorf("inmemory: sandbox %s が動いていない", sandbox)
 	}
 	return sb, nil
-}
-
-// envName は env 定義 (<dir>/sbxenv.yaml) の name を読む。env 定義が無ければ error (sbx の実測)。
-func envName(dir string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "sbxenv.yaml"))
-	if err != nil {
-		return "", fmt.Errorf("inmemory: no sbxenv.yaml found at %s: %w", dir, err)
-	}
-	var env struct {
-		Name string `yaml:"name"`
-	}
-	if err := yaml.Unmarshal(data, &env); err != nil || env.Name == "" {
-		return "", fmt.Errorf("inmemory: %s/sbxenv.yaml の name を読めない", dir)
-	}
-	return env.Name, nil
 }

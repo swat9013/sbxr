@@ -2,6 +2,7 @@ package egress
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"reflect"
@@ -200,20 +201,27 @@ func ruleIDs(rules []runtime.EgressRule) []string {
 
 func TestConvergeKeepsDeclaredHostsReachableWhereverAWriteFails(t *testing.T) {
 	desired := []string{"ghcr.io:443", "github.com:443"}
-	for failOn := 1; failOn <= 3; failOn++ { // 足す 2 回と消す 1 回のどこで止まっても
-		rt := withRules(globalAllow("r1", "github.com:443", "ghcr.io:443"))
-		rt.FailOnGlobalWrite = failOn
+	live := globalAllow("r1", "github.com:443", "ghcr.io:443")
+	plan, err := Diff(context.Background(), withRules(live), desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for failOn := 1; failOn <= len(plan.Add)+len(plan.Remove); failOn++ {
+		t.Run(fmt.Sprintf("書き込み %d 回目で失敗", failOn), func(t *testing.T) {
+			rt := withRules(live)
+			rt.FailOnGlobalWrite = failOn
 
-		_, err := Converge(context.Background(), rt, desired)
+			_, err := Converge(context.Background(), rt, desired)
 
-		if err == nil {
-			t.Fatalf("Converge() with write %d failing = nil, want an error", failOn)
-		}
-		for _, resource := range desired {
-			if !slices.ContainsFunc(rt.GlobalRules, func(r runtime.EgressRule) bool { return slices.Contains(r.Resources, resource) }) {
-				t.Errorf("write %d failed: global rules = %+v, want %s still allowed", failOn, rt.GlobalRules, resource)
+			if err == nil {
+				t.Fatalf("Converge() = nil, want the write to fail")
 			}
-		}
+			for _, resource := range desired {
+				if !slices.ContainsFunc(rt.GlobalRules, func(r runtime.EgressRule) bool { return slices.Contains(r.Resources, resource) }) {
+					t.Errorf("global rules = %+v, want %s still allowed", rt.GlobalRules, resource)
+				}
+			}
+		})
 	}
 }
 

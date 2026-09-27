@@ -1,5 +1,6 @@
-// Package runtime は sandbox VM の実行基盤との境界を置く (ADR 0005)。本番の実行基盤は sbx だけで、
-// test は in-memory の adapter (runtime/inmemory) を使う。2 つの adapter は runtime/runtimetest の契約 test で揃える。
+// Package runtime は sandbox VM の実行基盤との境界を置く (ADR 0005)。本番の実行基盤は sbx だけ。
+// domain の test は in-memory の adapter (runtime/inmemory) を、Sbx adapter と CLI の test は sbx stub を使う。
+// 2 つの adapter は runtime/runtimetest の契約 test で揃える。
 package runtime
 
 import (
@@ -36,7 +37,7 @@ type Runtime interface {
 	// ReadSandboxFile は sandbox VM 内の path (絶対 path) の中身を返す。無ければ error。
 	ReadSandboxFile(ctx context.Context, sandbox, path string) ([]byte, error)
 	// WriteSandboxFile は sandbox VM 内の path (絶対 path) に data を書く。親ディレクトリが無ければ作る。
-	// VM の agent が読み書きできる持ち主で置く。mode が 0 なら mode を指定しない。
+	// VM の agent が読み書きできる持ち主で置く。mode が KeepMode なら mode を変えない。
 	WriteSandboxFile(ctx context.Context, sandbox, path string, data []byte, mode fs.FileMode) error
 	// SandboxFileExists は sandbox VM 内に path (絶対 path) があるかを返す。確かめられなければ error (「無い」とは区別する)。
 	SandboxFileExists(ctx context.Context, sandbox, path string) (bool, error)
@@ -54,12 +55,16 @@ type SandboxCommand struct {
 	Input []byte
 }
 
+// KeepMode は WriteSandboxFile で mode を変えない (既存のファイルの mode を保ち、新しいファイルは既定の mode になる)。
+const KeepMode fs.FileMode = 0
+
 // SandboxStatus は sandbox VM の状態。実行基盤の値をどの状態と読むかは adapter が決める。
+// ゼロ値はどの状態でもない (状態を得られなかったときの値を、VM が無いとも止まっているとも読ませない)。
 type SandboxStatus int
 
 const (
 	// SandboxAbsent は VM が無い。
-	SandboxAbsent SandboxStatus = iota
+	SandboxAbsent SandboxStatus = iota + 1
 	// SandboxStopped は VM が止まっている。
 	SandboxStopped
 	// SandboxRunning は VM が止まっていない (使用中かもしれない)。

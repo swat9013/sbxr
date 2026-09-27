@@ -131,7 +131,7 @@ func runInsideLocally(ctx context.Context, stdin io.Reader, args ...string) ([]b
 	return cmd.Output()
 }
 
-func TestSbxWritesAFileInsideTheVMWithTheShellScript(t *testing.T) {
+func TestSbxWritesAFileMakingItsParentAndSettingTheGivenMode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "boot.sh")
 
 	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte("echo boot\n"), 0o755)
@@ -151,7 +151,7 @@ func TestSbxWritesAFileWithoutChangingItsModeWhenNoneIsGiven(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte(`{"model":"opus"}`), 0)
+	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte(`{"model":"opus"}`), KeepMode)
 
 	data, _ := os.ReadFile(path)
 	info, _ := os.Stat(path)
@@ -160,19 +160,26 @@ func TestSbxWritesAFileWithoutChangingItsModeWhenNoneIsGiven(t *testing.T) {
 	}
 }
 
-func TestSbxTellsWhetherAFileExistsInsideTheVM(t *testing.T) {
-	dir := t.TempDir()
-	present := filepath.Join(dir, "present")
+func TestSbxSaysAFileInsideTheVMExists(t *testing.T) {
+	present := filepath.Join(t.TempDir(), "present")
 	if err := os.WriteFile(present, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sbx := NewSbx(runInsideLocally)
 
-	found, err := sbx.SandboxFileExists(context.Background(), "app", present)
-	missing, missingErr := sbx.SandboxFileExists(context.Background(), "app", filepath.Join(dir, "missing"))
+	found, err := NewSbx(runInsideLocally).SandboxFileExists(context.Background(), "app", present)
 
-	if err != nil || !found || missingErr != nil || missing {
-		t.Errorf("SandboxFileExists = %v, %v and %v, %v, want true then false", found, err, missing, missingErr)
+	if err != nil || !found {
+		t.Errorf("SandboxFileExists = %v, %v, want true", found, err)
+	}
+}
+
+func TestSbxSaysAMissingFileInsideTheVMDoesNotExist(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	found, err := NewSbx(runInsideLocally).SandboxFileExists(context.Background(), "app", missing)
+
+	if err != nil || found {
+		t.Errorf("SandboxFileExists = %v, %v, want false", found, err)
 	}
 }
 
@@ -194,14 +201,16 @@ func TestSbxReadsTheStatusOfItsSandboxes(t *testing.T) {
 		"stopped":  SandboxStopped,
 		"starting": SandboxRunning, // sbx の他の値は、使用中かもしれないので稼働中と読む (destroy は拒否する側に倒れる)
 	} {
-		listing := `{"sandboxes":[{"name":"app","status":"` + status + `"}]}`
-		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
+		t.Run(status, func(t *testing.T) {
+			listing := `{"sandboxes":[{"name":"app","status":"` + status + `"}]}`
+			run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
 
-		got, err := NewSbx(run).SandboxStatus(context.Background(), "app")
+			got, err := NewSbx(run).SandboxStatus(context.Background(), "app")
 
-		if err != nil || got != want {
-			t.Errorf("SandboxStatus(%s) = %v, %v, want %v", status, got, err, want)
-		}
+			if err != nil || got != want {
+				t.Errorf("SandboxStatus = %v, %v, want %v", got, err, want)
+			}
+		})
 	}
 }
 

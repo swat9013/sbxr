@@ -218,12 +218,13 @@ func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress
 	if err := requireHerdrOnHost(hosts.Herdr); err != nil {
 		return err
 	}
-	machine, found, err := findHerdrMachine(ctx, hosts.Herdr, hosts.Runtime.SSHTarget(name))
+	target := hosts.Runtime.SSHTarget(name)
+	machine, found, err := findHerdrMachine(ctx, hosts.Herdr, target)
 	if err != nil {
 		return fmt.Errorf("herdr machine を無効にできないので止めない: %w", err)
 	}
 	if !found {
-		logf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無いので、そのまま止める)\n", hosts.Runtime.SSHTarget(name))
+		logf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無いので、そのまま止める)\n", target)
 		return hosts.Runtime.StopSandbox(ctx, name)
 	}
 	if err := hosts.Herdr.Disable(ctx, machine.ID); err != nil {

@@ -49,7 +49,7 @@ func (v vm) readFile(ctx context.Context, rel string) ([]byte, error) {
 	return v.rt.ReadSandboxFile(ctx, v.name, v.path(rel))
 }
 
-// writeFile は rel に data を書く。mode が 0 なら mode を変えない。
+// writeFile は rel に data を書く。mode が runtime.KeepMode なら mode を変えない。
 func (v vm) writeFile(ctx context.Context, rel string, data []byte, mode fs.FileMode) error {
 	return v.rt.WriteSandboxFile(ctx, v.name, v.path(rel), data, mode)
 }
@@ -168,7 +168,7 @@ func materialize(ctx context.Context, v vm, settings map[string]any, decl Declar
 	if err != nil {
 		return err
 	}
-	if err := v.writeFile(ctx, settingsRelPath, append(merged, '\n'), 0); err != nil {
+	if err := v.writeFile(ctx, settingsRelPath, append(merged, '\n'), runtime.KeepMode); err != nil {
 		return fmt.Errorf("settings.json を書けない: %w", err)
 	}
 	if err := installPlugins(ctx, v, decl.Profile); err != nil {

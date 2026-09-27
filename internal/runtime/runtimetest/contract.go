@@ -4,11 +4,12 @@ package runtimetest
 
 import (
 	"context"
-	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/runtime"
+	"github.com/swat9013/sbxr/internal/runtime/testenv"
 )
 
 // Harness は契約 test に渡す 1 つの adapter と、interface からは見えない状態の観測口。
@@ -22,24 +23,45 @@ type Harness struct {
 // 振る舞いは sbx の実測に基づく (ADR 0006)。
 func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 	ctx := context.Background()
+	const boot = "/home/agent/.config/sbxr/boot.sh"
 
-	t.Run("VM は作成で稼働し、止めると止まり、撤去すると無くなる", func(t *testing.T) {
+	t.Run("無い VM は absent", func(t *testing.T) {
+		h := newHarness(t)
+
+		assertStatus(t, h, "app", runtime.SandboxAbsent)
+	})
+
+	t.Run("作った VM は running", func(t *testing.T) {
+		h := newHarness(t)
+
+		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+
+		assertStatus(t, h, "app", runtime.SandboxRunning)
+	})
+
+	t.Run("止めた VM は stopped", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+
+		must(t, h.Runtime.StopSandbox(ctx, "app"))
+
+		assertStatus(t, h, "app", runtime.SandboxStopped)
+	})
+
+	t.Run("撤去した VM は absent", func(t *testing.T) {
 		h := newHarness(t)
 		env := EnvDir(t, "app")
-		assertStatus(t, h, "app", runtime.SandboxAbsent)
-
 		must(t, h.Runtime.CreateEnvironment(ctx, env))
-		assertStatus(t, h, "app", runtime.SandboxRunning)
-		must(t, h.Runtime.StopSandbox(ctx, "app"))
-		assertStatus(t, h, "app", runtime.SandboxStopped)
+
 		must(t, h.Runtime.RemoveEnvironment(ctx, env))
+
 		assertStatus(t, h, "app", runtime.SandboxAbsent)
 	})
 
 	t.Run("sandbox スコープの secret は VM の作成前に置け、作成後も残る", func(t *testing.T) {
 		h := newHarness(t)
-
 		must(t, h.Runtime.SetSandboxSecret(ctx, "app", runtime.SandboxSecret{Service: "github", Value: "v"}))
+
 		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
 
 		if got := h.SandboxSecrets("app"); got != 1 {
@@ -91,34 +113,85 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		}
 	})
 
-	t.Run("VM に書いたファイルは読め、あると答える", func(t *testing.T) {
+	t.Run("止まった VM のファイルは読めない", func(t *testing.T) {
 		h := newHarness(t)
 		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755))
+		must(t, h.Runtime.StopSandbox(ctx, "app"))
 
-		must(t, h.Runtime.WriteSandboxFile(ctx, "app", "/home/agent/.config/sbxr/boot.sh", []byte("echo boot\n"), 0o755))
-		data, err := h.Runtime.ReadSandboxFile(ctx, "app", "/home/agent/.config/sbxr/boot.sh")
-		found, existsErr := h.Runtime.SandboxFileExists(ctx, "app", "/home/agent/.config/sbxr/boot.sh")
+		if _, err := h.Runtime.ReadSandboxFile(ctx, "app", boot); err == nil {
+			t.Errorf("ReadSandboxFile on a stopped VM = nil, want an error")
+		}
+	})
+
+	t.Run("止まった VM にはファイルを書けない", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		must(t, h.Runtime.StopSandbox(ctx, "app"))
+
+		if err := h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755); err == nil {
+			t.Errorf("WriteSandboxFile on a stopped VM = nil, want an error")
+		}
+	})
+
+	t.Run("VM に書いたファイルは読める", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755))
+
+		data, err := h.Runtime.ReadSandboxFile(ctx, "app", boot)
 
 		if err != nil || string(data) != "echo boot\n" {
 			t.Errorf("ReadSandboxFile = %q, %v, want what was written", data, err)
 		}
-		if existsErr != nil || !found {
-			t.Errorf("SandboxFileExists = %v, %v, want true", found, existsErr)
+	})
+
+	t.Run("VM に書いたファイルと、その親ディレクトリはある", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), runtime.KeepMode))
+
+		for _, path := range []string{boot, filepath.Dir(boot)} {
+			found, err := h.Runtime.SandboxFileExists(ctx, "app", path)
+
+			if err != nil || !found {
+				t.Errorf("SandboxFileExists(%s) = %v, %v, want true", path, found, err)
+			}
 		}
 	})
 
-	t.Run("VM に無いファイルは無いと答え、読むと error", func(t *testing.T) {
+	t.Run("VM に無いファイルは無いと答える", func(t *testing.T) {
 		h := newHarness(t)
 		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
 
 		found, err := h.Runtime.SandboxFileExists(ctx, "app", "/home/agent/missing")
-		_, readErr := h.Runtime.ReadSandboxFile(ctx, "app", "/home/agent/missing")
 
 		if err != nil || found {
 			t.Errorf("SandboxFileExists = %v, %v, want false", found, err)
 		}
-		if readErr == nil {
+	})
+
+	t.Run("VM に無いファイルを読むと error", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+
+		if _, err := h.Runtime.ReadSandboxFile(ctx, "app", "/home/agent/missing"); err == nil {
 			t.Errorf("ReadSandboxFile of a missing file = nil, want an error")
+		}
+	})
+
+	t.Run("撤去して作り直した VM に前のファイルは無い", func(t *testing.T) {
+		h := newHarness(t)
+		env := EnvDir(t, "app")
+		must(t, h.Runtime.CreateEnvironment(ctx, env))
+		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755))
+		must(t, h.Runtime.RemoveEnvironment(ctx, env))
+		must(t, h.Runtime.CreateEnvironment(ctx, env))
+
+		found, err := h.Runtime.SandboxFileExists(ctx, "app", boot)
+
+		if err != nil || found {
+			t.Errorf("SandboxFileExists = %v, %v, want the recreated VM to start empty", found, err)
 		}
 	})
 
@@ -131,13 +204,45 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 			t.Errorf("SSHTarget = %q and %q, want distinct non-empty targets", app, api)
 		}
 	})
+
+	t.Run("足した global rule は 1 宛先ずつ一覧に出る", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.AllowGlobalEgress(ctx, "github.com:443"))
+
+		rules, err := h.Runtime.ListGlobalEgressRules(ctx)
+
+		if err != nil || len(rules) != 1 || rules[0].Decision != runtime.DecisionAllow || !slices.Equal(rules[0].Resources, []string{"github.com:443"}) {
+			t.Errorf("ListGlobalEgressRules = %+v, %v, want one allow rule for github.com:443", rules, err)
+		}
+	})
+
+	t.Run("消した global rule は一覧から消える", func(t *testing.T) {
+		h := newHarness(t)
+		must(t, h.Runtime.AllowGlobalEgress(ctx, "github.com:443"))
+		rules, err := h.Runtime.ListGlobalEgressRules(ctx)
+		must(t, err)
+
+		must(t, h.Runtime.RemoveGlobalEgressRule(ctx, rules[0].ID))
+
+		if rules, err := h.Runtime.ListGlobalEgressRules(ctx); err != nil || len(rules) != 0 {
+			t.Errorf("ListGlobalEgressRules = %+v, %v, want none", rules, err)
+		}
+	})
+
+	t.Run("無い global rule は消せない", func(t *testing.T) {
+		h := newHarness(t)
+
+		if err := h.Runtime.RemoveGlobalEgressRule(ctx, "missing"); err == nil {
+			t.Errorf("RemoveGlobalEgressRule of a missing rule = nil, want an error")
+		}
+	})
 }
 
 // EnvDir は name の sandbox VM を指す env 定義を置いたディレクトリを返す。
 func EnvDir(t *testing.T, name string) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "sbxenv.yaml"), []byte("name: "+name+"\n"), 0o600); err != nil {
+	if err := testenv.Write(dir, name); err != nil {
 		t.Fatal(err)
 	}
 	return dir
