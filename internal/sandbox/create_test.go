@@ -128,8 +128,8 @@ func TestCreateAsksTheRuntimeToInstallTheDeclaredHerdr(t *testing.T) {
 	if got := rt.Definitions[places.StateDir("app")].Herdr; got == nil || got.Version != "v0.9.0" {
 		t.Errorf("definition herdr = %+v, want v0.9.0", got)
 	}
-	if !slices.Contains(host.Calls, "add "+rt.SSHTarget("app")+" app") {
-		t.Errorf("herdr calls = %v, want the VM registered", host.Calls)
+	if len(host.Machines) != 1 || host.Machines[0].Target != rt.SSHTarget("app") {
+		t.Errorf("herdr machines = %v, want the VM registered once", host.Machines)
 	}
 }
 

@@ -92,7 +92,7 @@ func TestCreateLeavesALeftoverRegistrationAloneAndShowsHowToReplaceIt(t *testing
 
 	_, err := lc.run(t, "create", repo, "--yes")
 
-	if err == nil || !strings.Contains(err.Error(), "herdr machine remove old; sbx exec app -- pkill -x herdr; herdr machine add app.sbx --label app") {
+	if err == nil || !strings.Contains(err.Error(), "herdr machine remove old; VM app の中で pkill -x herdr を実行してから herdr machine add app.sbx --label app") {
 		t.Errorf("error = %v, want a non-zero exit with how to replace the leftover", err)
 	}
 	if len(lc.herdr.Machines) != 1 || lc.herdr.Machines[0].ID != "old" {
@@ -118,38 +118,6 @@ func TestStopDisablesTheHerdrMachineFirstAndShowsHowToEnableIt(t *testing.T) {
 	}
 	if !strings.Contains(out, "herdr machine enable id1") {
 		t.Errorf("output = %q, want how to enable the machine again", out)
-	}
-}
-
-func TestStopKeepsTheVMRunningWhenTheMachineCannotBeDisabled(t *testing.T) {
-	lc := herdrLifecycle(t)
-	repo := localRepo(t, "app", "")
-	lc.mustRun(t, "create", repo, "--yes")
-	lc.herdr.FailDisable = true
-
-	_, err := lc.run(t, "stop", repo)
-
-	if err == nil {
-		t.Fatal("stop succeeded, want the disable failure")
-	}
-	if lc.stub.Sandboxes["app"] != "running" {
-		t.Errorf("status = %q, want the VM left running (herdr would restart a stopped VM)", lc.stub.Sandboxes["app"])
-	}
-}
-
-func TestStopReenablesTheMachineWhenTheVMCannotBeStopped(t *testing.T) {
-	lc := herdrLifecycle(t)
-	repo := localRepo(t, "app", "")
-	lc.mustRun(t, "create", repo, "--yes")
-	lc.stub.FailOn = "stop"
-
-	_, err := lc.run(t, "stop", repo)
-
-	if err == nil {
-		t.Fatal("stop succeeded, want the sbx failure")
-	}
-	if !slices.Contains(lc.herdr.Calls, "enable id1") || !lc.herdr.Machines[0].Enabled {
-		t.Errorf("herdr calls = %v, want the machine enabled again for the still running VM", lc.herdr.Calls)
 	}
 }
 

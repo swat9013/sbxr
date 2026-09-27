@@ -15,8 +15,12 @@ type Fake struct {
 	Machines []herdr.Machine
 	Calls    []string
 	// Missing が true なら host に herdr が無い。
-	Missing                          bool
-	FailAdd, FailDisable, FailRemove bool
+	Missing                                                bool
+	FailList, FailAdd, FailEnable, FailDisable, FailRemove bool
+	// OnAdd は Add が呼ばれたときに走る (呼ばれた時点の周りの状態を test が見る)。
+	OnAdd func()
+
+	added int
 }
 
 var _ herdr.Client = (*Fake)(nil)
@@ -31,20 +35,30 @@ func (f *Fake) Available() error {
 
 func (f *Fake) List(context.Context) ([]herdr.Machine, error) {
 	f.Calls = append(f.Calls, "list")
+	if f.FailList {
+		return nil, errors.New("herdr machine list: exit status 1")
+	}
 	return slices.Clone(f.Machines), nil
 }
 
 func (f *Fake) Add(_ context.Context, target, label string) error {
 	f.Calls = append(f.Calls, "add "+target+" "+label)
+	if f.OnAdd != nil {
+		f.OnAdd()
+	}
 	if f.FailAdd {
 		return errors.New("herdr machine add: exit status 1")
 	}
-	f.Machines = append(f.Machines, herdr.Machine{ID: fmt.Sprintf("id%d", len(f.Machines)+1), Target: target, Enabled: true})
+	f.added++ // 解除の後に足しても id が重ならないよう、数え続ける
+	f.Machines = append(f.Machines, herdr.Machine{ID: fmt.Sprintf("id%d", len(f.Machines)+f.added), Target: target, Enabled: true})
 	return nil
 }
 
 func (f *Fake) Enable(_ context.Context, id string) error {
 	f.Calls = append(f.Calls, "enable "+id)
+	if f.FailEnable {
+		return errors.New("herdr machine enable: exit status 1")
+	}
 	f.setEnabled(id, true)
 	return nil
 }

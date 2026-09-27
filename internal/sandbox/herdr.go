@@ -2,60 +2,47 @@ package sandbox
 
 import (
 	"context"
-	"io"
+	"fmt"
 
 	"github.com/swat9013/sbxr/internal/herdr"
-	"github.com/swat9013/sbxr/internal/runtime"
 )
 
-// Hosts は sbxr が扱う外部: sandbox VM の実行基盤と host の herdr。
-type Hosts struct {
-	Runtime runtime.Runtime
-	Herdr   herdr.Client
-}
-
-// machines は sandbox VM の herdr machine を扱う。
-func (h Hosts) machines() herdr.Machines {
-	return herdr.Machines{Client: h.Herdr, VM: h.Runtime}
+// herdrEnabled は sandbox VM を herdr 連携を有効にして作ったかを、状態ディレクトリの記録から返す。
+func (h Hosts) herdrEnabled(dir stateDir) (bool, error) {
+	return dir.herdrEnabled(h.Runtime.DefinedWithHerdr)
 }
 
 // RequireHerdr は herdr 連携が有効なら host に herdr があることを確かめる。無効なら herdr を呼ばない。
-func (p Prepared) RequireHerdr(hosts Hosts) error {
+func (p Prepared) RequireHerdr(client herdr.Client) error {
 	if p.Declaration.Herdr == nil {
 		return nil
 	}
-	return hosts.machines().RequireOnHost()
+	return requireHerdrOnHost(client)
 }
 
 // RequireHerdrFor は、herdr 連携を有効にして作った sandbox VM なら host に herdr があることを確かめる。
 // herdr 連携の有無は、作成の最初の記録から読む (作成が途中で止まった VM でも読める)。
-// destroy が確認の前に呼ぶ。
+// stop と destroy が VM に触れる前に呼ぶ。
 func RequireHerdrFor(hosts Hosts, places Places, name string) error {
-	enabled, err := places.stateDirOf(name).herdrEnabled(hosts.Runtime.DefinedWithHerdr)
+	enabled, err := hosts.herdrEnabled(places.stateDirOf(name))
 	if err != nil || !enabled {
 		return err
 	}
-	return hosts.machines().RequireOnHost()
+	return requireHerdrOnHost(hosts.Herdr)
+}
+
+func requireHerdrOnHost(client herdr.Client) error {
+	if err := herdr.RequireOnHost(client); err != nil {
+		return fmt.Errorf("herdr 連携が有効だが、%w (PATH に herdr を入れる。作成前なら user 設定で herdr.enabled: false にする)", err)
+	}
+	return nil
 }
 
 // removeHerdrMachine は herdr 連携を有効にして作った VM の herdr machine を解除する。登録が無ければ何もしない。
 func removeHerdrMachine(ctx context.Context, hosts Hosts, dir stateDir, name string) error {
-	enabled, err := dir.herdrEnabled(hosts.Runtime.DefinedWithHerdr)
+	enabled, err := hosts.herdrEnabled(dir)
 	if err != nil || !enabled {
 		return err
 	}
-	return hosts.machines().Remove(ctx, name)
-}
-
-// Stop は sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする (ADR 0007)。
-func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress io.Writer) error {
-	enabled, err := places.stateDirOf(name).herdrEnabled(hosts.Runtime.DefinedWithHerdr)
-	if err != nil {
-		return err
-	}
-	stop := func(ctx context.Context) error { return hosts.Runtime.StopSandbox(ctx, name) }
-	if !enabled {
-		return stop(ctx)
-	}
-	return hosts.machines().DisableForStop(ctx, name, stop, progress)
+	return hosts.registry().Remove(ctx, name)
 }

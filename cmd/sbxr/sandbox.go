@@ -176,7 +176,7 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 		return false, err
 	}
 	printWarnings(cmd, prepared.Warnings)
-	if err := prepared.RequireHerdr(deps.hosts()); err != nil { // 確認関門の前に止める
+	if err := prepared.RequireHerdr(deps.herdr); err != nil { // 確認関門の前に止める
 		return false, err
 	}
 	if len(prepared.DroppedRepoEgress) > 0 {

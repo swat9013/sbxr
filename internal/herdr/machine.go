@@ -8,25 +8,24 @@ import (
 	"github.com/swat9013/sbxr/internal/runtime"
 )
 
-// VM は herdr machine が sandbox VM に求めるもの: host から繋ぐ ssh の宛先と、VM 内のコマンドの実行。
+// VM は herdr machine の登録簿が sandbox VM に求めるもの: host から繋ぐ ssh の宛先、VM 内のコマンドの実行、VM の停止。
 type VM interface {
 	SSHTarget(sandbox string) string
 	ExecInSandbox(ctx context.Context, sandbox string, command runtime.SandboxCommand) ([]byte, error)
+	StopSandbox(ctx context.Context, sandbox string) error
 }
 
-// Machines は sandbox VM ごとの herdr machine を扱う: host に herdr があるかの確認・登録・停止前の無効化・解除 (ADR 0007)。
-// 残った登録の扱いと、失敗したときの復旧手順の文面はここに置く。
-type Machines struct {
+// Registry は sandbox VM ごとの herdr machine の登録簿: 登録・停止前の無効化・解除 (ADR 0007)。
+// 残った登録の扱いと、失敗したときの復旧手順の文面はここに置く。host に herdr があることは、呼び出し側が
+// 先に RequireOnHost で確かめる (確認関門の前に止めるため)。
+type Registry struct {
 	Client Client
 	VM     VM
 }
 
-// RequireOnHost は host に herdr があることを確かめる。無ければ、先へ進む手順を添えた error。
-func (m Machines) RequireOnHost() error {
-	if err := m.Client.Available(); err != nil {
-		return fmt.Errorf("herdr 連携が有効だが、%w (PATH に herdr を入れる。作成前なら user 設定で herdr.enabled: false にする)", err)
-	}
-	return nil
+// RequireOnHost は host に herdr があることを確かめる。無ければ error。
+func RequireOnHost(client Client) error {
+	return client.Available()
 }
 
 // RegistrationError は herdr machine を登録できなかったときの error。sandbox VM は作り終えている。
@@ -44,14 +43,14 @@ func (e *RegistrationError) Unwrap() error { return e.Err }
 // stopServer は VM 内の herdr server を止めるコマンド。
 const stopServer = "pkill -x herdr"
 
-// Register は sandbox VM を host の herdr に <sandbox の ssh の宛先> として登録する。
+// Register は sandbox VM を host の herdr に、その ssh の宛先で登録する。
 // kit が起動した VM 内の server を止めてから登録する (動いたままだと herdr machine add が
 // "remote server is not ready for saved machines" で失敗する。ADR 0007 の実測)。
 // 同じ宛先の登録が残っていたら (前の VM の解除の失敗など)、この回に作っていない登録には触れずに止める。
-func (m Machines) Register(ctx context.Context, sandbox string, progress io.Writer) error {
-	target := m.VM.SSHTarget(sandbox)
-	recovery := fmt.Sprintf("sbx exec %s -- %s; %s", sandbox, stopServer, addCommand(target, sandbox))
-	machines, err := m.Client.List(ctx)
+func (r Registry) Register(ctx context.Context, sandbox string, progress io.Writer) error {
+	target := r.VM.SSHTarget(sandbox)
+	recovery := fmt.Sprintf("VM %s の中で %s を実行してから %s", sandbox, stopServer, addCommand(target, sandbox))
+	machines, err := r.Client.List(ctx)
 	if err != nil {
 		return &RegistrationError{Err: err, Recovery: recovery}
 	}
@@ -63,63 +62,69 @@ func (m Machines) Register(ctx context.Context, sandbox string, progress io.Writ
 	}
 	// server が動いていなければ pkill は 1 で終わるので、それは成功として扱う
 	stop := runtime.SandboxCommand{Args: []string{"sh", "-c", stopServer + " || [ $? -eq 1 ]"}}
-	if _, err := m.VM.ExecInSandbox(ctx, sandbox, stop); err != nil {
+	if _, err := r.VM.ExecInSandbox(ctx, sandbox, stop); err != nil {
 		return &RegistrationError{Err: fmt.Errorf("VM 内の herdr server を止められない: %w", err), Recovery: recovery}
 	}
-	if err := m.Client.Add(ctx, target, sandbox); err != nil {
+	if err := r.Client.Add(ctx, target, sandbox); err != nil {
 		return &RegistrationError{Err: err, Recovery: recovery}
 	}
-	_, _ = fmt.Fprintf(progress, "herdr: %s を登録した\n", target)
+	logf(progress, "herdr: %s を登録した\n", target)
 	return nil
 }
 
-// DisableForStop は herdr machine を無効にしてから stop で sandbox VM を止める
-// (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。無効にしたら、有効に戻すコマンドを progress に出す。
-// host に herdr が無いか、無効にできなければ stop を呼ばずに error。stop が失敗したら、VM は動いたままなので
-// herdr から見失わないよう有効に戻す。登録が無ければ、警告して stop だけを呼ぶ。
-func (m Machines) DisableForStop(ctx context.Context, sandbox string, stop func(context.Context) error, progress io.Writer) error {
-	if err := m.RequireOnHost(); err != nil {
-		return err
-	}
-	target := m.VM.SSHTarget(sandbox)
-	machine, found, err := m.find(ctx, target)
+// DisableAndStop は herdr machine を無効にしてから sandbox VM を止める
+// (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。返り値は有効に戻すコマンド (無効にしなかったら空)。
+// 無効にできなければ止めずに error。止められなければ、VM は動いたままなので herdr から見失わないよう、
+// sbxr が無効にした machine を有効に戻す。登録が無ければ、警告して止めるだけにする。
+func (r Registry) DisableAndStop(ctx context.Context, sandbox string, progress io.Writer) (enable string, err error) {
+	target := r.VM.SSHTarget(sandbox)
+	machine, found, err := r.find(ctx, target)
 	if err != nil {
-		return fmt.Errorf("herdr machine を無効にできないので止めない: %w", err)
+		return "", fmt.Errorf("herdr machine を無効にできないので止めない: %w", err)
 	}
 	if !found {
-		_, _ = fmt.Fprintf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無いので、そのまま止める)\n", target)
-		return stop(ctx)
+		logf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無いので、そのまま止める)\n", target)
+		return "", r.VM.StopSandbox(ctx, sandbox)
 	}
-	if err := m.Client.Disable(ctx, machine.ID); err != nil {
-		return fmt.Errorf("herdr machine %s を無効にできないので止めない: %w", machine.Target, err)
+	if !machine.Enabled { // 利用者が無効にしたものは、そのままにする
+		return "", r.VM.StopSandbox(ctx, sandbox)
 	}
-	if err := stop(ctx); err != nil {
-		if enableErr := m.Client.Enable(ctx, machine.ID); enableErr != nil {
-			return fmt.Errorf("%w (無効にした herdr machine も有効に戻せない: %s で戻す: %v)", err, enableCommand(machine.ID), enableErr)
+	if err := r.Client.Disable(ctx, machine.ID); err != nil {
+		return "", fmt.Errorf("herdr machine %s を無効にできないので止めない: %w", machine.Target, err)
+	}
+	enable = enableCommand(machine.ID)
+	if err := r.VM.StopSandbox(ctx, sandbox); err != nil {
+		// 止める側の中断 (Ctrl-C など) で、戻す操作まで止めない
+		if enableErr := r.Client.Enable(context.WithoutCancel(ctx), machine.ID); enableErr != nil {
+			return "", fmt.Errorf("%w (無効にした herdr machine も有効に戻せない: %s で戻す: %v)", err, enable, enableErr)
 		}
-		return err
+		return "", err
 	}
-	_, _ = fmt.Fprintf(progress, "herdr: %s を無効にした (起動し直したら %s で有効に戻す)\n", machine.Target, enableCommand(machine.ID))
-	return nil
+	logf(progress, "herdr: %s を無効にした (起動し直したら %s で有効に戻す)\n", machine.Target, enable)
+	return enable, nil
 }
 
 // Remove は sandbox VM の herdr machine を解除する。登録が無ければ何もしない。
-func (m Machines) Remove(ctx context.Context, sandbox string) error {
-	machine, found, err := m.find(ctx, m.VM.SSHTarget(sandbox))
+func (r Registry) Remove(ctx context.Context, sandbox string) error {
+	machine, found, err := r.find(ctx, r.VM.SSHTarget(sandbox))
 	if err != nil || !found {
 		return err
 	}
-	if err := m.Client.Remove(ctx, machine.ID); err != nil {
+	if err := r.Client.Remove(ctx, machine.ID); err != nil {
 		return fmt.Errorf("herdr machine %s を解除できない (%s で解除する): %w", machine.Target, removeCommand(machine.ID), err)
 	}
 	return nil
 }
 
-func (m Machines) find(ctx context.Context, target string) (Machine, bool, error) {
-	machines, err := m.Client.List(ctx)
+func (r Registry) find(ctx context.Context, target string) (Machine, bool, error) {
+	machines, err := r.Client.List(ctx)
 	if err != nil {
 		return Machine{}, false, err
 	}
 	machine, found := findTarget(machines, target)
 	return machine, found, nil
+}
+
+func logf(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
 }

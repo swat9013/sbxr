@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"slices"
 	"strings"
 	"testing"
 
@@ -21,109 +20,156 @@ func runningApp() *inmemory.Runtime {
 	return rt
 }
 
+// enabledMachine は sandbox VM app の、有効な herdr machine m1 を持つ host の herdr。
+func enabledMachine(rt *inmemory.Runtime) *herdrtest.Fake {
+	return &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app"), Enabled: true}}}
+}
+
+func TestRegisterAddsTheMachineOfTheSandbox(t *testing.T) {
+	rt := runningApp()
+	host := &herdrtest.Fake{}
+
+	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
+
+	if err != nil || len(host.Machines) != 1 || host.Machines[0].Target != rt.SSHTarget("app") {
+		t.Errorf("Register() = %v, machines = %v, want the machine of app", err, host.Machines)
+	}
+}
+
 func TestRegisterStopsTheServerInTheVMBeforeAddingTheMachine(t *testing.T) {
 	rt := runningApp()
 	host := &herdrtest.Fake{}
-	machines := herdr.Machines{Client: host, VM: rt}
+	var commandsAtAdd []inmemory.Command
+	host.OnAdd = func() { commandsAtAdd = append(commandsAtAdd, rt.Commands...) }
 
-	err := machines.Register(context.Background(), "app", io.Discard)
+	_ = herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
 
-	if err != nil || !slices.Equal(host.Calls, []string{"list", "add " + rt.SSHTarget("app") + " app"}) {
-		t.Errorf("Register() = %v, herdr calls = %v, want the machine added", err, host.Calls)
-	}
-	if len(rt.Commands) != 1 || !strings.Contains(strings.Join(rt.Commands[0].Args, " "), "pkill -x herdr") {
-		t.Errorf("VM commands = %v, want the herdr server stopped first", rt.Commands)
+	if len(commandsAtAdd) != 1 || !strings.Contains(strings.Join(commandsAtAdd[0].Args, " "), "pkill -x herdr") {
+		t.Errorf("VM commands before the add = %v, want the herdr server stopped", commandsAtAdd)
 	}
 }
 
 func TestRegisterLeavesAStaleRegistrationAloneAndShowsHowToReplaceIt(t *testing.T) {
 	rt := runningApp()
 	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "old", Target: rt.SSHTarget("app")}}}
-	machines := herdr.Machines{Client: host, VM: rt}
 
-	err := machines.Register(context.Background(), "app", io.Discard)
+	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
 
 	var registration *herdr.RegistrationError
 	if !errors.As(err, &registration) || !strings.HasPrefix(registration.Recovery, "herdr machine remove old; ") {
 		t.Errorf("Register() = %v, want the stale registration and how to replace it", err)
 	}
-	if !slices.Equal(host.Calls, []string{"list"}) || len(rt.Commands) != 0 {
-		t.Errorf("herdr calls = %v, VM commands = %v, want nothing touched", host.Calls, rt.Commands)
+	if len(host.Machines) != 1 || host.Machines[0].ID != "old" || len(rt.Commands) != 0 {
+		t.Errorf("machines = %v, VM commands = %v, want nothing touched", host.Machines, rt.Commands)
 	}
 }
 
-func TestDisableForStopDisablesTheMachineThenStopsAndShowsHowToEnableIt(t *testing.T) {
+func TestRegisterShowsHowToRegisterByHandWhenTheMachinesCannotBeListed(t *testing.T) {
 	rt := runningApp()
-	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app"), Enabled: true}}}
-	var progress strings.Builder
-	var stoppedWhileEnabled []bool
+	host := &herdrtest.Fake{FailList: true}
 
-	err := herdr.Machines{Client: host, VM: rt}.DisableForStop(context.Background(), "app", func(context.Context) error {
-		stoppedWhileEnabled = append(stoppedWhileEnabled, host.Machines[0].Enabled)
-		return nil
-	}, &progress)
+	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
 
-	if err != nil || !slices.Equal(stoppedWhileEnabled, []bool{false}) {
-		t.Errorf("DisableForStop() = %v, stopped while enabled = %v, want one stop after disabling", err, stoppedWhileEnabled)
-	}
-	if !strings.Contains(progress.String(), "herdr machine enable m1") {
-		t.Errorf("progress = %q, want how to enable the machine again", progress.String())
+	var registration *herdr.RegistrationError
+	if !errors.As(err, &registration) || !strings.Contains(registration.Recovery, "herdr machine add "+rt.SSHTarget("app")) {
+		t.Errorf("Register() = %v, want how to register by hand", err)
 	}
 }
 
-func TestDisableForStopEnablesTheMachineAgainWhenTheStopFails(t *testing.T) {
+func TestDisableAndStopStopsTheVMAfterDisablingTheMachine(t *testing.T) {
 	rt := runningApp()
-	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app"), Enabled: true}}}
-	failed := errors.New("sbx stop: exit status 1")
+	host := enabledMachine(rt)
 
-	err := herdr.Machines{Client: host, VM: rt}.DisableForStop(context.Background(), "app", func(context.Context) error { return failed }, io.Discard)
+	_, err := herdr.Registry{Client: host, VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
 
-	if !errors.Is(err, failed) || !host.Machines[0].Enabled {
-		t.Errorf("DisableForStop() = %v, machine = %+v, want the stop failure and the machine enabled again", err, host.Machines[0])
+	if err != nil || host.Machines[0].Enabled || rt.Sandbox("app").Status != runtime.SandboxStopped {
+		t.Errorf("DisableAndStop() = %v, machine = %+v, status = %v, want the machine disabled and the VM stopped", err, host.Machines[0], rt.Sandbox("app").Status)
 	}
 }
 
-func TestDisableForStopDoesNotStopWhenTheMachineCannotBeDisabled(t *testing.T) {
+func TestDisableAndStopReturnsHowToEnableTheMachineAgain(t *testing.T) {
 	rt := runningApp()
-	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app"), Enabled: true}}, FailDisable: true}
-	stopped := false
 
-	err := herdr.Machines{Client: host, VM: rt}.DisableForStop(context.Background(), "app", func(context.Context) error {
-		stopped = true
-		return nil
-	}, io.Discard)
+	enable, _ := herdr.Registry{Client: enabledMachine(rt), VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
 
-	if err == nil || stopped {
-		t.Errorf("DisableForStop() = %v, stopped = %v, want an error without stopping", err, stopped)
+	if enable != "herdr machine enable m1" {
+		t.Errorf("enable = %q, want the command to enable m1", enable)
 	}
 }
 
-func TestRemoveRemovesTheMachineOfTheSandbox(t *testing.T) {
+func TestDisableAndStopEnablesTheMachineAgainWhenTheVMCannotBeStopped(t *testing.T) {
+	rt := runningApp()
+	host := enabledMachine(rt)
+	registry := herdr.Registry{Client: host, VM: failingStop{rt}}
+
+	_, err := registry.DisableAndStop(context.Background(), "app", io.Discard)
+
+	if !errors.Is(err, errStop) || !host.Machines[0].Enabled {
+		t.Errorf("DisableAndStop() = %v, machine = %+v, want the stop failure and the machine enabled again", err, host.Machines[0])
+	}
+}
+
+func TestDisableAndStopLeavesTheVMRunningWhenTheMachineCannotBeDisabled(t *testing.T) {
+	rt := runningApp()
+	host := enabledMachine(rt)
+	host.FailDisable = true
+
+	_, err := herdr.Registry{Client: host, VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
+
+	if err == nil || rt.Sandbox("app").Status != runtime.SandboxRunning {
+		t.Errorf("DisableAndStop() = %v, status = %v, want an error with the VM running", err, rt.Sandbox("app").Status)
+	}
+}
+
+func TestDisableAndStopLeavesTheVMRunningWhenTheMachinesCannotBeListed(t *testing.T) {
+	rt := runningApp()
+
+	_, err := herdr.Registry{Client: &herdrtest.Fake{FailList: true}, VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
+
+	if err == nil || rt.Sandbox("app").Status != runtime.SandboxRunning {
+		t.Errorf("DisableAndStop() = %v, status = %v, want an error with the VM running", err, rt.Sandbox("app").Status)
+	}
+}
+
+func TestDisableAndStopLeavesAMachineTheUserDisabledAlone(t *testing.T) {
+	rt := runningApp()
+	host := enabledMachine(rt)
+	host.Machines[0].Enabled = false
+	registry := herdr.Registry{Client: host, VM: failingStop{rt}}
+
+	_, _ = registry.DisableAndStop(context.Background(), "app", io.Discard)
+
+	if host.Machines[0].Enabled {
+		t.Errorf("machine = %+v, want it left disabled after the stop failure", host.Machines[0])
+	}
+}
+
+func TestRemoveRemovesOnlyTheMachineOfTheSandbox(t *testing.T) {
 	rt := runningApp()
 	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app")}, {ID: "m2", Target: rt.SSHTarget("other")}}}
 
-	err := herdr.Machines{Client: host, VM: rt}.Remove(context.Background(), "app")
+	err := herdr.Registry{Client: host, VM: rt}.Remove(context.Background(), "app")
 
 	if err != nil || len(host.Machines) != 1 || host.Machines[0].ID != "m2" {
 		t.Errorf("Remove() = %v, machines = %v, want only the app machine removed", err, host.Machines)
 	}
 }
 
-func TestRemoveWithoutARegistrationDoesNothing(t *testing.T) {
+func TestRemoveWithoutARegistrationSucceeds(t *testing.T) {
 	rt := runningApp()
-	host := &herdrtest.Fake{}
+	other := herdr.Machine{ID: "m2", Target: rt.SSHTarget("other")}
+	host := &herdrtest.Fake{Machines: []herdr.Machine{other}}
 
-	err := herdr.Machines{Client: host, VM: rt}.Remove(context.Background(), "app")
+	err := herdr.Registry{Client: host, VM: rt}.Remove(context.Background(), "app")
 
-	if err != nil || !slices.Equal(host.Calls, []string{"list"}) {
-		t.Errorf("Remove() = %v, herdr calls = %v, want nothing removed", err, host.Calls)
+	if err != nil || len(host.Machines) != 1 {
+		t.Errorf("Remove() = %v, machines = %v, want nothing removed", err, host.Machines)
 	}
 }
 
-func TestRequireOnHostShowsHowToGoOnWithoutHerdr(t *testing.T) {
-	err := herdr.Machines{Client: &herdrtest.Fake{Missing: true}, VM: runningApp()}.RequireOnHost()
+var errStop = errors.New("sbx stop: exit status 1")
 
-	if err == nil || !strings.Contains(err.Error(), "herdr.enabled: false") {
-		t.Errorf("RequireOnHost() = %v, want how to go on without herdr", err)
-	}
-}
+// failingStop は VM を止められない実行基盤。
+type failingStop struct{ *inmemory.Runtime }
+
+func (failingStop) StopSandbox(context.Context, string) error { return errStop }
