@@ -96,6 +96,7 @@ func (p Plan) RequireValues(values Values) error {
 
 // SandboxSecrets は配線する secret を、実行基盤に置く sandbox スコープの secret にする。値は secret ファイルの key から引く。
 // 値がすべて secret ファイルにあることを確かめてから返す。
+// 配線の結果が出す 3 つの形 (VMEnv・SandboxSecrets・WiredSecrets) の 1 つ (decision/0008)。
 func (p Plan) SandboxSecrets(values Values) ([]runtime.SandboxSecret, error) {
 	if err := p.RequireValues(values); err != nil {
 		return nil, err
@@ -112,9 +113,9 @@ func (p Plan) SandboxSecrets(values Values) ([]runtime.SandboxSecret, error) {
 	return secrets, nil
 }
 
-// Recorded は作成時の宣言に残す、配線した secret の形。secret 定義のうち値を除くすべてで、どれも create で VM に焼かれる
-// (service・hosts・env は sandbox スコープの secret、key は置く値、vars は VM の環境変数)。
-type Recorded struct {
+// WiredSecret は配線した secret の、作成時の宣言に残す形。secret 定義のうち値を除くすべてで、name 以外はどれも create で VM に焼かれる
+// (service・hosts・env は sandbox スコープの secret、key は置く値、vars は VM の環境変数)。name は記録どうしを突き合わせる識別子。
+type WiredSecret struct {
 	Name    string   `yaml:"name"`
 	Service string   `yaml:"service,omitempty"`
 	Hosts   []string `yaml:"hosts"`
@@ -124,19 +125,19 @@ type Recorded struct {
 	Vars map[string]string `yaml:"vars,omitempty"`
 }
 
-// Recorded は配線する secret を、作成時の宣言に残す形にする。
-func (p Plan) Recorded() []Recorded {
-	var records []Recorded
+// WiredSecrets は配線する secret を、作成時の宣言に残す形にする。
+func (p Plan) WiredSecrets() []WiredSecret {
+	var records []WiredSecret
 	for _, wire := range p.Wired {
 		def := wire.Definition
-		records = append(records, Recorded{Name: wire.Name, Service: def.Service, Hosts: def.Hosts, Env: def.Env, Key: def.Key, Vars: def.Vars})
+		records = append(records, WiredSecret{Name: wire.Name, Service: def.Service, Hosts: def.Hosts, Env: def.Env, Key: def.Key, Vars: def.Vars})
 	}
 	return records
 }
 
 // Comparable は作成時の記録と現在の配線を、差を比べられる形に揃える。secret の並びと注入先 host の並びは VM に効かないので並べ替える。
 // key を記録していない (v0.1.0 の) secret は、現在の側の key と vars も外して比べない。notCompared は比べなかったことの説明。
-func Comparable(recorded, current []Recorded) (before, after []Recorded, notCompared []string) {
+func Comparable(recorded, current []WiredSecret) (before, after []WiredSecret, notCompared []string) {
 	before = canonical(recorded)
 	unrecorded := map[string]bool{}
 	for _, record := range before {
@@ -154,12 +155,12 @@ func Comparable(recorded, current []Recorded) (before, after []Recorded, notComp
 	return before, after, notCompared
 }
 
-func canonical(records []Recorded) []Recorded {
+func canonical(records []WiredSecret) []WiredSecret {
 	records = slices.Clone(records)
 	for i := range records {
 		records[i].Hosts = slices.Sorted(slices.Values(records[i].Hosts))
 	}
-	slices.SortFunc(records, func(a, b Recorded) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(records, func(a, b WiredSecret) int { return strings.Compare(a.Name, b.Name) })
 	return records
 }
 

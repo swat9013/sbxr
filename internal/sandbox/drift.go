@@ -106,10 +106,10 @@ type Difference struct {
 	Current  string
 }
 
-// Drift は作成時の宣言と現在の宣言の違いを葉の単位で並べる。宣言の key はすべて作成時に VM へ焼き込まれるものなので、全部比べる
-// (user の egress は宣言に入らず、sbxr policy sync --check が比べる)。
+// Drift は作成時の宣言と現在の宣言の違いを葉の単位で並べる。宣言の key はすべて作成時に VM へ焼き込まれるものなので、
+// 作成時に記録してある key は全部比べる (user の egress は宣言に入らず、sbxr policy sync --check が比べる)。
 // 両方を同じ YAML の形へ直してから比べるので、書き出し方の違いは差にならない。
-// 配線した secret は、配線の結果が揃えた形で比べる (並びを差にせず、作成時に記録していない項目は比べない)。
+// 配線した secret は、配線の結果が揃えた形で比べる (並びを差にしない。作成時に記録していない key・vars は比べず、NotCompared に注記する)。
 func (r Record) Drift(current Declaration) (Comparison, error) {
 	var comparison Comparison
 	recorded := r.Declaration

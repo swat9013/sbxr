@@ -346,47 +346,11 @@ func TestTheRecordOfAWiredSecretHoldsEverythingButTheValue(t *testing.T) {
 		Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"},
 	}}}}
 
-	got := plan.Recorded()
+	got := plan.WiredSecrets()
 
-	want := []Recorded{{Name: "gitlab", Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}}}
+	want := []WiredSecret{{Name: "gitlab", Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}}}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Recorded = %+v, want %+v", got, want)
-	}
-}
-
-func TestComparingARecordWithoutKeyAndVarsLeavesThemOutAndSaysSo(t *testing.T) {
-	recorded := []Recorded{{Name: "gitlab", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN"}}
-	current := []Recorded{{Name: "gitlab", Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}}}
-
-	before, after, notCompared := Comparable(recorded, current)
-
-	if !reflect.DeepEqual(before, after) {
-		t.Errorf("Comparable = %+v, %+v, want the same once key and vars are left out", before, after)
-	}
-	if len(notCompared) != 1 || !strings.Contains(notCompared[0], "gitlab") {
-		t.Errorf("notCompared = %v, want one note about gitlab", notCompared)
-	}
-}
-
-func TestComparingARecordWithKeyStillComparesKeyAndVars(t *testing.T) {
-	recorded := []Recorded{{Name: "gitlab", Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN"}}
-	current := []Recorded{{Name: "gitlab", Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}}}
-
-	before, after, notCompared := Comparable(recorded, current)
-
-	if reflect.DeepEqual(before, after) || notCompared != nil {
-		t.Errorf("Comparable = %+v, %+v, %v, want the added vars kept as a difference", before, after, notCompared)
-	}
-}
-
-func TestComparingIgnoresTheOrderOfSecretsAndHosts(t *testing.T) {
-	recorded := []Recorded{{Name: "b", Key: "B", Hosts: []string{"y.example.com", "x.example.com"}}, {Name: "a", Key: "A", Hosts: []string{"z.example.com"}}}
-	current := []Recorded{{Name: "a", Key: "A", Hosts: []string{"z.example.com"}}, {Name: "b", Key: "B", Hosts: []string{"x.example.com", "y.example.com"}}}
-
-	before, after, _ := Comparable(recorded, current)
-
-	if !reflect.DeepEqual(before, after) {
-		t.Errorf("Comparable = %+v, %+v, want the same after ordering", before, after)
+		t.Errorf("WiredSecrets = %+v, want %+v", got, want)
 	}
 }
 

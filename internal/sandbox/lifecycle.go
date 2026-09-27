@@ -56,7 +56,7 @@ type Declaration struct {
 	// SandboxEgress は sandbox スコープ rule にする宛先 (repo の egress)。
 	SandboxEgress []string `yaml:"sandbox_egress"`
 	// Secrets は配線する secret。形は配線の結果が決める。
-	Secrets []secret.Recorded `yaml:"secrets"`
+	Secrets []secret.WiredSecret `yaml:"secrets"`
 	// Herdr は herdr 連携。無効なら書かない。
 	Herdr *HerdrPin `yaml:"herdr,omitempty"`
 }
@@ -141,7 +141,7 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	if cfg.Herdr.Enabled {
 		decl.Herdr = &HerdrPin{Version: cfg.Herdr.Version}
 	}
-	decl.Secrets = prepared.Wiring.Recorded()
+	decl.Secrets = prepared.Wiring.WiredSecrets()
 	return prepared, nil
 }
 
