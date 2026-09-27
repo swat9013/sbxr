@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"io/fs"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -87,20 +86,21 @@ func TestAFailedSecretIsNamedWithTheSecretsAlreadyPlaced(t *testing.T) {
 }
 
 func TestTheEnvDefinitionCarriesTheBootKitOnlyWhenBootIsReplayed(t *testing.T) {
-	for _, replay := range []bool{true, false} {
-		dir := t.TempDir()
+	for name, replay := range map[string]bool{"replayed": true, "not replayed": false} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
 
-		if err := NewSbx((&sbxstub.Stub{}).Run).DefineSandbox(dir, SandboxSpec{Name: "app", Repo: "/src/app", ReplayBoot: replay}); err != nil {
-			t.Fatal(err)
-		}
+			if err := NewSbx((&sbxstub.Stub{}).Run).DefineSandbox(dir, SandboxSpec{Name: "app", Repo: "/src/app", ReplayBoot: replay}); err != nil {
+				t.Fatal(err)
+			}
 
-		env, _, err := readEnvDefinition(dir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		carries := slices.ContainsFunc(env.Kits, func(k envKit) bool { return k.Source == "./kits/"+bootKit })
-		if carries != replay {
-			t.Errorf("ReplayBoot %v: env kits = %+v, want the boot kit %v", replay, env.Kits, replay)
-		}
+			env, _, err := readEnvDefinition(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := env.carriesKit(bootKit); got != replay {
+				t.Errorf("env kits = %+v, want the boot kit %v", env.Kits, replay)
+			}
+		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -144,7 +145,8 @@ func (s *Sbx) CreateSandbox(ctx context.Context, stateDir string, spec SandboxSp
 			return &CreatedError{Step: CreatedStepSandboxEgress, Err: fmt.Errorf("%s を足せない: %w", resource, err)}
 		}
 	}
-	if spec.Herdr != nil {
+	// 待つかは、VM を作った定義 (kit が入ったか) で決める
+	if env.carriesKit(herdrKit) {
 		if err := s.waitStartup(ctx, spec.Name); err != nil {
 			return &CreatedError{Step: CreatedStepHerdrStartup, Err: err}
 		}
@@ -181,13 +183,13 @@ func (s *Sbx) DefinedWithHerdr(stateDir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	herdrSource := embeddedKit{name: herdrKit}.source()
-	for _, kit := range env.Kits {
-		if kit.Source == herdrSource {
-			return true, nil
-		}
-	}
-	return false, nil
+	return env.carriesKit(herdrKit), nil
+}
+
+// carriesKit は env 定義が埋め込みの kit name を参照しているかを返す。
+func (env envDefinition) carriesKit(name string) bool {
+	source := embeddedKit{name: name}.source()
+	return slices.ContainsFunc(env.Kits, func(kit envKit) bool { return kit.Source == source })
 }
 
 // kitStartupLog は sbx が VM 内に kit startup の経過を書く log (VM の /etc/durable-startup.d/run.sh が決める)。

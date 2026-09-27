@@ -14,7 +14,7 @@ import (
 	"github.com/swat9013/sbxr/internal/runtime"
 )
 
-// Runtime は実行基盤の状態を memory に持つ。
+// Runtime は実行基盤の状態を memory に持つ。ただし定義の寿命は、Sbx adapter と同じく状態ディレクトリの実在に従う。
 type Runtime struct {
 	// GlobalRules は global rule。
 	GlobalRules []runtime.EgressRule
@@ -140,7 +140,6 @@ func (r *Runtime) definition(stateDir string) (runtime.SandboxSpec, bool) {
 		return runtime.SandboxSpec{}, false
 	}
 	if _, err := os.Stat(stateDir); err != nil {
-		delete(r.Definitions, stateDir)
 		return runtime.SandboxSpec{}, false
 	}
 	return spec, true

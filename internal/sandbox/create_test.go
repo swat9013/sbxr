@@ -117,13 +117,18 @@ func TestCreateAsksTheRuntimeToInstallTheDeclaredHerdr(t *testing.T) {
 	rt := newAppRuntime(prepared)
 	places := Places{StateRoot: t.TempDir()}
 
-	err := Create(context.Background(), Hosts{Runtime: rt, Herdr: &hostHerdr{}}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
+	host := &hostHerdr{}
+
+	err := Create(context.Background(), Hosts{Runtime: rt, Herdr: host}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
 
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
 	if got := rt.Definitions[places.StateDir("app")].Herdr; got == nil || got.Version != "v0.9.0" {
 		t.Errorf("definition herdr = %+v, want v0.9.0", got)
+	}
+	if !slices.Equal(host.added, []string{rt.SSHTarget("app")}) {
+		t.Errorf("herdr machines added = %q, want the VM registered", host.added)
 	}
 }
 

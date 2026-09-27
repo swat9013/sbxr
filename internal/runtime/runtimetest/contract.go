@@ -179,7 +179,7 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		}
 	})
 
-	t.Run("消した状態ディレクトリの定義は無い", func(t *testing.T) {
+	t.Run("消した状態ディレクトリの定義は、herdr を導入しないと答える", func(t *testing.T) {
 		h := newHarness(t)
 		withHerdr := spec("app")
 		withHerdr.Herdr = &runtime.HerdrInstall{Version: "v0.9.0"}
@@ -191,6 +191,13 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		if err != nil || got {
 			t.Errorf("DefinedWithHerdr of a removed state dir = %v, %v, want false", got, err)
 		}
+	})
+
+	t.Run("消した状態ディレクトリは撤去できない", func(t *testing.T) {
+		h := newHarness(t)
+		dir := define(t, h, spec("app"))
+		must(t, os.RemoveAll(dir))
+
 		if err := h.Runtime.RemoveEnvironment(ctx, dir); err == nil {
 			t.Errorf("RemoveEnvironment of a removed state dir = nil, want an error")
 		}
