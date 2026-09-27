@@ -10,10 +10,6 @@ import (
 	"github.com/swat9013/sbxr/internal/runtime"
 )
 
-// BootScriptRelPath は VM の agent user の home からの boot の置き場。埋め込みの kit sbxr-boot が起動ごとに実行する
-// (kit 側の path との一致は test が確かめる)。
-const BootScriptRelPath = ".config/sbxr/boot.sh"
-
 // aptWait は init の前に VM 内の apt-get が終わるのを待つ上限と間隔。sleep は test が差し替える。
 var aptWait = struct {
 	budget, interval time.Duration
@@ -65,11 +61,11 @@ func runBoot(ctx context.Context, v vm, repo string, commands []string, progress
 	if len(commands) == 0 {
 		return nil
 	}
-	if err := v.writeFile(ctx, BootScriptRelPath, []byte(bootScript(repo, commands)), 0o755); err != nil {
+	if err := v.writeFile(ctx, runtime.BootScriptRelPath, []byte(bootScript(repo, commands)), 0o755); err != nil {
 		return fmt.Errorf("boot script を書けない: %w", err)
 	}
-	logf(progress, "boot: %d 件を VM の ~/%s に書いた (起動ごとに実行する)\n", len(commands), BootScriptRelPath)
-	out, err := v.run(ctx, runtime.SandboxCommand{Args: []string{v.path(BootScriptRelPath)}})
+	logf(progress, "boot: %d 件を VM の ~/%s に書いた (起動ごとに実行する)\n", len(commands), runtime.BootScriptRelPath)
+	out, err := v.run(ctx, runtime.SandboxCommand{Args: []string{v.path(runtime.BootScriptRelPath)}})
 	logf(progress, "%s", out) // 失敗したときも、どの entry が失敗したか (boot[N] fail) を見せる
 	return err
 }

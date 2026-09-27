@@ -93,10 +93,10 @@ func (s *Sbx) RemoveGlobalEgressRule(ctx context.Context, id string) error {
 	return err
 }
 
-// SetSandboxSecret は secret を sandbox スコープに置く。service があれば sbx 組み込み service の secret、
+// setSandboxSecret は secret を sandbox スコープに置く。service があれば sbx 組み込み service の secret、
 // 無ければ host 指定の custom secret (placeholder 注入) にする。値は stdin で渡す。
 // sandbox スコープの secret は sandbox の作成前にも置け、作成時に VM の環境変数へ placeholder が入る (sbx 実測)。
-func (s *Sbx) SetSandboxSecret(ctx context.Context, sandbox string, secret SandboxSecret) error {
+func (s *Sbx) setSandboxSecret(ctx context.Context, sandbox string, secret SandboxSecret) error {
 	args := []string{"secret", "set", secret.Service, "--sandbox", sandbox}
 	if secret.Service == "" {
 		args = []string{"secret", "set-custom", "--sandbox", sandbox}
@@ -148,8 +148,8 @@ func sbxStatus(status string) SandboxStatus {
 	return SandboxRunning
 }
 
-// CreateEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --auto-approve を渡す。
-func (s *Sbx) CreateEnvironment(ctx context.Context, envDir string) error {
+// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --auto-approve を渡す。
+func (s *Sbx) createEnvironment(ctx context.Context, envDir string) error {
 	_, err := s.run(ctx, nil, "env", "create", "--auto-approve", envDir)
 	return err
 }
@@ -167,8 +167,8 @@ func (s *Sbx) StopSandbox(ctx context.Context, sandbox string) error {
 	return err
 }
 
-// AllowSandboxEgress は sbx policy allow network --sandbox で sandbox スコープ rule を足す。
-func (s *Sbx) AllowSandboxEgress(ctx context.Context, sandbox, resource string) error {
+// allowSandboxEgress は sbx policy allow network --sandbox で sandbox スコープ rule を足す。
+func (s *Sbx) allowSandboxEgress(ctx context.Context, sandbox, resource string) error {
 	_, err := s.run(ctx, nil, "policy", "allow", "network", "--sandbox", sandbox, resource)
 	return err
 }

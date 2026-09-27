@@ -79,7 +79,7 @@ func TestSbxRejectsARuleWithAnUnknownDecision(t *testing.T) {
 func TestSbxSetsAServiceSecretScopedToTheSandboxWithTheValueOnStdin(t *testing.T) {
 	stub := &sbxstub.Stub{}
 
-	err := NewSbx(stub.Run).SetSandboxSecret(context.Background(), "vm1", SandboxSecret{Service: "github", Value: "v"})
+	err := NewSbx(stub.Run).setSandboxSecret(context.Background(), "vm1", SandboxSecret{Service: "github", Value: "v"})
 
 	if err != nil {
 		t.Fatalf("SetSandboxSecret() error = %v", err)
@@ -95,7 +95,7 @@ func TestSbxSetsAServiceSecretScopedToTheSandboxWithTheValueOnStdin(t *testing.T
 func TestSbxSetsAPlaceholderSecretForEveryHost(t *testing.T) {
 	stub := &sbxstub.Stub{}
 
-	err := NewSbx(stub.Run).SetSandboxSecret(context.Background(), "vm1",
+	err := NewSbx(stub.Run).setSandboxSecret(context.Background(), "vm1",
 		SandboxSecret{Hosts: []string{"a.example.com", "b.example.com"}, Env: "TOKEN", Value: "v"})
 
 	if err != nil {

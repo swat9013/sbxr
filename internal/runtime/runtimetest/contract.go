@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/testenv"
 )
 
 // Harness は契約 test に渡す 1 つの adapter と、interface からは見えない状態の観測口。
@@ -17,6 +16,8 @@ type Harness struct {
 	Runtime runtime.Runtime
 	// SandboxSecrets は sandbox VM に置かれた sandbox スコープの secret の数。
 	SandboxSecrets func(sandbox string) int
+	// SandboxRules は sandbox VM に置かれた sandbox スコープ rule の宛先。
+	SandboxRules func(sandbox string) []string
 }
 
 // Contract は adapter が実行基盤として満たす振る舞いを確かめる。newHarness は test ごとに空の実行基盤を返す。
@@ -34,15 +35,24 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("作った VM は running", func(t *testing.T) {
 		h := newHarness(t)
+		dir := define(t, h, spec("app"))
 
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		must(t, h.Runtime.CreateSandbox(ctx, dir, spec("app")))
 
 		assertStatus(t, h, "app", runtime.SandboxRunning)
 	})
 
+	t.Run("定義の無い状態ディレクトリからは作れない", func(t *testing.T) {
+		h := newHarness(t)
+
+		if err := h.Runtime.CreateSandbox(ctx, t.TempDir(), spec("app")); err == nil {
+			t.Errorf("CreateSandbox without a definition = nil, want an error")
+		}
+	})
+
 	t.Run("止めた VM は stopped", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, spec("app"))
 
 		must(t, h.Runtime.StopSandbox(ctx, "app"))
 
@@ -51,49 +61,89 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("撤去した VM は absent", func(t *testing.T) {
 		h := newHarness(t)
-		env := EnvDir(t, "app")
-		must(t, h.Runtime.CreateEnvironment(ctx, env))
+		dir := create(t, h, spec("app"))
 
-		must(t, h.Runtime.RemoveEnvironment(ctx, env))
+		must(t, h.Runtime.RemoveEnvironment(ctx, dir))
 
 		assertStatus(t, h, "app", runtime.SandboxAbsent)
 	})
 
-	t.Run("sandbox スコープの secret は VM の作成前に置け、作成後も残る", func(t *testing.T) {
+	t.Run("作る内容の secret は作った VM に置かれる", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.SetSandboxSecret(ctx, "app", runtime.SandboxSecret{Service: "github", Value: "v"}))
+		withSecret := spec("app")
+		withSecret.Secrets = []runtime.SandboxSecret{{Service: "github", Value: "v"}}
 
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, withSecret)
 
 		if got := h.SandboxSecrets("app"); got != 1 {
-			t.Errorf("sandbox secrets = %d, want the secret placed before the VM to stay", got)
+			t.Errorf("sandbox secrets = %d, want the secret of the spec", got)
 		}
 	})
 
-	t.Run("VM が無くても env 定義の撤去は成功し、sandbox スコープの secret を消す", func(t *testing.T) {
+	t.Run("作る内容の sandbox スコープ rule は作った VM に置かれる", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.SetSandboxSecret(ctx, "app", runtime.SandboxSecret{Service: "github", Value: "v"}))
+		withRule := spec("app")
+		withRule.EgressRules = []string{"api.example.com:443"}
 
-		must(t, h.Runtime.RemoveEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, withRule)
+
+		if got := h.SandboxRules("app"); !slices.Equal(got, []string{"api.example.com:443"}) {
+			t.Errorf("sandbox rules = %v, want the rule of the spec", got)
+		}
+	})
+
+	t.Run("撤去すると sandbox スコープの secret も消える", func(t *testing.T) {
+		h := newHarness(t)
+		withSecret := spec("app")
+		withSecret.Secrets = []runtime.SandboxSecret{{Service: "github", Value: "v"}}
+		dir := create(t, h, withSecret)
+
+		must(t, h.Runtime.RemoveEnvironment(ctx, dir))
 
 		if got := h.SandboxSecrets("app"); got != 0 {
 			t.Errorf("sandbox secrets = %d, want none after removing the env", got)
 		}
 	})
 
-	t.Run("sandbox スコープ rule は VM の作成前には置けない", func(t *testing.T) {
+	t.Run("VM を作る前の定義だけの状態ディレクトリも撤去できる", func(t *testing.T) {
 		h := newHarness(t)
+		dir := define(t, h, spec("app"))
 
-		if err := h.Runtime.AllowSandboxEgress(ctx, "app", "api.example.com:443"); err == nil {
-			t.Errorf("AllowSandboxEgress before the VM = nil, want an error")
+		must(t, h.Runtime.RemoveEnvironment(ctx, dir))
+	})
+
+	t.Run("herdr を導入する定義は、導入すると答える", func(t *testing.T) {
+		h := newHarness(t)
+		withHerdr := spec("app")
+		withHerdr.Herdr = &runtime.HerdrInstall{Version: "v0.9.0"}
+		dir := define(t, h, withHerdr)
+
+		got, err := h.Runtime.DefinedWithHerdr(dir)
+
+		if err != nil || !got {
+			t.Errorf("DefinedWithHerdr = %v, %v, want true", got, err)
 		}
 	})
 
-	t.Run("sandbox スコープ rule は VM の作成後に置ける", func(t *testing.T) {
+	t.Run("herdr を導入しない定義は、導入しないと答える", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		dir := define(t, h, spec("app"))
 
-		must(t, h.Runtime.AllowSandboxEgress(ctx, "app", "api.example.com:443"))
+		got, err := h.Runtime.DefinedWithHerdr(dir)
+
+		if err != nil || got {
+			t.Errorf("DefinedWithHerdr = %v, %v, want false", got, err)
+		}
+	})
+
+	t.Run("定義の無い状態ディレクトリは、herdr を導入しないと答える", func(t *testing.T) {
+		h := newHarness(t)
+
+		got, err := h.Runtime.DefinedWithHerdr(t.TempDir())
+
+		if err != nil || got {
+			t.Errorf("DefinedWithHerdr = %v, %v, want false", got, err)
+		}
 	})
 
 	t.Run("無い VM は止められない", func(t *testing.T) {
@@ -106,7 +156,7 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("VM に書いたファイルは読める", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, spec("app"))
 		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755))
 
 		data, err := h.Runtime.ReadSandboxFile(ctx, "app", boot)
@@ -118,7 +168,7 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("VM に書いたファイルはある", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, spec("app"))
 		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), runtime.KeepMode))
 
 		found, err := h.Runtime.SandboxFileExists(ctx, "app", boot)
@@ -130,7 +180,7 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("VM に書いたファイルの親ディレクトリはある", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, spec("app"))
 		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), runtime.KeepMode))
 
 		found, err := h.Runtime.SandboxFileExists(ctx, "app", filepath.Dir(boot))
@@ -142,7 +192,7 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("VM に無いファイルは無いと答える", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, spec("app"))
 
 		found, err := h.Runtime.SandboxFileExists(ctx, "app", "/home/agent/missing")
 
@@ -153,7 +203,7 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("VM に無いファイルを読むと error", func(t *testing.T) {
 		h := newHarness(t)
-		must(t, h.Runtime.CreateEnvironment(ctx, EnvDir(t, "app")))
+		create(t, h, spec("app"))
 
 		if _, err := h.Runtime.ReadSandboxFile(ctx, "app", "/home/agent/missing"); err == nil {
 			t.Errorf("ReadSandboxFile of a missing file = nil, want an error")
@@ -162,11 +212,11 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 	t.Run("撤去して作り直した VM に前のファイルは無い", func(t *testing.T) {
 		h := newHarness(t)
-		env := EnvDir(t, "app")
-		must(t, h.Runtime.CreateEnvironment(ctx, env))
+		dir := create(t, h, spec("app"))
 		must(t, h.Runtime.WriteSandboxFile(ctx, "app", boot, []byte("echo boot\n"), 0o755))
-		must(t, h.Runtime.RemoveEnvironment(ctx, env))
-		must(t, h.Runtime.CreateEnvironment(ctx, env))
+		must(t, h.Runtime.RemoveEnvironment(ctx, dir))
+		must(t, h.Runtime.DefineSandbox(dir, spec("app")))
+		must(t, h.Runtime.CreateSandbox(ctx, dir, spec("app")))
 
 		found, err := h.Runtime.SandboxFileExists(ctx, "app", boot)
 
@@ -220,13 +270,24 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 	})
 }
 
-// EnvDir は name の sandbox VM を指す env 定義を置いたディレクトリを返す。
-func EnvDir(t *testing.T, name string) string {
+// spec は name の sandbox VM の、herdr も secret も rule も持たない作る内容。
+func spec(name string) runtime.SandboxSpec {
+	return runtime.SandboxSpec{Name: name, Repo: "/src/" + name}
+}
+
+// define は新しい状態ディレクトリに spec を定義して返す。
+func define(t *testing.T, h Harness, spec runtime.SandboxSpec) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := testenv.Write(dir, name); err != nil {
-		t.Fatal(err)
-	}
+	must(t, h.Runtime.DefineSandbox(dir, spec))
+	return dir
+}
+
+// create は spec を定義して VM を作り、状態ディレクトリを返す。
+func create(t *testing.T, h Harness, spec runtime.SandboxSpec) string {
+	t.Helper()
+	dir := define(t, h, spec)
+	must(t, h.Runtime.CreateSandbox(context.Background(), dir, spec))
 	return dir
 }
 

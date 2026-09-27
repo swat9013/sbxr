@@ -10,11 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 	"github.com/swat9013/sbxr/internal/sandbox"
 )
 
-const bootScriptPath = sbxstub.Home + "/" + sandbox.BootScriptRelPath
+const bootScriptPath = sbxstub.Home + "/" + runtime.BootScriptRelPath
 
 const settingsPath = sbxstub.Home + "/.claude/settings.json"
 

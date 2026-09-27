@@ -26,8 +26,3 @@ func Name(dir string) (string, error) {
 	}
 	return env.Name, nil
 }
-
-// Write は dir に name の sandbox VM を指す env 定義を書く。
-func Write(dir, name string) error {
-	return os.WriteFile(filepath.Join(dir, file), []byte("name: "+name+"\n"), 0o600)
-}

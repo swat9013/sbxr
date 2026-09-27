@@ -1,4 +1,4 @@
-package sandbox
+package runtime
 
 import (
 	"context"
@@ -8,8 +8,7 @@ import (
 	"time"
 
 	"github.com/swat9013/sbxr/internal/assets"
-	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/inmemory"
+	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 )
 
 func TestStartupOutcomeReadsOnlyTheLatestDispatcherRun(t *testing.T) {
@@ -46,17 +45,23 @@ func TestTheHerdrKitReportsEachFailureWithTheLineSbxrReads(t *testing.T) {
 }
 
 func TestWaitingForKitStartupGivesUpAfterTheBudget(t *testing.T) {
-	saved := kitWait
-	t.Cleanup(func() { kitWait = saved })
-	kitWait.budget, kitWait.interval, kitWait.sleep = 3*time.Second, time.Second, func(time.Duration) {}
-	rt := inmemory.New()
-	app := rt.Sandbox("app")
-	app.Status = runtime.SandboxRunning
-	app.Files[kitStartupLog] = inmemory.File{Data: []byte("=== dispatcher run ===\n> /etc/durable-startup.d/002-startup-sbxr-herdr/000-cmd.sh\n")}
+	saved := StartupWait
+	t.Cleanup(func() { StartupWait = saved })
+	StartupWait.Budget, StartupWait.Interval, StartupWait.Sleep = 3*time.Second, time.Second, func(time.Duration) {}
+	fake := &sbxstub.FakeVM{Files: map[string]string{kitStartupLog: "=== dispatcher run ===\n> /etc/durable-startup.d/002-startup-sbxr-herdr/000-cmd.sh\n"}}
+	stub := &sbxstub.Stub{Sandboxes: map[string]string{"app": "running"}, VM: fake}
 
-	err := waitKitStartup(context.Background(), rt, "app")
+	err := NewSbx(stub.Run).waitStartup(context.Background(), "app")
 
 	if err == nil || !strings.Contains(err.Error(), "終わらない") {
-		t.Errorf("waitKitStartup() error = %v, want a timeout", err)
+		t.Errorf("waitStartup() error = %v, want a timeout", err)
+	}
+}
+
+func TestTheBootKitRunsTheScriptWhereSbxrWritesIt(t *testing.T) {
+	spec, err := fs.ReadFile(assets.Kits(), bootKit+"/spec.yaml")
+
+	if err != nil || !strings.Contains(string(spec), `"$HOME/`+BootScriptRelPath+`"`) {
+		t.Errorf("sbxr-boot spec = %q, %v, want it to run $HOME/%s", spec, err, BootScriptRelPath)
 	}
 }

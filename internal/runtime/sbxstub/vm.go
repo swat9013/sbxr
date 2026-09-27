@@ -190,7 +190,7 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 }
 
 // bootScript は kit sbxr-boot が起動ごとに実行する boot script の置き場
-// (sandbox.BootScriptRelPath と kit の spec.yaml の path の一致は internal/sandbox の test が確かめる)。
+// (runtime.BootScriptRelPath と kit の spec.yaml の path の一致は internal/runtime の test が確かめる)。
 const bootScript = Home + "/.config/sbxr/boot.sh"
 
 // Startup は VM の起動で走る kit sbxr-boot の startup を再現する。boot script が実行可能な mode で書かれていれば実行し、

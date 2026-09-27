@@ -18,12 +18,14 @@ import (
 type Runtime struct {
 	// GlobalRules は global rule。
 	GlobalRules []runtime.EgressRule
-	// Sandboxes は sandbox VM の名前ごとの状態。VM の作成前に置いた secret も、状態 absent の entry として持つ。
+	// Sandboxes は sandbox VM の名前ごとの状態。
 	Sandboxes map[string]*Sandbox
 	// Commands は ExecInSandbox で走ったコマンドを起きた順に並べる。
 	Commands []Command
 	// Respond は VM 内のコマンドへの応答。nil なら空の出力で成功する。
 	Respond func(sandbox string, command runtime.SandboxCommand) ([]byte, error)
+	// Definitions は状態ディレクトリごとの定義 (secret の値を除いた作る内容)。
+	Definitions map[string]runtime.SandboxSpec
 	// FailOnGlobalWrite が n (1 始まり) なら、global rule への n 回目の書き込みを失敗させる。0 なら失敗させない。
 	FailOnGlobalWrite int
 	// DropGlobalWrites が true なら、global rule への書き込みを受けたふりをして反映しない (適用が効かない実行基盤の再現)。
@@ -35,7 +37,9 @@ type Runtime struct {
 
 // Sandbox は 1 つの sandbox VM に置かれたもの。
 type Sandbox struct {
-	Status  runtime.SandboxStatus
+	Status runtime.SandboxStatus
+	// Spec は VM を作ったときに受け取った作る内容。
+	Spec    runtime.SandboxSpec
 	Secrets []runtime.SandboxSecret
 	// EgressRules は sandbox スコープ rule の宛先。
 	EgressRules []string
@@ -109,12 +113,6 @@ func (r *Runtime) globalWrite() error {
 	return nil
 }
 
-func (r *Runtime) SetSandboxSecret(_ context.Context, sandbox string, secret runtime.SandboxSecret) error {
-	sb := r.Sandbox(sandbox)
-	sb.Secrets = append(sb.Secrets, secret)
-	return nil
-}
-
 func (r *Runtime) SandboxStatus(_ context.Context, sandbox string) (runtime.SandboxStatus, error) {
 	if sb, ok := r.Sandboxes[sandbox]; ok {
 		return sb.Status, nil
@@ -122,22 +120,46 @@ func (r *Runtime) SandboxStatus(_ context.Context, sandbox string) (runtime.Sand
 	return runtime.SandboxAbsent, nil
 }
 
-func (r *Runtime) CreateEnvironment(_ context.Context, envDir string) error {
-	name, err := testenv.Name(envDir)
-	if err != nil {
-		return err
+// DefineSandbox は作る内容を状態ディレクトリごとに覚える (ファイルは書かない)。
+func (r *Runtime) DefineSandbox(stateDir string, spec runtime.SandboxSpec) error {
+	if r.Definitions == nil {
+		r.Definitions = map[string]runtime.SandboxSpec{}
 	}
-	r.Sandbox(name).Status = runtime.SandboxRunning
+	spec.Secrets = nil // 定義に secret の値は残さない
+	r.Definitions[stateDir] = spec
 	return nil
 }
 
+// CreateSandbox は定義された sandbox VM を作り、secret と rule を置いて稼働中にする。定義が無ければ error (sbx の実測)。
+func (r *Runtime) CreateSandbox(_ context.Context, stateDir string, spec runtime.SandboxSpec) error {
+	if _, ok := r.Definitions[stateDir]; !ok {
+		return fmt.Errorf("inmemory: %s に定義が無い", stateDir)
+	}
+	sb := r.Sandbox(spec.Name)
+	sb.Status = runtime.SandboxRunning
+	sb.Spec = spec
+	sb.Secrets = append(sb.Secrets, spec.Secrets...)
+	sb.EgressRules = append(sb.EgressRules, spec.EgressRules...)
+	return nil
+}
+
+// DefinedWithHerdr は覚えた定義が herdr を導入するかを返す。
+func (r *Runtime) DefinedWithHerdr(stateDir string) (bool, error) {
+	return r.Definitions[stateDir].Herdr != nil, nil
+}
+
 // RemoveEnvironment は VM を、置かれた secret と rule ごと消す。VM が無くても secret を消して成功する (sbx の実測)。
+// 覚えた定義が無い状態ディレクトリは、置かれた env 定義から名前を読む (作り直す前の sbxr が書いた状態ディレクトリ)。
 func (r *Runtime) RemoveEnvironment(_ context.Context, envDir string) error {
-	name, err := testenv.Name(envDir)
-	if err != nil {
-		return err
+	name := r.Definitions[envDir].Name
+	if name == "" {
+		var err error
+		if name, err = testenv.Name(envDir); err != nil {
+			return err
+		}
 	}
 	delete(r.Sandboxes, name)
+	delete(r.Definitions, envDir)
 	return nil
 }
 
@@ -147,16 +169,6 @@ func (r *Runtime) StopSandbox(_ context.Context, sandbox string) error {
 		return fmt.Errorf("inmemory: sandbox %s が無い", sandbox)
 	}
 	sb.Status = runtime.SandboxStopped
-	return nil
-}
-
-// AllowSandboxEgress は sandbox スコープ rule を足す。VM の作成前には置けない (sbx の実測)。
-func (r *Runtime) AllowSandboxEgress(_ context.Context, sandbox, resource string) error {
-	sb, ok := r.Sandboxes[sandbox]
-	if !ok || sb.Status == runtime.SandboxAbsent {
-		return fmt.Errorf("inmemory: sandbox %s が無い", sandbox)
-	}
-	sb.EgressRules = append(sb.EgressRules, resource)
 	return nil
 }
 
