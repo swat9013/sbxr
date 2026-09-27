@@ -28,7 +28,7 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 | secret ファイル | 外 | ファイル（port にしない） | 入 / 出（secret setup） | secret の値 |
 | host 側 repo（path のとき） | 外 | host の git・ファイル（port にしない） | 入 / mount では VM が直接書く | origin の host、copy で持ち込むもの、mount の対象、cache 層の inputs |
 | sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未回収の検査・egress 自己検証・copy の持ち込み）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
-| VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（herdr の導入と版）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009） |
+| VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009） |
 | host の herdr | 外 | herdr CLI（port にしない） | 出 | herdr machine の登録・無効化・有効化・解除 |
 | git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan と drift の一時 clone |
 | GitHub API | 外 | HTTPS（port にしない） | 出 | secret setup github の token の能力の probe |
