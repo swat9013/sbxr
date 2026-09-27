@@ -151,6 +151,23 @@ func TestCreateShowsAFailureAfterTheVMWasCreatedAsItsStage(t *testing.T) {
 	}
 }
 
+func TestDestroyOfAHalfCreatedSandboxRemovesTheHerdrMachineRecordedAtTheStart(t *testing.T) {
+	prepared := preparedApp()
+	prepared.Declaration.Herdr = &HerdrPin{Version: "v0.9.0"}
+	rt := &failingCreate{Runtime: newAppRuntime(prepared), step: runtime.CreatedStepSandboxEgress}
+	places := Places{StateRoot: t.TempDir()}
+	host := &hostHerdr{machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app")}}}
+	if err := Create(context.Background(), Hosts{Runtime: rt, Herdr: host}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard); err == nil {
+		t.Fatal("Create() = nil, want the creation stopped halfway")
+	}
+
+	_, err := Destroy(context.Background(), Hosts{Runtime: definitionUnread{rt}, Herdr: host}, places, prepared.Target, RemoveRunning)
+
+	if err != nil || !slices.Equal(host.removed, []string{"m1"}) {
+		t.Errorf("Destroy() = %v, removed = %q, want the machine removed", err, host.removed)
+	}
+}
+
 func TestCreateStopsWhenAWiredValueIsMissing(t *testing.T) {
 	rt := inmemory.New()
 	places := Places{StateRoot: t.TempDir()}
@@ -186,15 +203,32 @@ func (f *failingCreate) CreateSandbox(ctx context.Context, stateDir string, spec
 	return &runtime.CreatedError{Step: f.step, Err: io.ErrUnexpectedEOF}
 }
 
-// hostHerdr は登録を受け付ける host の herdr。
-type hostHerdr struct{ added []string }
+// hostHerdr は登録と解除を受け付ける host の herdr。machines は登録済みの machine。
+type hostHerdr struct {
+	machines []herdr.Machine
+	added    []string
+	removed  []string
+}
 
-func (h *hostHerdr) Available() error                              { return nil }
-func (h *hostHerdr) List(context.Context) ([]herdr.Machine, error) { return nil, nil }
+func (h *hostHerdr) Available() error { return nil }
+func (h *hostHerdr) List(context.Context) ([]herdr.Machine, error) {
+	return slices.Clone(h.machines), nil
+}
 func (h *hostHerdr) Add(_ context.Context, target, _ string) error {
 	h.added = append(h.added, target)
 	return nil
 }
 func (h *hostHerdr) Enable(context.Context, string) error  { return nil }
 func (h *hostHerdr) Disable(context.Context, string) error { return nil }
-func (h *hostHerdr) Remove(context.Context, string) error  { return nil }
+func (h *hostHerdr) Remove(_ context.Context, id string) error {
+	h.removed = append(h.removed, id)
+	return nil
+}
+
+// definitionUnread は実行基盤の定義から herdr 連携の有無を答えない実行基盤。
+// sbxr が状態ディレクトリの記録から判定することを確かめるのに使う。
+type definitionUnread struct{ runtime.Runtime }
+
+func (definitionUnread) DefinedWithHerdr(string) (bool, error) {
+	return false, errors.New("実行基盤の定義は読まない")
+}

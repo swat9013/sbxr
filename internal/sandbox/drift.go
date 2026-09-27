@@ -3,11 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
 
 	"go.yaml.in/yaml/v3"
@@ -15,70 +11,22 @@ import (
 	"github.com/swat9013/sbxr/internal/secret"
 )
 
-// repoEgressDroppedFile は git URL を --yes で通して repo の egress を落として作った印。drift を比べるときに同じ扱いを再現する。
-const repoEgressDroppedFile = "repo-egress-dropped"
-
-// Record は状態ディレクトリに残した作成時の記録。宣言と、それを確定したときの repo の egress の扱い。
+// Record は状態ディレクトリに残した作成時の記録。宣言と、それを確定したときの repo の egress の扱い
+// (git URL を --yes で通して repo の egress を落としたなら、drift を比べるときに同じ扱いを再現する)。
 type Record struct {
 	Declaration Declaration
 	RepoEgress  RepoEgressPolicy
 }
 
-// writeRecord は作成時の記録を書く。declaration.yaml は作成が終わった印なので最後に書く。
-func writeRecord(dir string, record Record) error {
-	if record.RepoEgress == DropRepoEgress {
-		if err := os.WriteFile(filepath.Join(dir, repoEgressDroppedFile), nil, 0o600); err != nil {
-			return fmt.Errorf("状態ディレクトリに %s を書けない: %w", repoEgressDroppedFile, err)
-		}
-	}
-	data, err := yaml.Marshal(record.Declaration)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(dir, declarationFile), data, 0o600); err != nil {
-		return fmt.Errorf("状態ディレクトリに %s を書けない: %w", declarationFile, err)
-	}
-	return nil
-}
-
-// recordedSource は状態ディレクトリに記録された出所を返す。状態ディレクトリが無ければ found が false。
-func recordedSource(dir string) (source string, found bool, err error) {
-	data, err := os.ReadFile(filepath.Join(dir, sourceFile))
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("状態ディレクトリ %s を読めない: %w", dir, err)
-	}
-	return string(data), true, nil
-}
-
 // ReadRecord は target の作成時の記録を状態ディレクトリから読む。sbx には問い合わせない。
 // 作り終えた記録が無い (状態ディレクトリが無い・別の repo のもの・作成が途中で止まった) なら found が false。
 func ReadRecord(places Places, target Target) (record Record, found bool, err error) {
-	dir := places.StateDir(target.Name)
-	source, found, err := recordedSource(dir)
+	dir := places.stateDir(target.Name)
+	source, found, err := dir.source()
 	if err != nil || !found || source != target.Source() {
 		return Record{}, false, err
 	}
-	path := filepath.Join(dir, declarationFile)
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return Record{}, false, nil
-	}
-	if err != nil {
-		return Record{}, false, fmt.Errorf("作成時の宣言 %s を読めない: %w", path, err)
-	}
-	if err := yaml.Unmarshal(data, &record.Declaration); err != nil {
-		return Record{}, false, fmt.Errorf("作成時の宣言 %s を読めない: %w", path, err)
-	}
-	record.RepoEgress = KeepRepoEgress
-	if _, err := os.Stat(filepath.Join(dir, repoEgressDroppedFile)); err == nil {
-		record.RepoEgress = DropRepoEgress
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return Record{}, false, err
-	}
-	return record, true, nil
+	return dir.record()
 }
 
 // CompareWithRecord は現在の宣言を作成時と同じ repo の egress の扱いで確定し、作成時の宣言との差分を返す。
