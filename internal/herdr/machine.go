@@ -23,9 +23,12 @@ type Registry struct {
 	VM     VM
 }
 
-// RequireOnHost は host に herdr があることを確かめる。無ければ error。
+// RequireOnHost は host に herdr があることを確かめる。無ければ、herdr を入れる手順を添えた error。
 func RequireOnHost(client Client) error {
-	return client.Available()
+	if err := client.Available(); err != nil {
+		return fmt.Errorf("%w (PATH に herdr を入れる)", err)
+	}
+	return nil
 }
 
 // RegistrationError は herdr machine を登録できなかったときの error。sandbox VM は作り終えている。
@@ -76,6 +79,7 @@ func (r Registry) Register(ctx context.Context, sandbox string, progress io.Writ
 // (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。返り値は有効に戻すコマンド (無効にしなかったら空)。
 // 無効にできなければ止めずに error。止められなければ、VM は動いたままなので herdr から見失わないよう、
 // sbxr が無効にした machine を有効に戻す。登録が無ければ、警告して止めるだけにする。
+// 無効にしたことと戻し方の案内は、返り値を受けた呼び出し側が出す。
 func (r Registry) DisableAndStop(ctx context.Context, sandbox string, progress io.Writer) (enable string, err error) {
 	target := r.VM.SSHTarget(sandbox)
 	machine, found, err := r.find(ctx, target)
@@ -100,7 +104,6 @@ func (r Registry) DisableAndStop(ctx context.Context, sandbox string, progress i
 		}
 		return "", err
 	}
-	logf(progress, "herdr: %s を無効にした (起動し直したら %s で有効に戻す)\n", machine.Target, enable)
 	return enable, nil
 }
 

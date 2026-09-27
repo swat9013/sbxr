@@ -22,7 +22,7 @@ func (p Prepared) RequireHerdr(client herdr.Client) error {
 
 // RequireHerdrFor は、herdr 連携を有効にして作った sandbox VM なら host に herdr があることを確かめる。
 // herdr 連携の有無は、作成の最初の記録から読む (作成が途中で止まった VM でも読める)。
-// stop と destroy が VM に触れる前に呼ぶ。
+// destroy が確認の前に呼ぶ (stop は Stop の中で確かめる)。
 func RequireHerdrFor(hosts Hosts, places Places, name string) error {
 	enabled, err := hosts.herdrEnabled(places.stateDirOf(name))
 	if err != nil || !enabled {
@@ -33,7 +33,7 @@ func RequireHerdrFor(hosts Hosts, places Places, name string) error {
 
 func requireHerdrOnHost(client herdr.Client) error {
 	if err := herdr.RequireOnHost(client); err != nil {
-		return fmt.Errorf("herdr 連携が有効だが、%w (PATH に herdr を入れる。作成前なら user 設定で herdr.enabled: false にする)", err)
+		return fmt.Errorf("herdr 連携が有効だが、%w。作成前なら user 設定で herdr.enabled: false にしてもよい", err)
 	}
 	return nil
 }

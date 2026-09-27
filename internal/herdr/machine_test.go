@@ -20,8 +20,8 @@ func runningApp() *inmemory.Runtime {
 	return rt
 }
 
-// enabledMachine は sandbox VM app の、有効な herdr machine m1 を持つ host の herdr。
-func enabledMachine(rt *inmemory.Runtime) *herdrtest.Fake {
+// hostWithEnabledMachine は sandbox VM app の、有効な herdr machine m1 を持つ host の herdr。
+func hostWithEnabledMachine(rt *inmemory.Runtime) *herdrtest.Fake {
 	return &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app"), Enabled: true}}}
 }
 
@@ -39,13 +39,12 @@ func TestRegisterAddsTheMachineOfTheSandbox(t *testing.T) {
 func TestRegisterStopsTheServerInTheVMBeforeAddingTheMachine(t *testing.T) {
 	rt := runningApp()
 	host := &herdrtest.Fake{}
-	var commandsAtAdd []inmemory.Command
-	host.OnAdd = func() { commandsAtAdd = append(commandsAtAdd, rt.Commands...) }
+	vm := &observedVM{Runtime: rt, host: host}
 
-	_ = herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
+	_ = herdr.Registry{Client: host, VM: vm}.Register(context.Background(), "app", io.Discard)
 
-	if len(commandsAtAdd) != 1 || !strings.Contains(strings.Join(commandsAtAdd[0].Args, " "), "pkill -x herdr") {
-		t.Errorf("VM commands before the add = %v, want the herdr server stopped", commandsAtAdd)
+	if len(vm.machinesAtExec) != 1 || vm.machinesAtExec[0] != 0 || !strings.Contains(strings.Join(rt.Commands[0].Args, " "), "pkill -x herdr") {
+		t.Errorf("machines when the VM ran a command = %v, VM commands = %v, want the server stopped before the add", vm.machinesAtExec, rt.Commands)
 	}
 }
 
@@ -78,19 +77,20 @@ func TestRegisterShowsHowToRegisterByHandWhenTheMachinesCannotBeListed(t *testin
 
 func TestDisableAndStopStopsTheVMAfterDisablingTheMachine(t *testing.T) {
 	rt := runningApp()
-	host := enabledMachine(rt)
+	host := hostWithEnabledMachine(rt)
+	vm := &observedVM{Runtime: rt, host: host}
 
-	_, err := herdr.Registry{Client: host, VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
+	_, err := herdr.Registry{Client: host, VM: vm}.DisableAndStop(context.Background(), "app", io.Discard)
 
-	if err != nil || host.Machines[0].Enabled || rt.Sandbox("app").Status != runtime.SandboxStopped {
-		t.Errorf("DisableAndStop() = %v, machine = %+v, status = %v, want the machine disabled and the VM stopped", err, host.Machines[0], rt.Sandbox("app").Status)
+	if err != nil || len(vm.enabledAtStop) != 1 || vm.enabledAtStop[0] {
+		t.Errorf("DisableAndStop() = %v, machine enabled when stopped = %v, want one stop after disabling", err, vm.enabledAtStop)
 	}
 }
 
 func TestDisableAndStopReturnsHowToEnableTheMachineAgain(t *testing.T) {
 	rt := runningApp()
 
-	enable, _ := herdr.Registry{Client: enabledMachine(rt), VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
+	enable, _ := herdr.Registry{Client: hostWithEnabledMachine(rt), VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
 
 	if enable != "herdr machine enable m1" {
 		t.Errorf("enable = %q, want the command to enable m1", enable)
@@ -99,7 +99,7 @@ func TestDisableAndStopReturnsHowToEnableTheMachineAgain(t *testing.T) {
 
 func TestDisableAndStopEnablesTheMachineAgainWhenTheVMCannotBeStopped(t *testing.T) {
 	rt := runningApp()
-	host := enabledMachine(rt)
+	host := hostWithEnabledMachine(rt)
 	registry := herdr.Registry{Client: host, VM: failingStop{rt}}
 
 	_, err := registry.DisableAndStop(context.Background(), "app", io.Discard)
@@ -109,9 +109,34 @@ func TestDisableAndStopEnablesTheMachineAgainWhenTheVMCannotBeStopped(t *testing
 	}
 }
 
+func TestDisableAndStopShowsHowToEnableTheMachineWhenItCannotBeEnabledAgain(t *testing.T) {
+	rt := runningApp()
+	host := hostWithEnabledMachine(rt)
+	host.FailEnable = true
+
+	_, err := herdr.Registry{Client: host, VM: failingStop{rt}}.DisableAndStop(context.Background(), "app", io.Discard)
+
+	if !errors.Is(err, errStop) || !strings.Contains(err.Error(), "herdr machine enable m1") {
+		t.Errorf("DisableAndStop() = %v, want the stop failure and how to enable the machine", err)
+	}
+}
+
+func TestDisableAndStopEnablesTheMachineAgainEvenWhenTheStopWasCancelled(t *testing.T) {
+	rt := runningApp()
+	host := hostWithEnabledMachine(rt)
+	ctx, cancel := context.WithCancel(context.Background())
+	registry := herdr.Registry{Client: cancelAware{host}, VM: cancellingStop{rt, cancel}}
+
+	_, _ = registry.DisableAndStop(ctx, "app", io.Discard)
+
+	if !host.Machines[0].Enabled {
+		t.Errorf("machine = %+v, want it enabled again after the cancelled stop", host.Machines[0])
+	}
+}
+
 func TestDisableAndStopLeavesTheVMRunningWhenTheMachineCannotBeDisabled(t *testing.T) {
 	rt := runningApp()
-	host := enabledMachine(rt)
+	host := hostWithEnabledMachine(rt)
 	host.FailDisable = true
 
 	_, err := herdr.Registry{Client: host, VM: rt}.DisableAndStop(context.Background(), "app", io.Discard)
@@ -133,7 +158,7 @@ func TestDisableAndStopLeavesTheVMRunningWhenTheMachinesCannotBeListed(t *testin
 
 func TestDisableAndStopLeavesAMachineTheUserDisabledAlone(t *testing.T) {
 	rt := runningApp()
-	host := enabledMachine(rt)
+	host := hostWithEnabledMachine(rt)
 	host.Machines[0].Enabled = false
 	registry := herdr.Registry{Client: host, VM: failingStop{rt}}
 
@@ -168,6 +193,45 @@ func TestRemoveWithoutARegistrationSucceeds(t *testing.T) {
 }
 
 var errStop = errors.New("sbx stop: exit status 1")
+
+// observedVM は、VM を操作した時点の host の herdr の状態を記録する実行基盤。
+type observedVM struct {
+	*inmemory.Runtime
+	host           *herdrtest.Fake
+	machinesAtExec []int
+	enabledAtStop  []bool
+}
+
+func (v *observedVM) ExecInSandbox(ctx context.Context, sandbox string, command runtime.SandboxCommand) ([]byte, error) {
+	v.machinesAtExec = append(v.machinesAtExec, len(v.host.Machines))
+	return v.Runtime.ExecInSandbox(ctx, sandbox, command)
+}
+
+func (v *observedVM) StopSandbox(ctx context.Context, sandbox string) error {
+	v.enabledAtStop = append(v.enabledAtStop, v.host.Machines[0].Enabled)
+	return v.Runtime.StopSandbox(ctx, sandbox)
+}
+
+// cancellingStop は止める途中で中断される実行基盤 (Ctrl-C の再現)。
+type cancellingStop struct {
+	*inmemory.Runtime
+	cancel context.CancelFunc
+}
+
+func (c cancellingStop) StopSandbox(context.Context, string) error {
+	c.cancel()
+	return context.Canceled
+}
+
+// cancelAware は中断された ctx の操作を失敗させる host の herdr (実物の CLI は中断された ctx で子プロセスを起こせない)。
+type cancelAware struct{ *herdrtest.Fake }
+
+func (c cancelAware) Enable(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.Fake.Enable(ctx, id)
+}
 
 // failingStop は VM を止められない実行基盤。
 type failingStop struct{ *inmemory.Runtime }

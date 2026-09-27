@@ -132,6 +132,9 @@ func TestStopWithoutHerdrOnTheHostIsAnErrorAndKeepsTheVMRunning(t *testing.T) {
 	if err == nil || lc.stub.Sandboxes["app"] != "running" {
 		t.Errorf("error = %v, status = %q, want an error with the VM left running", err, lc.stub.Sandboxes["app"])
 	}
+	if err != nil && !strings.Contains(err.Error(), "PATH に herdr を入れる") {
+		t.Errorf("error = %v, want how to put herdr on the host", err)
+	}
 }
 
 func TestStopWarnsWhenTheRegistrationIsGone(t *testing.T) {

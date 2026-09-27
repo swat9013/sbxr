@@ -398,6 +398,12 @@ func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress
 	if err := requireHerdrOnHost(hosts.Herdr); err != nil {
 		return err
 	}
-	_, err = hosts.registry().DisableAndStop(ctx, name, progress)
-	return err
+	enable, err := hosts.registry().DisableAndStop(ctx, name, progress)
+	if err != nil {
+		return err
+	}
+	if enable != "" {
+		logf(progress, "herdr: %s の herdr machine を無効にした (起動し直したら %s で有効に戻す)\n", name, enable)
+	}
+	return nil
 }
