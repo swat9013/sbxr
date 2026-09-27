@@ -49,8 +49,48 @@ type FakeVM struct {
 	AptBusyPolls int
 	// AptPolls は pgrep -x apt-get が呼ばれた回数。
 	AptPolls int
-	// Events は bash -c の実行 ("shell <command>")・ファイルの実行 ("exec <path>")・herdr server の停止 ("stop herdr server") を起きた順に並べる。
+	// HTTP は VM 内から https://<host>/ へ送ったときの結果 (host → 結果)。無い host は DefaultHTTP で決まる。
+	HTTP map[string]HTTPResult
+	// Events は bash -c の実行 ("shell <command>")・ファイルの実行 ("exec <path>")・herdr server の停止 ("stop herdr server")・
+	// https の probe ("probe <url>") を起きた順に並べる。
 	Events []string
+}
+
+// HTTPResult は VM 内の curl が 1 つの宛先から得た結果。
+type HTTPResult struct {
+	// Code は状態コード。空なら HTTP 応答が無い (curl の失敗)。
+	Code string
+	// Body は応答の body。Code が空なら curl の error。
+	Body string
+}
+
+// ProxyDenial は sbx の proxy の拒否応答 (sbx v0.45.1 の実測)。
+func ProxyDenial(host string) HTTPResult {
+	return HTTPResult{Code: "403", Body: "Blocked by network policy: domain " + host + ":443\ndetail: no matching allow rule — blocked by default deny policy\n"}
+}
+
+// DefaultHTTP は HTTP に無い host の結果: IANA の予約 domain そのもの (example.com など。subdomain は含めない) は proxy が拒否し、
+// それ以外は 200 を返す。
+// 既定の宣言で作った VM の egress 自己検証が通る状態 (global policy が default deny で、global rule が宣言どおり) を再現する。
+func DefaultHTTP(host string) HTTPResult {
+	if slices.Contains([]string{"example.com", "example.net", "example.org"}, host) {
+		return ProxyDenial(host)
+	}
+	return HTTPResult{Code: "200", Body: "ok\n"}
+}
+
+// probe は egress 自己検証の script の出力を再現する。curl の失敗は exit code 6 (名前解決の失敗) にする。
+func (vm *FakeVM) probe(url string) []byte {
+	vm.Events = append(vm.Events, "probe "+url)
+	host := strings.TrimSuffix(strings.TrimPrefix(url, "https://"), "/")
+	result, ok := vm.HTTP[host]
+	if !ok {
+		result = DefaultHTTP(host)
+	}
+	if result.Code == "" {
+		return []byte("6 000\n" + result.Body)
+	}
+	return []byte("0 " + result.Code + "\n" + result.Body)
 }
 
 // Home は VM の agent user の home。
@@ -63,6 +103,9 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 	switch {
 	case slices.Equal(args, []string{"printenv", "HOME"}):
 		return []byte(Home + "\n"), nil
+	case len(args) == 5 && args[0] == "sh" && args[1] == "-c" && args[3] == "sh" && strings.HasPrefix(args[4], "https://"):
+		// sh -c '<$1 へ GET を送り、1 行目に curl の exit code と状態コード、続けて body を出す script>' sh <url>
+		return vm.probe(args[4]), nil
 	case len(args) == 5 && args[0] == "sh" && args[1] == "-c" && args[3] == "sh" && command.Input == nil:
 		// sh -c '<$1 があれば yes、無ければ no を出す script>' sh <path>
 		if _, ok := vm.Files[args[4]]; ok {

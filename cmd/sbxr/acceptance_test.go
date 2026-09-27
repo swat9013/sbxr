@@ -55,7 +55,7 @@ secrets: [github]
 			t.Errorf("plugins = %v, want %s from both scopes", lc.stub.VM.Plugins, plugin)
 		}
 	}
-	if want := []string{"shell user-init", "shell repo-init", "exec " + bootScriptPath}; !slices.Equal(lc.stub.VM.Events, want) {
+	if want := append([]string{"shell user-init", "shell repo-init", "exec " + bootScriptPath}, defaultEgressProbes...); !slices.Equal(lc.stub.VM.Events, want) {
 		t.Errorf("VM events = %q, want user's init before repo's, then one boot run", lc.stub.VM.Events)
 	}
 	script := lc.stub.VM.Files[bootScriptPath]

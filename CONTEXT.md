@@ -83,6 +83,9 @@ repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用�
 **egress 自己検証**:
 create の最後に、VM 内から許可先に届くことと許可外に届かないことを 1 往復ずつ確かめる段。通らなければ作成時の宣言を書かない。
 
+**proxy の拒否応答**:
+許可外の宛先への通信に実行基盤の proxy が返す応答（状態コード 403 と、body の `Blocked by network policy`）。egress 自己検証は、これだけを「届かない」とみなす。
+
 ### secret
 
 **secret ファイル**:

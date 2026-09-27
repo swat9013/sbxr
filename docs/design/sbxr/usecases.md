@@ -85,7 +85,9 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 5d. 旧い template を消せない（使っている VM がある等）: sbxr は警告して 6 へ
 - 6a. secret を置けないか、VM を作れない: sbxr は状態ディレクトリを残して止まる（UC4 で片付ける）
 - 7a. VM の中の段（sandbox スコープ rule・kit の startup・materialize・init・boot）が失敗した: sbxr は VM を調べられるよう稼働したまま残し、stop → destroy → create の復旧手順を示して止まる
-- 8a. 許可先に届かないか、許可外に届いた: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す
+- 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と body の `Blocked by network policy`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007）
+- 8b. 許可集合に、glob を含まず 443 を通す宛先が無い: sbxr は許可先の確認を省いたことを示し、許可外の確認だけを行う
+- 8c. 許可外の候補（`example.com`・`example.net`・`example.org`）がすべて許可されている: sbxr は許可外の確認を省いたことを示し、許可先の確認だけを行う
 - 9a. herdr machine の登録に失敗した: VM は作成済みとして残り、sbxr は登録し直す手順を示して非 0 で終える
 - 9b. 同じ `<名前>.sbx` の登録が既にある: sbxr はその登録に触れずに止まり、解除してから登録し直す手順を示す
 
