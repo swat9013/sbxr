@@ -229,7 +229,7 @@ func (i Inspection) NotRunning() bool {
 }
 
 // Create は状態ディレクトリを書き、secret を配線し、sandbox VM を作って sandbox スコープ rule を足し、VM の中を宣言どおりにする
-// (materialize → read-back → init → boot)。secret は作成前に置く (作成時に VM の環境変数へ placeholder が入る)。
+// (materialize → read-back → init → boot)、VM 内から egress 自己検証を行う。secret は作成前に置く (作成時に VM の環境変数へ placeholder が入る)。
 // rule は作成後にしか置けない (ADR 0006 の実測)。途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
 // 作成が終わった印 (declaration.yaml) は最後に書く。VM の中の段の失敗は *StageError で返す。
 func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {

@@ -73,7 +73,7 @@ marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）
 期待する結果:
 
 - 要約に git identity・init・boot が出てから、確認を求められる
-- 出力に `init[1]: echo init >> .sbxr-init-marker` と `boot: 1 件を VM の ~/.config/sbxr/boot.sh に書いた` が出て、最後に `sandbox VM sbxr-fixture を作った` で終わる
+- 出力に `init[1]: echo init >> .sbxr-init-marker` と `boot: 1 件を VM の ~/.config/sbxr/boot.sh に書いた` が出る。続いて egress 自己検証の `許可先 astral.sh:443 に届いた` と `許可外の example.com:443 は proxy が拒否した` が出て、最後に `sandbox VM sbxr-fixture を作った` で終わる（user 設定の egress で許可先が変わっていれば、`astral.sh` は別の宛先になる）。自己検証は global rule が宣言に揃っている前提で通る。揃っていなければ `許可先 … に届かない` で止まるので、この手順では global rule を変えずに中断し、揃っていないことを記録する（`sbxr policy sync --check` で確かめられる）
 - `ls "$XDG_STATE_HOME/sbxr/sandboxes/sbxr-fixture/"` に `sbxenv.yaml`・`source`・`declaration.yaml`・`kits/sbxr-boot/` がある
 
 ```sh

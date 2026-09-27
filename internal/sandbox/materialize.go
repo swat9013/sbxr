@@ -88,6 +88,7 @@ const (
 	StageReadBack      Stage = "read-back"
 	StageInit          Stage = "init"
 	StageBoot          Stage = "boot"
+	StageEgressCheck   Stage = "egress 自己検証"
 )
 
 // StageError は sandbox VM を作った後のどの段で失敗したかを持つ。この error のとき VM は残っている。
@@ -106,7 +107,7 @@ func stageError(stage Stage, err error) error {
 	return &StageError{Stage: stage, Err: err}
 }
 
-// setUpInside は作った VM の中を宣言どおりにする: materialize → read-back → init → boot (create 時の 1 回)。
+// setUpInside は作った VM の中を宣言どおりにし、egress を確かめる: materialize → read-back → init → boot → egress 自己検証 (create 時の 1 回)。
 func setUpInside(ctx context.Context, rt runtime.Runtime, prepared Prepared, progress io.Writer) error {
 	v, err := openVM(ctx, rt, prepared.Target.Name)
 	if err != nil {
@@ -127,7 +128,10 @@ func setUpInside(ctx context.Context, rt runtime.Runtime, prepared Prepared, pro
 	if err := stageError(StageInit, runInit(ctx, v, prepared.Target.Repo, decl.Init, progress)); err != nil {
 		return err
 	}
-	return stageError(StageBoot, runBoot(ctx, v, prepared.Target.Repo, decl.Boot, progress))
+	if err := stageError(StageBoot, runBoot(ctx, v, prepared.Target.Repo, decl.Boot, progress)); err != nil {
+		return err
+	}
+	return stageError(StageEgressCheck, checkEgress(ctx, v, prepared, progress))
 }
 
 func logf(w io.Writer, format string, args ...any) {

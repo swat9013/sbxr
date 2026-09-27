@@ -18,6 +18,9 @@ const bootScriptPath = sbxstub.Home + "/" + sandbox.BootScriptRelPath
 
 const settingsPath = sbxstub.Home + "/.claude/settings.json"
 
+// defaultEgressProbes は既定の宣言で作った VM に egress 自己検証が送る probe (許可先、許可外の順)。
+var defaultEgressProbes = []string{"probe https://astral.sh/", "probe https://example.com/"}
+
 // sbxInitialSettings は sbx が VM の settings.json に置く初期値の例。
 const sbxInitialSettings = `{"permissions":{"defaultMode":"bypassPermissions"},"env":{"SBX_SET":"1"}}`
 
@@ -162,8 +165,8 @@ func TestCreateRunsBootOnceAfterInit(t *testing.T) {
 
 	lc.mustRun(t, "create", repo, "--yes")
 
-	if want := []string{"shell make setup", "exec " + bootScriptPath}; !slices.Equal(lc.stub.VM.Events, want) {
-		t.Errorf("VM events = %q, want init then one boot run", lc.stub.VM.Events)
+	if want := append([]string{"shell make setup", "exec " + bootScriptPath}, defaultEgressProbes...); !slices.Equal(lc.stub.VM.Events, want) {
+		t.Errorf("VM events = %q, want init, one boot run, then the egress self-check", lc.stub.VM.Events)
 	}
 }
 
