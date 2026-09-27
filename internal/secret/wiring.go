@@ -13,6 +13,8 @@ import (
 )
 
 // Plan は 1 つの sandbox VM に配線する secret と、要求されたが配線しない secret。
+// 配線の結果として 3 つの形を出す (decision/0008): VM の環境変数 (VMEnv)、実行基盤に置く secret (SandboxSecrets)、
+// 作成時の宣言に残す形 (WiredSecrets。Wired を値抜きで写したもの)。create と drift は field を選ばずにこれを使う。
 type Plan struct {
 	Wired   []Wire
 	Skipped []Skip
@@ -96,7 +98,6 @@ func (p Plan) RequireValues(values Values) error {
 
 // SandboxSecrets は配線する secret を、実行基盤に置く sandbox スコープの secret にする。値は secret ファイルの key から引く。
 // 値がすべて secret ファイルにあることを確かめてから返す。
-// 配線の結果が出す 3 つの形 (VMEnv・SandboxSecrets・WiredSecrets) の 1 つ (decision/0008)。
 func (p Plan) SandboxSecrets(values Values) ([]runtime.SandboxSecret, error) {
 	if err := p.RequireValues(values); err != nil {
 		return nil, err
@@ -127,12 +128,12 @@ type WiredSecret struct {
 
 // WiredSecrets は配線する secret を、作成時の宣言に残す形にする。
 func (p Plan) WiredSecrets() []WiredSecret {
-	var records []WiredSecret
+	var wired []WiredSecret
 	for _, wire := range p.Wired {
 		def := wire.Definition
-		records = append(records, WiredSecret{Name: wire.Name, Service: def.Service, Hosts: def.Hosts, Env: def.Env, Key: def.Key, Vars: def.Vars})
+		wired = append(wired, WiredSecret{Name: wire.Name, Service: def.Service, Hosts: def.Hosts, Env: def.Env, Key: def.Key, Vars: def.Vars})
 	}
-	return records
+	return wired
 }
 
 // Comparable は作成時の記録と現在の配線を、差を比べられる形に揃える。secret の並びと注入先 host の並びは VM に効かないので並べ替える。

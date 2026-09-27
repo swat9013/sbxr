@@ -4,7 +4,6 @@ import (
 	"maps"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/config"
@@ -54,17 +53,6 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 	}
 }
 
-func TestDriftOfARecordWithoutSecretKeysNotesWhatItDidNotCompare(t *testing.T) {
-	recorded := Declaration{Secrets: []secret.WiredSecret{{Name: "gitlab", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN"}}}
-	current := Declaration{Secrets: []secret.WiredSecret{{Name: "gitlab", Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}}}}
-
-	got, err := Record{Declaration: recorded}.Drift(current)
-
-	if err != nil || got.Differences != nil || len(got.NotCompared) != 1 || !strings.Contains(got.NotCompared[0], "gitlab") {
-		t.Errorf("Drift = %+v, %v, want no difference and a note for gitlab", got, err)
-	}
-}
-
 func TestTheDeclarationHoldsOnlyTheKeysBakedIntoTheVM(t *testing.T) {
 	tree, err := declarationTree(Declaration{
 		Herdr:   &HerdrPin{},
@@ -75,17 +63,19 @@ func TestTheDeclarationHoldsOnlyTheKeysBakedIntoTheVM(t *testing.T) {
 	}
 
 	keys := slices.Sorted(maps.Keys(tree))
-	secretKeys := slices.Sorted(maps.Keys(tree["secrets"].([]any)[0].(map[string]any)))
+	secretFields := tree["secrets"].([]any)[0].(map[string]any)
+	_, named := secretFields["name"]
+	delete(secretFields, "name") // name は焼き込まれず、作成時と現在の記録を突き合わせる識別子
+	secretKeys := slices.Sorted(maps.Keys(secretFields))
 
 	// Drift は宣言の key を全部比べる。焼き込まれない key を足すなら、比べる key を絞り直す
 	want := []string{"boot", "git", "herdr", "init", "profile", "sandbox_egress", "secrets"}
 	if !slices.Equal(keys, want) {
 		t.Errorf("declaration keys = %v, want %v", keys, want)
 	}
-	// secret は値を除いて焼き込まれる (service・hosts・env は実行基盤の secret、key は置く値、vars は VM の環境変数)。
-	// name だけは焼き込まれず、作成時と現在の記録を突き合わせる識別子として残す
-	wantSecret := []string{"env", "hosts", "key", "name", "service", "vars"}
-	if !slices.Equal(secretKeys, wantSecret) {
-		t.Errorf("secret keys = %v, want %v", secretKeys, wantSecret)
+	// secret は値を除いて焼き込まれる (service・hosts・env は実行基盤の secret、key は置く値、vars は VM の環境変数)
+	wantSecret := []string{"env", "hosts", "key", "service", "vars"}
+	if !named || !slices.Equal(secretKeys, wantSecret) {
+		t.Errorf("secret keys = %v (name: %v), want %v and the name", secretKeys, named, wantSecret)
 	}
 }

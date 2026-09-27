@@ -93,7 +93,7 @@ create の最後に、VM 内から許可先に届くことと許可外に届か�
 _Avoid_: keychain, `.sbox/env`
 
 **secret 定義**:
-`secret_defs.<name>`。注入方式、secret ファイルのキー、注入先 host、VM に見せる環境変数名、秘密でない付随値（vars。ADR 0003）を束ねる。値を除くすべてが作成時の宣言に記録され、drift で比べられる（v0.1.0 の記録には key と vars が無いので、その 2 つは比べない。decision 0008）。default と user スコープだけが持てる。
+`secret_defs.<name>`。注入方式、secret ファイルのキー、注入先 host、VM に見せる環境変数名、秘密でない付随値（vars。ADR 0003）を束ねる。値を除くすべてが作成時の宣言に記録され、drift で比べられる（作成時に記録された項目だけを比べる）。default と user スコープだけが持てる。
 
 **secret 要求**:
 `secrets` に secret 定義の名前を並べて配線を求めること。全スコープで書け、user スコープの要求は全 sandbox VM への常時要求になる。
