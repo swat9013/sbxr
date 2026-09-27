@@ -50,7 +50,7 @@ create の前に merge 結果を人間に見せて承認を得る段階。repo �
 _Avoid_: prompt, confirm
 
 **drift**:
-状態ディレクトリにある作成時の宣言と、現在の宣言との差のうち、既存の sandbox VM が取り込まない部分。drift は再作成の合図になる。global rule は policy sync で既存の sandbox VM にも行き渡るため、drift に含めない。
+状態ディレクトリにある作成時の宣言と、現在の宣言との差のうち、既存の sandbox VM が取り込まない部分。drift は再作成の合図になる。global rule は policy sync で既存の sandbox VM にも行き渡るため、drift に含めない。ただし、global rule の変更で配線が変われば、その差は drift になる（配線は作成時にしか置かれない）。
 _Avoid_: 宣言全体の差
 
 **作成時の宣言**:
@@ -96,7 +96,7 @@ _Avoid_: keychain, `.sbox/env`
 `secrets` に secret 定義の名前を並べて配線を求めること。全スコープで書け、user スコープの要求は全 sandbox VM への常時要求になる。
 
 **配線**:
-secret 要求のうち、注入先 host がすべて egress で許可されたものを、sandbox スコープの secret として実行基盤に置くこと。
+secret 要求のうち、注入先 host がすべて egress 宣言で許可されたものを、sandbox スコープの secret として実行基盤に置くこと。許可は、実行基盤にある rule ではなく宣言で判定する。
 
 **placeholder 注入**:
 VM には置換用の仮の値だけを入れ、実値は host 側の proxy が通信時に差し込む方式。実値は VM に入らない。
