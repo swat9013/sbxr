@@ -11,8 +11,35 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
+	"github.com/swat9013/sbxr/internal/runtime"
+	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
+
+// answerProbes は VM 内の probe script に、allowed に無い example.com・example.net・example.org には proxy の拒否応答を、
+// ほかの宛先には 200 を返す (global policy が default deny で、global rule が allowed の実行基盤)。
+func answerProbes(allowed []string) func(runtime.SandboxCommand) ([]byte, error) {
+	return func(command runtime.SandboxCommand) ([]byte, error) {
+		if len(command.Args) != 5 || command.Args[2] != probeScript {
+			return nil, nil
+		}
+		host := strings.TrimSuffix(strings.TrimPrefix(command.Args[4], "https://"), "/")
+		if slices.Contains([]string{"example.com", "example.net", "example.org"}, host) && !slices.Contains(allowed, host+":443") {
+			return []byte("0 403\n" + proxyDenial + "\n"), nil
+		}
+		return []byte("0 200\nok\n"), nil
+	}
+}
+
+// probedURLs は VM 内で probe script を送った宛先。
+func probedURLs(rt *inmemory.Runtime) []string {
+	var urls []string
+	for _, command := range rt.Commands {
+		if len(command.Args) == 5 && command.Args[2] == probeScript {
+			urls = append(urls, command.Args[4])
+		}
+	}
+	return urls
+}
 
 // fakeCurl は -o の file へ body を書き、-w の代わりに状態コードを出して exit code で終える curl を PATH に置く。
 func fakeCurl(t *testing.T, body, code string, exitCode int) {
@@ -65,24 +92,23 @@ func TestCheckEgressSkipsTheSideWithoutAProbeTarget(t *testing.T) {
 	for _, tt := range []struct {
 		name       string
 		global     []string
-		http       map[string]sbxstub.HTTPResult
 		wantProbes []string
 		wantSkip   string
 	}{
-		{"glob を含まず 443 を通す許可先が無い", []string{"**.github.com:443", "ports.ubuntu.com:80"}, nil, []string{"probe https://example.com/"}, "許可先に届くかの確認を省いた"},
-		{"許可外の候補がすべて許可されている", []string{"example.com:443", "example.net:443", "example.org:443"}, map[string]sbxstub.HTTPResult{"example.com": {Code: "200"}}, []string{"probe https://example.com/"}, "許可外に届かないかの確認を省いた"},
+		{"glob を含まず 443 を通す許可先が無い", []string{"**.github.com:443", "ports.ubuntu.com:80"}, []string{"https://example.com/"}, "許可先に届くかの確認を省いた"},
+		{"許可外の候補がすべて許可されている", []string{"example.com:443", "example.net:443", "example.org:443"}, []string{"https://example.com/"}, "許可外に届かないかの確認を省いた"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			fake := &sbxstub.FakeVM{HTTP: tt.http}
+			v, rt := runningVM(t, answerProbes(tt.global))
 			var progress bytes.Buffer
 
-			err := checkEgress(context.Background(), runningVM(t, fake), Prepared{GlobalEgress: tt.global}, &progress)
+			err := checkEgress(context.Background(), v, Prepared{GlobalEgress: tt.global}, &progress)
 
 			if err != nil {
 				t.Errorf("checkEgress() error = %v, want the remaining side to pass", err)
 			}
-			if !slices.Equal(fake.Events, tt.wantProbes) {
-				t.Errorf("VM events = %q, want %q", fake.Events, tt.wantProbes)
+			if probes := probedURLs(rt); !slices.Equal(probes, tt.wantProbes) {
+				t.Errorf("probes = %q, want %q", probes, tt.wantProbes)
 			}
 			if !strings.Contains(progress.String(), tt.wantSkip) {
 				t.Errorf("progress = %q, want %q", progress.String(), tt.wantSkip)

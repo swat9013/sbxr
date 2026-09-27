@@ -29,11 +29,6 @@ type Client interface {
 	Remove(ctx context.Context, id string) error
 }
 
-// Target は sandbox VM の herdr machine の SSH の宛先 (sbx が ~/.ssh/config に置く <name>.sbx)。
-func Target(sandbox string) string {
-	return sandbox + ".sbx"
-}
-
 // Find は target の machine を返す。無ければ ok が false。
 func Find(machines []Machine, target string) (Machine, bool) {
 	for _, machine := range machines {

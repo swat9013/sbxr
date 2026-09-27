@@ -2,8 +2,14 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
@@ -108,7 +114,99 @@ func TestSbxReadsAnEmptyOrNullSandboxListAsAbsent(t *testing.T) {
 		status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
 
 		if err != nil || status != SandboxAbsent {
-			t.Errorf("SandboxStatus(%s) = %q, %v, want absent", listing, status, err)
+			t.Errorf("SandboxStatus(%s) = %v, %v, want absent", listing, status, err)
 		}
+	}
+}
+
+// runInsideLocally は sbx exec [-i] <sandbox> -- <args> の <args> を host で実行する runner。
+// VM の中で走る script を、実際の sh で確かめるために使う。
+func runInsideLocally(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	i := slices.Index(args, "--")
+	if args[0] != "exec" || i < 0 {
+		return nil, fmt.Errorf("sbx exec ではない: %q", args)
+	}
+	cmd := exec.CommandContext(ctx, args[i+1], args[i+2:]...)
+	cmd.Stdin = stdin
+	return cmd.Output()
+}
+
+func TestSbxWritesAFileInsideTheVMWithTheShellScript(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "boot.sh")
+
+	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte("echo boot\n"), 0o755)
+
+	data, readErr := os.ReadFile(path)
+	if err != nil || readErr != nil || string(data) != "echo boot\n" {
+		t.Fatalf("WriteSandboxFile = %v, file = %q, %v, want the data written with its parent made", err, data, readErr)
+	}
+	if info, _ := os.Stat(path); info.Mode().Perm() != 0o755 {
+		t.Errorf("mode = %v, want 0755", info.Mode().Perm())
+	}
+}
+
+func TestSbxWritesAFileWithoutChangingItsModeWhenNoneIsGiven(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte(`{"model":"opus"}`), 0)
+
+	data, _ := os.ReadFile(path)
+	info, _ := os.Stat(path)
+	if err != nil || string(data) != `{"model":"opus"}` || info.Mode().Perm() != 0o640 {
+		t.Errorf("WriteSandboxFile = %v, file = %q (%v), want the data replaced and the mode kept", err, data, info.Mode().Perm())
+	}
+}
+
+func TestSbxTellsWhetherAFileExistsInsideTheVM(t *testing.T) {
+	dir := t.TempDir()
+	present := filepath.Join(dir, "present")
+	if err := os.WriteFile(present, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sbx := NewSbx(runInsideLocally)
+
+	found, err := sbx.SandboxFileExists(context.Background(), "app", present)
+	missing, missingErr := sbx.SandboxFileExists(context.Background(), "app", filepath.Join(dir, "missing"))
+
+	if err != nil || !found || missingErr != nil || missing {
+		t.Errorf("SandboxFileExists = %v, %v and %v, %v, want true then false", found, err, missing, missingErr)
+	}
+}
+
+func TestSbxCannotTellWhetherAFileExistsWhenExecFails(t *testing.T) {
+	run := func(context.Context, io.Reader, ...string) ([]byte, error) {
+		return nil, errors.New("sandbox is not running")
+	}
+
+	_, err := NewSbx(run).SandboxFileExists(context.Background(), "app", "/home/agent/x")
+
+	if err == nil {
+		t.Errorf("SandboxFileExists error = nil, want the exec failure rather than absent")
+	}
+}
+
+func TestSbxReadsTheStatusOfItsSandboxes(t *testing.T) {
+	for status, want := range map[string]SandboxStatus{
+		"running":  SandboxRunning,
+		"stopped":  SandboxStopped,
+		"starting": SandboxRunning, // sbx の他の値は、使用中かもしれないので稼働中と読む (destroy は拒否する側に倒れる)
+	} {
+		listing := `{"sandboxes":[{"name":"app","status":"` + status + `"}]}`
+		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
+
+		got, err := NewSbx(run).SandboxStatus(context.Background(), "app")
+
+		if err != nil || got != want {
+			t.Errorf("SandboxStatus(%s) = %v, %v, want %v", status, got, err, want)
+		}
+	}
+}
+
+func TestSbxConnectsToTheSandboxOverTheSSHConfigSbxWrites(t *testing.T) {
+	if got := NewSbx(nil).SSHTarget("app"); got != "app.sbx" {
+		t.Errorf("SSHTarget = %q, want app.sbx", got)
 	}
 }

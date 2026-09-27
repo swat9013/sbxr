@@ -11,7 +11,7 @@ import (
 
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
+	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
 
 // --- 宣言の検証 ---
@@ -90,44 +90,54 @@ func TestDesiredResourcesSkipDisabledGroupsAndDeduplicate(t *testing.T) {
 
 // --- 差分 ---
 
+// globalAllow は 1 つの global の allow rule。
+func globalAllow(id string, resources ...string) runtime.EgressRule {
+	return runtime.EgressRule{ID: id, Decision: runtime.DecisionAllow, Resources: resources}
+}
+
+// withRules は global rule が live の実行基盤。
+func withRules(live ...runtime.EgressRule) *inmemory.Runtime {
+	rt := inmemory.New()
+	rt.GlobalRules = live
+	return rt
+}
+
 func TestDiffKeepsOnlyOneAllowRulePerDeclaredResource(t *testing.T) {
 	tests := []struct {
 		name       string
-		live       []sbxstub.Rule
+		live       []runtime.EgressRule
 		desired    []string
 		wantRemove []string
 		wantAdd    []string
 	}{
 		{
 			name:    "宣言と一致する単一 resource の rule は残す",
-			live:    []sbxstub.Rule{sbxstub.GlobalAllow("r1", "github.com:443")},
+			live:    []runtime.EgressRule{globalAllow("r1", "github.com:443")},
 			desired: []string{"github.com:443"},
 		},
 		{
 			name:       "宣言に無い rule は消して、足りない宛先を足す",
-			live:       []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")},
+			live:       []runtime.EgressRule{globalAllow("r1", "evil.example.com:443")},
 			desired:    []string{"github.com:443"},
 			wantRemove: []string{"r1"},
 			wantAdd:    []string{"github.com:443"},
 		},
 		{
 			name:       "複数 resource の rule は宣言と一致していても 1 resource 単位へ置き換える",
-			live:       []sbxstub.Rule{sbxstub.GlobalAllow("r1", "a.example.com:443", "b.example.com:443")},
+			live:       []runtime.EgressRule{globalAllow("r1", "a.example.com:443", "b.example.com:443")},
 			desired:    []string{"a.example.com:443", "b.example.com:443"},
 			wantRemove: []string{"r1"},
 			wantAdd:    []string{"a.example.com:443", "b.example.com:443"},
 		},
 		{
 			name:       "同じ宛先を担う重複 rule は後の方を消す",
-			live:       []sbxstub.Rule{sbxstub.GlobalAllow("r1", "github.com:443"), sbxstub.GlobalAllow("r2", "github.com:443")},
+			live:       []runtime.EgressRule{globalAllow("r1", "github.com:443"), globalAllow("r2", "github.com:443")},
 			desired:    []string{"github.com:443"},
 			wantRemove: []string{"r2"},
 		},
 		{
-			name: "手で足した global の deny rule も宣言に無いので消す",
-			live: []sbxstub.Rule{
-				{ID: "d1", Scope: "global", ResourceType: "network", Decision: "deny", Resources: []string{"github.com:443"}, Editable: true},
-			},
+			name:       "手で足した global の deny rule も宣言に無いので消す",
+			live:       []runtime.EgressRule{{ID: "d1", Decision: runtime.DecisionDeny, Resources: []string{"github.com:443"}}},
 			desired:    []string{"github.com:443"},
 			wantRemove: []string{"d1"},
 			wantAdd:    []string{"github.com:443"},
@@ -135,9 +145,7 @@ func TestDiffKeepsOnlyOneAllowRulePerDeclaredResource(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stub := &sbxstub.Stub{Rules: tt.live}
-
-			plan, err := Diff(context.Background(), runtime.NewSbx(stub.Run), tt.desired)
+			plan, err := Diff(context.Background(), withRules(tt.live...), tt.desired)
 
 			if err != nil {
 				t.Fatalf("Diff() error = %v", err)
@@ -153,50 +161,32 @@ func TestDiffKeepsOnlyOneAllowRulePerDeclaredResource(t *testing.T) {
 }
 
 func TestDiffDoesNotWrite(t *testing.T) {
-	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")}}
+	live := []runtime.EgressRule{globalAllow("r1", "evil.example.com:443")}
+	rt := withRules(slices.Clone(live)...)
 
-	_, err := Diff(context.Background(), runtime.NewSbx(stub.Run), []string{"github.com:443"})
+	_, err := Diff(context.Background(), rt, []string{"github.com:443"})
 
-	if err != nil || len(stub.Writes) != 0 {
-		t.Errorf("Diff() error = %v, sbx writes = %q, want no writes", err, stub.Writes)
+	if err != nil || !reflect.DeepEqual(rt.GlobalRules, live) {
+		t.Errorf("Diff() error = %v, global rules = %+v, want them untouched", err, rt.GlobalRules)
 	}
 }
 
 // --- 収束 ---
 
 func TestConvergeTwiceMakesNoChangesTheSecondTime(t *testing.T) {
-	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{
-		sbxstub.GlobalAllow("r1", "evil.example.com:443"),
-		sbxstub.GlobalAllow("r2", "a.example.com:443", "github.com:443"),
-	}}
-	sbx := runtime.NewSbx(stub.Run)
+	rt := withRules(globalAllow("r1", "evil.example.com:443"), globalAllow("r2", "a.example.com:443", "github.com:443"))
 	desired := []string{"a.example.com:443", "github.com:443"}
 
-	if _, err := Converge(context.Background(), sbx, desired); err != nil {
+	if _, err := Converge(context.Background(), rt, desired); err != nil {
 		t.Fatalf("1 回目の Converge() error = %v", err)
 	}
-	second, err := Converge(context.Background(), sbx, desired)
+	second, err := Converge(context.Background(), rt, desired)
 
 	if err != nil {
 		t.Fatalf("2 回目の Converge() error = %v", err)
 	}
 	if !second.Empty() {
 		t.Errorf("2 回目の Converge() = %+v, want no changes", second)
-	}
-}
-
-func TestConvergeLeavesRulesOutsideItsTargetAlone(t *testing.T) {
-	scoped := sbxstub.Rule{ID: "scoped", Scope: "sandbox:vm", ResourceType: "network", Decision: "allow", Resources: []string{"api.anthropic.com:443"}}
-	fixed := sbxstub.Rule{ID: "fixed", Scope: "global", ResourceType: "network", Decision: "allow", Resources: []string{"x.example.com:443"}}
-	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{scoped, fixed}}
-
-	_, err := Converge(context.Background(), runtime.NewSbx(stub.Run), []string{"github.com:443"})
-
-	if err != nil {
-		t.Fatalf("Converge() error = %v", err)
-	}
-	if want := []string{"policy allow network github.com:443"}; !reflect.DeepEqual(stub.Writes, want) {
-		t.Errorf("sbx writes = %q, want only the missing allow (sandbox スコープと editable でない rule には触れない)", stub.Writes)
 	}
 }
 
@@ -208,24 +198,30 @@ func ruleIDs(rules []runtime.EgressRule) []string {
 	return ids
 }
 
-func TestConvergeAddsBeforeRemovingSoDeclaredHostsStayReachable(t *testing.T) {
-	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "github.com:443", "ghcr.io:443")}}
+func TestConvergeKeepsDeclaredHostsReachableWhereverAWriteFails(t *testing.T) {
+	desired := []string{"ghcr.io:443", "github.com:443"}
+	for failOn := 1; failOn <= 3; failOn++ { // 足す 2 回と消す 1 回のどこで止まっても
+		rt := withRules(globalAllow("r1", "github.com:443", "ghcr.io:443"))
+		rt.FailOnGlobalWrite = failOn
 
-	_, err := Converge(context.Background(), runtime.NewSbx(stub.Run), []string{"ghcr.io:443", "github.com:443"})
+		_, err := Converge(context.Background(), rt, desired)
 
-	if err != nil {
-		t.Fatalf("Converge() error = %v", err)
-	}
-	want := []string{"policy allow network ghcr.io:443", "policy allow network github.com:443", "policy rm network --id r1"}
-	if !reflect.DeepEqual(stub.Writes, want) {
-		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
+		if err == nil {
+			t.Fatalf("Converge() with write %d failing = nil, want an error", failOn)
+		}
+		for _, resource := range desired {
+			if !slices.ContainsFunc(rt.GlobalRules, func(r runtime.EgressRule) bool { return slices.Contains(r.Resources, resource) }) {
+				t.Errorf("write %d failed: global rules = %+v, want %s still allowed", failOn, rt.GlobalRules, resource)
+			}
+		}
 	}
 }
 
 func TestConvergeReportsTheChangesMadeBeforeAWriteFails(t *testing.T) {
-	stub := &sbxstub.Stub{Rules: []sbxstub.Rule{sbxstub.GlobalAllow("r1", "evil.example.com:443")}, FailOnWrite: 2}
+	rt := withRules(globalAllow("r1", "evil.example.com:443"))
+	rt.FailOnGlobalWrite = 2
 
-	applied, err := Converge(context.Background(), runtime.NewSbx(stub.Run), []string{"a.example.com:443", "b.example.com:443"})
+	applied, err := Converge(context.Background(), rt, []string{"a.example.com:443", "b.example.com:443"})
 
 	if err == nil {
 		t.Fatal("Converge() error = nil, want the second write to fail")
@@ -236,9 +232,10 @@ func TestConvergeReportsTheChangesMadeBeforeAWriteFails(t *testing.T) {
 }
 
 func TestConvergeFailsWhenTheReadBackStillDiffers(t *testing.T) {
-	stub := &sbxstub.Stub{DropWrites: true}
+	rt := inmemory.New()
+	rt.DropGlobalWrites = true
 
-	_, err := Converge(context.Background(), runtime.NewSbx(stub.Run), []string{"github.com:443"})
+	_, err := Converge(context.Background(), rt, []string{"github.com:443"})
 
 	if err == nil || !strings.Contains(err.Error(), "適用後") {
 		t.Errorf("Converge() error = %v, want a read-back failure", err)
