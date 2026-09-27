@@ -200,6 +200,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 
 - 1a. 注入先 host を指定した登録（custom）: sbxr は、その host を注入先に持つ secret 定義の key を決め、能力を確かめないことを示して値を読み、5 へ
   - 1a1. host を注入先に持つ定義が無いか、key が 1 つに決まらない: sbxr は止まる
+- 1b. 宣言が不正（secret 定義以外の key でも）: sbxr は止まる（宣言は create と同じ規則で検証し、重ねる。ADR 0004 の改訂）
 - 3a. repo の書式が違う: sbxr は token を尋ねる前に止まる
 - 3b. 端末が無いか、値が空: sbxr は止まる
 - 4a. 能力が違う（拒否されるべき権限が通る、Contents を読めない）: sbxr は書かずに止まる
