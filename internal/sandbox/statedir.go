@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 
 	"go.yaml.in/yaml/v3"
-
-	"github.com/swat9013/sbxr/internal/runtime"
 )
 
 // 状態ディレクトリに sbxr が置くファイル。file の配置と旧い形の読み方は、この file だけが知る。
@@ -27,10 +25,15 @@ const (
 	repoEgressDroppedFile = "repo-egress-dropped"
 )
 
+// StateDir は sandbox VM の状態ディレクトリの path。
+func (p Places) StateDir(name string) string {
+	return filepath.Join(p.StateRoot, name)
+}
+
 // creation は作成の最初に書く記録。作成途中の VM の stop と destroy が読む。
 type creation struct {
-	// Herdr は herdr 連携を有効にして作ったか。
-	Herdr bool `yaml:"herdr"`
+	// Herdr は herdr 連携を有効にして作ったか。nil は記録が無い (v0.1.0 の状態ディレクトリと同じに読む)。
+	Herdr *bool `yaml:"herdr"`
 }
 
 // stateDir は 1 つの sandbox VM の状態ディレクトリ。
@@ -38,22 +41,22 @@ type stateDir struct {
 	path string
 }
 
-func (p Places) stateDir(name string) stateDir {
+func (p Places) dir(name string) stateDir {
 	return stateDir{path: p.StateDir(name)}
 }
 
-// make は状態ディレクトリを持ち主だけが読み書きできる mode で作る (VM の環境変数を含む定義が置かれる)。
-func (d stateDir) make() error {
+// ensure は状態ディレクトリを持ち主だけが読み書きできる mode で作る (VM の環境変数を含む定義が置かれる)。
+func (d stateDir) ensure() error {
 	if err := os.MkdirAll(d.path, 0o700); err != nil {
 		return fmt.Errorf("状態ディレクトリ %s を作れない: %w", d.path, err)
 	}
 	return nil
 }
 
-// writeStart は作成の最初の記録と出所を書く。実行基盤の定義の後に呼ぶ
+// writeCreation は作成の最初の記録と出所を書く。実行基盤の定義を書いた後に呼ぶ
 // (出所だけが残ると、destroy が定義の無い状態ディレクトリで詰む。ADR 0006)。
-// 出所は最後に書くので、出所のある状態ディレクトリには作成の最初の記録もある (v0.1.0 のものを除く)。
-func (d stateDir) writeStart(source string, start creation) error {
+// 出所を最後に書くので、出所のある状態ディレクトリには作成の最初の記録もある (v0.1.0 のものを除く)。
+func (d stateDir) writeCreation(source string, start creation) error {
 	data, err := yaml.Marshal(start)
 	if err != nil {
 		return err
@@ -68,16 +71,6 @@ func (d stateDir) writeStart(source string, start creation) error {
 func (d stateDir) source() (source string, found bool, err error) {
 	data, found, err := d.read(sourceFile)
 	return string(data), found, err
-}
-
-// completed は作成が終わった印 (作成時の宣言) があるかを返す。
-func (d stateDir) completed() (bool, error) {
-	if _, err := os.Stat(filepath.Join(d.path, declarationFile)); errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 // writeRecord は作成時の記録を書く。作成時の宣言は作成が終わった印なので最後に書く。
@@ -104,7 +97,7 @@ func (d stateDir) record() (record Record, found bool, err error) {
 		return Record{}, false, fmt.Errorf("作成時の宣言 %s を読めない: %w", filepath.Join(d.path, declarationFile), err)
 	}
 	record.RepoEgress = KeepRepoEgress
-	if _, dropped, err := d.read(repoEgressDroppedFile); err != nil {
+	if dropped, err := d.exists(repoEgressDroppedFile); err != nil {
 		return Record{}, false, err
 	} else if dropped {
 		record.RepoEgress = DropRepoEgress
@@ -113,20 +106,23 @@ func (d stateDir) record() (record Record, found bool, err error) {
 }
 
 // herdrEnabled は herdr 連携を有効にして作ったかを、作成の最初の記録から返す。作成途中の VM でも読める。
-// 記録の無い v0.1.0 の状態ディレクトリは、実行基盤の定義が herdr を導入するかで判定する (ADR 0007 の改訂)。
-func (d stateDir) herdrEnabled(rt runtime.Runtime) (bool, error) {
+// 記録の無い v0.1.0 の状態ディレクトリは、実行基盤の定義が herdr を導入するか (definedWithHerdr) で判定する
+// (ADR 0007 の改訂)。v0.1.0 が作った状態ディレクトリが残りうる限り、この読み方を残す。
+func (d stateDir) herdrEnabled(definedWithHerdr func(stateDir string) (bool, error)) (bool, error) {
 	data, found, err := d.read(creationFile)
 	if err != nil {
 		return false, err
 	}
-	if !found {
-		return rt.DefinedWithHerdr(d.path)
-	}
 	var start creation
-	if err := yaml.Unmarshal(data, &start); err != nil {
-		return false, fmt.Errorf("作成の最初の記録 %s を読めない: %w", filepath.Join(d.path, creationFile), err)
+	if found {
+		if err := yaml.Unmarshal(data, &start); err != nil {
+			return false, fmt.Errorf("作成の最初の記録 %s を読めない: %w", filepath.Join(d.path, creationFile), err)
+		}
 	}
-	return start.Herdr, nil
+	if start.Herdr == nil {
+		return definedWithHerdr(d.path)
+	}
+	return *start.Herdr, nil
 }
 
 // remove は状態ディレクトリを消す。実行基盤の定義も一緒に消えるので、VM を消せた後にだけ呼ぶ。
@@ -154,4 +150,16 @@ func (d stateDir) read(file string) (data []byte, found bool, err error) {
 		return nil, false, fmt.Errorf("状態ディレクトリ %s の %s を読めない: %w", d.path, file, err)
 	}
 	return data, true, nil
+}
+
+// exists はファイルがあるかを返す。
+func (d stateDir) exists(file string) (bool, error) {
+	_, err := os.Stat(filepath.Join(d.path, file))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("状態ディレクトリ %s の %s を確かめられない: %w", d.path, file, err)
+	}
+	return true, nil
 }

@@ -39,7 +39,7 @@ func (p Prepared) RequireHerdr(client herdr.Client) error {
 // herdr 連携の有無は、作成の最初の記録から読む (作成が途中で止まった VM でも読める)。
 // destroy が確認の前に呼ぶ。
 func RequireHerdrFor(hosts Hosts, places Places, name string) error {
-	enabled, err := places.stateDir(name).herdrEnabled(hosts.Runtime)
+	enabled, err := places.dir(name).herdrEnabled(hosts.Runtime.DefinedWithHerdr)
 	if err != nil || !enabled {
 		return err
 	}
@@ -86,8 +86,8 @@ func registerHerdrMachine(ctx context.Context, hosts Hosts, name string, progres
 }
 
 // removeHerdrMachine は herdr 連携を有効にして作った VM の herdr machine を解除する。登録が無ければ何もしない。
-func removeHerdrMachine(ctx context.Context, hosts Hosts, places Places, name string) error {
-	enabled, err := places.stateDir(name).herdrEnabled(hosts.Runtime)
+func removeHerdrMachine(ctx context.Context, hosts Hosts, dir stateDir, name string) error {
+	enabled, err := dir.herdrEnabled(hosts.Runtime.DefinedWithHerdr)
 	if err != nil || !enabled {
 		return err
 	}
@@ -114,7 +114,7 @@ func findHerdrMachine(ctx context.Context, client herdr.Client, target string) (
 // (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。無効にしたら、有効に戻すコマンドを出す。
 // host に herdr が無ければ、VM に触れずに error で止める。
 func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress io.Writer) error {
-	enabled, err := places.stateDir(name).herdrEnabled(hosts.Runtime)
+	enabled, err := places.dir(name).herdrEnabled(hosts.Runtime.DefinedWithHerdr)
 	if err != nil {
 		return err
 	}

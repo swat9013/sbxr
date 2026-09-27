@@ -93,7 +93,7 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 			}
 			switch inspection.Situation {
 			case sandbox.Ready:
-				return reportExisting(cmd, deps, places, target, args[0])
+				return reportExisting(cmd, deps, places, target, inspection.Record, args[0])
 			case sandbox.Incomplete:
 				return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから作る", target.Name, args[0])
 			case sandbox.Vanished:
@@ -126,14 +126,7 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 
 // reportExisting は既存の sandbox VM について、作成時の宣言からの drift を表示する。drift があれば非 0 で終える。
 // 確認関門にも作成にも進まず、destroy も実行しない。
-func reportExisting(cmd *cobra.Command, deps dependencies, places sandbox.Places, target sandbox.Target, input string) error {
-	record, found, err := sandbox.ReadRecord(places, target)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("sandbox VM %s の作成時の記録が状態ディレクトリに無い", target.Name)
-	}
+func reportExisting(cmd *cobra.Command, deps dependencies, places sandbox.Places, target sandbox.Target, record sandbox.Record, input string) error {
 	target, cleanup, err := readableRepo(cmd, deps, target) // git URL は default branch の HEAD の repo 宣言を読む
 	if err != nil {
 		return fmt.Errorf("sandbox VM %s は既にある。現在の宣言を読めないので作成時との差分を確かめられない: %w", target.Name, err)

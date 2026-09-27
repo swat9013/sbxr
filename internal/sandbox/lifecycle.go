@@ -27,11 +27,6 @@ type Places struct {
 	UserConfig string
 }
 
-// StateDir は sandbox VM の状態ディレクトリ。
-func (p Places) StateDir(name string) string {
-	return filepath.Join(p.StateRoot, name)
-}
-
 // RepoDeclarationFile は repo 宣言のファイル名。
 const RepoDeclarationFile = "sbxr.yaml"
 
@@ -158,6 +153,8 @@ const (
 type Inspection struct {
 	Situation Situation
 	Status    runtime.SandboxStatus
+	// Record は作成時の記録。作成が終わった VM (Ready・Vanished) だけが持つ。
+	Record Record
 	// recordedSource は状態ディレクトリに記録された出所。
 	recordedSource string
 }
@@ -168,7 +165,7 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 	if err != nil {
 		return Inspection{}, err
 	}
-	dir := places.stateDir(target.Name)
+	dir := places.dir(target.Name)
 	recorded, found, err := dir.source()
 	switch {
 	case err != nil:
@@ -180,15 +177,17 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 	case recorded != target.Source():
 		return Inspection{Situation: OtherSource, Status: status, recordedSource: recorded}, nil
 	}
-	if completed, err := dir.completed(); err != nil {
+	record, completed, err := dir.record()
+	if err != nil {
 		return Inspection{}, err
-	} else if !completed {
+	}
+	if !completed {
 		return Inspection{Situation: Incomplete, Status: status}, nil
 	}
 	if status == runtime.SandboxAbsent {
-		return Inspection{Situation: Vanished, Status: status}, nil
+		return Inspection{Situation: Vanished, Status: status, Record: record}, nil
 	}
-	return Inspection{Situation: Ready, Status: status}, nil
+	return Inspection{Situation: Ready, Status: status, Record: record}, nil
 }
 
 // RequireManaged は sbxr が作った (作りかけを含む) VM でなければ、理由を error で返す。
@@ -216,19 +215,19 @@ func (i Inspection) NotRunning() bool {
 func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
 	rt := hosts.Runtime
 	name := prepared.Target.Name
-	dir := places.stateDir(name)
+	dir := places.dir(name)
 	spec, err := sandboxSpec(prepared, values)
 	if err != nil {
 		return err
 	}
-	if err := dir.make(); err != nil {
+	if err := dir.ensure(); err != nil {
 		return err
 	}
-	// 定義を先に、作成の最初の記録と出所を後に書く (出所だけが残ると、destroy が定義の無い状態ディレクトリで詰む。ADR 0006)
 	if err := rt.DefineSandbox(dir.path, spec); err != nil {
 		return err
 	}
-	if err := dir.writeStart(prepared.Target.Source(), creation{Herdr: prepared.Declaration.Herdr != nil}); err != nil {
+	herdr := prepared.Declaration.Herdr != nil
+	if err := dir.writeCreation(prepared.Target.Source(), creation{Herdr: &herdr}); err != nil {
 		return err
 	}
 	if err := rt.CreateSandbox(ctx, dir.path, spec); err != nil {
@@ -319,9 +318,9 @@ func Destroy(ctx context.Context, hosts Hosts, places Places, target Target, run
 	if !inspection.NotRunning() && running == RefuseRunning {
 		return nil, &RunningError{Status: inspection.Status}
 	}
-	dir := places.stateDir(target.Name)
+	dir := places.dir(target.Name)
 	// herdr machine の解除は VM を消す前に行う。失敗しても撤去は続ける
-	if err := removeHerdrMachine(ctx, hosts, places, target.Name); err != nil {
+	if err := removeHerdrMachine(ctx, hosts, dir, target.Name); err != nil {
 		warnings = append(warnings, err)
 	}
 	if err := rt.RemoveEnvironment(ctx, dir.path); err != nil {

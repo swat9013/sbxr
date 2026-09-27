@@ -1,17 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"go.yaml.in/yaml/v3"
+
 	"github.com/swat9013/sbxr/internal/herdr"
+	"github.com/swat9013/sbxr/internal/sandbox"
 )
 
 // v0.1.0 が作った状態ディレクトリを、新しい sbxr が扱えることを固定する (ADR 0006 の改訂)。
-// testdata/v0.1.0/app は v0.1.0 の sbxr が git URL の repo から herdr 連携を有効にし、--yes で作った状態ディレクトリ
-// (repo の egress を落とした印を含む)。v0.1.0 の test harness で生成し、env 定義の workspace の path だけを固定値に置き換えた。
+// fixture の中身と作り方は testdata/v0.1.0/README.md。
 
 const v010URL = "https://example.com/me/app.git"
 
@@ -33,8 +37,8 @@ func TestCreateOfAV010SandboxReportsItAsExistingInsteadOfCreating(t *testing.T) 
 
 	out, err := lc.run(t, "create", v010URL, "--yes")
 
-	if !strings.Contains(out+errText(err), "既にあ") {
-		t.Errorf("output = %q, error = %v, want the existing VM reported", out, err)
+	if err != nil || !strings.Contains(out, "sandbox VM app は既にある") {
+		t.Errorf("output = %q, error = %v, want the existing VM reported without drift", out, err)
 	}
 	if slices.ContainsFunc(lc.stub.Writes, func(w string) bool { return strings.HasPrefix(w, "env create") }) {
 		t.Errorf("sbx writes = %q, want nothing created", lc.stub.Writes)
@@ -46,8 +50,8 @@ func TestPlanOfAV010SandboxComparesWithItsRecord(t *testing.T) {
 
 	out := lc.mustRun(t, "plan", v010URL)
 
-	if !strings.Contains(out, "drift:") {
-		t.Errorf("output = %q, want the drift from the v0.1.0 record", out)
+	if !strings.Contains(out, "drift: 作成時の宣言との差分は無い") {
+		t.Errorf("output = %q, want no drift from the v0.1.0 record read with its dropped repo egress", out)
 	}
 }
 
@@ -71,9 +75,32 @@ func TestDestroyOfAV010SandboxRemovesTheVMItsHerdrMachineAndTheStateDir(t *testi
 	}
 }
 
-func errText(err error) string {
-	if err == nil {
-		return ""
+func TestDestroyOfAHalfCreatedV010SandboxRemovesItsHerdrMachineByItsEnvDefinition(t *testing.T) {
+	lc := v010Lifecycle(t, "running")
+	// v0.1.0 の作成が VM の中の段で止まった状態ディレクトリ (作成時の記録は作成の最後に書く)
+	for _, file := range []string{"declaration.yaml", "repo-egress-dropped"} {
+		if err := os.Remove(filepath.Join(lc.places.StateDir("app"), file)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	return err.Error()
+
+	lc.mustRun(t, "destroy", v010URL, "--yes", "--force")
+
+	if !slices.Contains(lc.herdr.Calls, "remove id1") || exists(lc.places.StateDir("app")) {
+		t.Errorf("herdr calls = %v, want the machine and the state dir removed", lc.herdr.Calls)
+	}
+}
+
+func TestTheV010DeclarationDecodesIntoTheCurrentDeclarationWithoutUnknownFields(t *testing.T) {
+	data, err := os.ReadFile("testdata/v0.1.0/app/declaration.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+
+	var declaration sandbox.Declaration
+	if err := decoder.Decode(&declaration); err != nil {
+		t.Errorf("decode = %v, want every v0.1.0 field kept (fields are never renamed or removed)", err)
+	}
 }

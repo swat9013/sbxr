@@ -161,10 +161,25 @@ func TestDestroyOfAHalfCreatedSandboxRemovesTheHerdrMachineRecordedAtTheStart(t 
 		t.Fatal("Create() = nil, want the creation stopped halfway")
 	}
 
-	_, err := Destroy(context.Background(), Hosts{Runtime: definitionUnread{rt}, Herdr: host}, places, prepared.Target, RemoveRunning)
+	_, err := Destroy(context.Background(), Hosts{Runtime: definitionWithoutHerdr{rt}, Herdr: host}, places, prepared.Target, RemoveRunning)
 
 	if err != nil || !slices.Equal(host.removed, []string{"m1"}) {
 		t.Errorf("Destroy() = %v, removed = %q, want the machine removed", err, host.removed)
+	}
+}
+
+func TestAFailureToDefineTheSandboxLeavesNoSourceSoTheStateDirIsNotManaged(t *testing.T) {
+	prepared := preparedApp()
+	rt := failingDefinition{newAppRuntime(prepared)}
+	places := Places{StateRoot: t.TempDir()}
+	if err := Create(context.Background(), Hosts{Runtime: rt}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard); err == nil {
+		t.Fatal("Create() = nil, want the failure to define")
+	}
+
+	inspection, err := Inspect(context.Background(), rt, places, prepared.Target)
+
+	if err != nil || inspection.Situation != Absent {
+		t.Errorf("Inspect() = %+v, %v, want no managed state dir", inspection, err)
 	}
 }
 
@@ -225,10 +240,14 @@ func (h *hostHerdr) Remove(_ context.Context, id string) error {
 	return nil
 }
 
-// definitionUnread は実行基盤の定義から herdr 連携の有無を答えない実行基盤。
-// sbxr が状態ディレクトリの記録から判定することを確かめるのに使う。
-type definitionUnread struct{ runtime.Runtime }
+// definitionWithoutHerdr は、定義が herdr を導入しないと答える実行基盤 (定義と作成の最初の記録が食い違う状況)。
+type definitionWithoutHerdr struct{ runtime.Runtime }
 
-func (definitionUnread) DefinedWithHerdr(string) (bool, error) {
-	return false, errors.New("実行基盤の定義は読まない")
+func (definitionWithoutHerdr) DefinedWithHerdr(string) (bool, error) { return false, nil }
+
+// failingDefinition は定義を書けない実行基盤。
+type failingDefinition struct{ *inmemory.Runtime }
+
+func (failingDefinition) DefineSandbox(string, runtime.SandboxSpec) error {
+	return errors.New("定義を書けない")
 }
