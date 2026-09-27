@@ -26,4 +26,5 @@ herdr 連携は、sandbox VM に herdr を入れ、host の herdr から VM 内�
 ## 改訂（2026-09-28、#50）
 
 - herdr 連携を有効にして作ったかは、作成の最初に状態ディレクトリへ明示して記録する（`creation.yaml` の `herdr`）。上の「実装で決めたこと」の、env 定義に herdr の kit があるかでの判定を置き換える。env 定義の schema は Runtime の adapter だけが知るので（[decision/0009](../design/sbxr/decision/0009-runtime-receives-sandbox-spec.md)）、状態ディレクトリを読む側はそれを判定に使えない
-- 記録の無い状態ディレクトリ（v0.1.0 が作ったもの）は、従来どおり env 定義に herdr の kit があるかで判定する。env 定義を読むのは Runtime の adapter（`DefinedWithHerdr`）
+- 記録を実行基盤の定義とは別に持つのは、herdr 連携を有効にしたかが sbxr の決めたことで、実行基盤の定義はその写しにすぎないから。定義の形は実行基盤ごとに違い、kit の無い実行基盤では定義から読めない
+- 記録の無い状態ディレクトリ（v0.1.0 が作ったもの）は、従来どおり env 定義に herdr の kit があるかで判定する。env 定義を読むのは Runtime の adapter（`DefinedWithHerdr`）。v0.1.0 が作った状態ディレクトリが残りうる限り、この読み方を残す

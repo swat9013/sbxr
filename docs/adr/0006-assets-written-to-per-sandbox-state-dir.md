@@ -57,6 +57,6 @@ boot は埋め込みの kit `sbxr-boot`（状態ディレクトリの `kits/` �
 create と destroy の間に sbxr を更新しても destroy できることを、状態ディレクトリの形でも守る。v0.1.0 は release 済みなので、次のように改める。
 
 - 状態ディレクトリの記録は足すだけにする。file と field は改名も削除もしない。新しい記録には、無いときの扱い（v0.1.0 の状態ディレクトリとして読む）を決める
-- v0.1.0 が作った状態ディレクトリを fixture にし（`cmd/sbxr/testdata/v0.1.0/`）、新しい sbxr が inspect・stop・destroy・plan できることを test で固定する
+- v0.1.0 が作った状態ディレクトリを fixture にし（`cmd/sbxr/testdata/v0.1.0/`）、新しい sbxr が扱えることを test で固定する。create が作成済みの VM として報告すること（状態の読み取り）、stop・destroy・plan、作成途中の状態ディレクトリの destroy、v0.1.0 の作成時の宣言が今の宣言の型に知らない field 無しで読めること
 - file の配置と旧い形の読み方は、`internal/sandbox` の 1 つの module だけが知る。実行基盤の定義（sbx では env 定義と kit）は Runtime の adapter が書き、読む
 - 作成の最初の記録として `creation.yaml` を足す（herdr 連携の有無。ADR 0007 の改訂）。書く順序は、定義 → 作成の最初の記録 → 出所。出所を先に書いて定義で失敗すると、destroy が `no sbxenv.yaml found` で詰む（上の実測）
