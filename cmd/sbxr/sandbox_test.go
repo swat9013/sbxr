@@ -232,6 +232,37 @@ func TestCreateWiresRequestedSecretsBeforeCreatingTheSandbox(t *testing.T) {
 	}
 }
 
+func TestCreateStopsBeforeTheStateDirWhenASecretValueIsMissing(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\n")
+	secretFile, _ := lc.deps.secretFilePath()
+	if err := os.WriteFile(secretFile, []byte("OTHER_TOKEN=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := localRepo(t, "app", "")
+
+	_, err := lc.run(t, "create", repo, "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "GITHUB_TOKEN") {
+		t.Errorf("error = %v, want it to name the missing key", err)
+	}
+	if len(lc.stub.Writes) != 0 || exists(lc.places.StateDir("app")) {
+		t.Errorf("create wrote %q / a state dir despite the missing value", lc.stub.Writes)
+	}
+}
+
+func TestCreateOfAGitURLLeavesNoCacheCloneWhenASecretValueIsMissing(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\n")
+
+	_, err := lc.run(t, "create", "https://example.com/me/app.git", "--yes")
+
+	if err == nil || !strings.Contains(err.Error(), "GITHUB_TOKEN") {
+		t.Errorf("error = %v, want it to name the missing key", err)
+	}
+	if exists(lc.places.StateDir("app")) || exists(filepath.Join(lc.places.CacheRoot, "app")) {
+		t.Errorf("create left a state dir or a cache clone despite the missing value")
+	}
+}
+
 func TestCreateStopsOnASecretRequestWithoutADefinition(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
 	repo := localRepo(t, "app", "version: 1\nsecrets: [jira]\n")
