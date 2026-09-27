@@ -55,8 +55,8 @@ type Declaration struct {
 	Boot []string `yaml:"boot"`
 	// SandboxEgress は sandbox スコープ rule にする宛先 (repo の egress)。
 	SandboxEgress []string `yaml:"sandbox_egress"`
-	// Secrets は配線する secret。
-	Secrets []WiredSecret `yaml:"secrets"`
+	// Secrets は配線する secret。形は配線の結果が決める。
+	Secrets []secret.Recorded `yaml:"secrets"`
 	// Herdr は herdr 連携。無効なら書かない。
 	Herdr *HerdrPin `yaml:"herdr,omitempty"`
 }
@@ -64,14 +64,6 @@ type Declaration struct {
 // HerdrPin は作成時に確定した herdr 連携 (VM に入れる版)。
 type HerdrPin struct {
 	Version string `yaml:"version"`
-}
-
-// WiredSecret は配線する secret のうち、VM に効く部分。値は持たない。
-type WiredSecret struct {
-	Name    string   `yaml:"name"`
-	Service string   `yaml:"service,omitempty"`
-	Hosts   []string `yaml:"hosts"`
-	Env     string   `yaml:"env,omitempty"`
 }
 
 // Prepared は create の確認関門で見せ、承認後に作る内容。
@@ -149,9 +141,7 @@ func Prepare(ctx context.Context, places Places, target Target, repoEgress RepoE
 	if cfg.Herdr.Enabled {
 		decl.Herdr = &HerdrPin{Version: cfg.Herdr.Version}
 	}
-	for _, wire := range prepared.Wiring.Wired {
-		decl.Secrets = append(decl.Secrets, WiredSecret{Name: wire.Name, Service: wire.Definition.Service, Hosts: wire.Definition.Hosts, Env: wire.Definition.Env})
-	}
+	decl.Secrets = prepared.Wiring.Recorded()
 	return prepared, nil
 }
 

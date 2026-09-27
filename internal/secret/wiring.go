@@ -94,21 +94,82 @@ func (p Plan) RequireValues(values Values) error {
 	return errors.Join(errs...)
 }
 
-// Apply は計画した secret を sandbox VM に限った secret として実行基盤に置く。
-// 値がすべて secret ファイルにあることを確かめてから書き込む (値が足りないまま一部だけ置くことはしない)。
-// 実行基盤への書き込みが途中で失敗したら、置いた分は残る。sandbox スコープの secret なので destroy で消える。
-func Apply(ctx context.Context, rt runtime.Runtime, sandbox string, plan Plan, values Values) error {
-	if err := plan.RequireValues(values); err != nil {
-		return err
+// SandboxSecrets は配線する secret を、実行基盤に置く sandbox スコープの secret にする。値は secret ファイルの key から引く。
+// 値がすべて secret ファイルにあることを確かめてから返す。
+func (p Plan) SandboxSecrets(values Values) ([]runtime.SandboxSecret, error) {
+	if err := p.RequireValues(values); err != nil {
+		return nil, err
 	}
-	secrets := make([]runtime.SandboxSecret, 0, len(plan.Wired))
-	for _, wire := range plan.Wired {
+	secrets := make([]runtime.SandboxSecret, 0, len(p.Wired))
+	for _, wire := range p.Wired {
 		secrets = append(secrets, runtime.SandboxSecret{
 			Service: wire.Definition.Service,
 			Hosts:   wire.Definition.Hosts,
 			Env:     wire.Definition.Env,
 			Value:   values[wire.Definition.Key],
 		})
+	}
+	return secrets, nil
+}
+
+// Recorded は作成時の宣言に残す、配線した secret の形。secret 定義のうち値を除くすべてで、どれも create で VM に焼かれる
+// (service・hosts・env は sandbox スコープの secret、key は置く値、vars は VM の環境変数)。
+type Recorded struct {
+	Name    string   `yaml:"name"`
+	Service string   `yaml:"service,omitempty"`
+	Hosts   []string `yaml:"hosts"`
+	Env     string   `yaml:"env,omitempty"`
+	// Key は v0.1.0 の記録には無い。secret 定義の key は空にならないので、空なら v0.1.0 の記録。
+	Key  string            `yaml:"key,omitempty"`
+	Vars map[string]string `yaml:"vars,omitempty"`
+}
+
+// Recorded は配線する secret を、作成時の宣言に残す形にする。
+func (p Plan) Recorded() []Recorded {
+	var records []Recorded
+	for _, wire := range p.Wired {
+		def := wire.Definition
+		records = append(records, Recorded{Name: wire.Name, Service: def.Service, Hosts: def.Hosts, Env: def.Env, Key: def.Key, Vars: def.Vars})
+	}
+	return records
+}
+
+// Comparable は作成時の記録と現在の配線を、差を比べられる形に揃える。secret の並びと注入先 host の並びは VM に効かないので並べ替える。
+// key を記録していない (v0.1.0 の) secret は、現在の側の key と vars も外して比べない。notCompared は比べなかったことの説明。
+func Comparable(recorded, current []Recorded) (before, after []Recorded, notCompared []string) {
+	before = canonical(recorded)
+	unrecorded := map[string]bool{}
+	for _, record := range before {
+		if record.Key == "" {
+			unrecorded[record.Name] = true
+			notCompared = append(notCompared, fmt.Sprintf("secret %s の key・vars は作成時に記録していないので比べていない", record.Name))
+		}
+	}
+	after = canonical(current)
+	for i := range after {
+		if unrecorded[after[i].Name] {
+			after[i].Key, after[i].Vars = "", nil
+		}
+	}
+	return before, after, notCompared
+}
+
+func canonical(records []Recorded) []Recorded {
+	records = slices.Clone(records)
+	for i := range records {
+		records[i].Hosts = slices.Sorted(slices.Values(records[i].Hosts))
+	}
+	slices.SortFunc(records, func(a, b Recorded) int { return strings.Compare(a.Name, b.Name) })
+	return records
+}
+
+// Apply は計画した secret を sandbox VM に限った secret として実行基盤に置く。
+// 値がすべて secret ファイルにあることを確かめてから書き込む (値が足りないまま一部だけ置くことはしない)。
+// 実行基盤への書き込みが途中で失敗したら、置いた分は残る。sandbox スコープの secret なので destroy で消える。
+func Apply(ctx context.Context, rt runtime.Runtime, sandbox string, plan Plan, values Values) error {
+	secrets, err := plan.SandboxSecrets(values)
+	if err != nil {
+		return err
 	}
 	for i, secret := range secrets {
 		if err := rt.SetSandboxSecret(ctx, sandbox, secret); err != nil {

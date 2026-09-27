@@ -41,11 +41,11 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 				return err
 			}
 			if found { // 既存の VM は、作成時の宣言からの差分も見せる
-				differences, _, err := sandbox.CompareWithRecord(cmd.Context(), places, target, record)
+				comparison, _, err := sandbox.CompareWithRecord(cmd.Context(), places, target, record)
 				if err != nil {
 					return err
 				}
-				printDrift(cmd, differences)
+				printDrift(cmd, comparison)
 			}
 			printWarnings(cmd, prepared.Warnings)
 			return nil
@@ -139,28 +139,32 @@ func reportExisting(cmd *cobra.Command, deps dependencies, places sandbox.Places
 		return fmt.Errorf("sandbox VM %s は既にある。現在の宣言を読めないので作成時との差分を確かめられない: %w", target.Name, err)
 	}
 	defer cleanup()
-	differences, prepared, err := sandbox.CompareWithRecord(cmd.Context(), places, target, record)
+	comparison, prepared, err := sandbox.CompareWithRecord(cmd.Context(), places, target, record)
 	if err != nil {
 		return fmt.Errorf("sandbox VM %s は既にある。現在の宣言を確定できないので作成時との差分を確かめられない: %w", target.Name, err)
 	}
 	printWarnings(cmd, prepared.Warnings)
-	printDrift(cmd, differences)
-	if len(differences) > 0 {
+	printDrift(cmd, comparison)
+	if len(comparison.Differences) > 0 {
 		return fmt.Errorf("sandbox VM %s は既にあり、宣言が作成時から変わっている。反映するなら作り直す: sbxr destroy %s → sbxr create %s", target.Name, input, input)
 	}
 	printf(cmd, "sandbox VM %s は既にある\n", target.Name)
 	return nil
 }
 
-// printDrift は作成時の宣言と現在の宣言の差分を表示する。
-func printDrift(cmd *cobra.Command, differences []sandbox.Difference) {
+// printDrift は作成時の宣言と現在の宣言の差分と、比べなかったことの注記を表示する。
+func printDrift(cmd *cobra.Command, comparison sandbox.Comparison) {
+	differences := comparison.Differences
 	if len(differences) == 0 {
 		printf(cmd, "drift: 作成時の宣言との差分は無い\n")
-		return
+	} else {
+		printf(cmd, "drift: 作成時の宣言との差分が %d 箇所ある\n", len(differences))
 	}
-	printf(cmd, "drift: 作成時の宣言との差分が %d 箇所ある\n", len(differences))
 	for _, difference := range differences {
 		printf(cmd, "  %s\n    作成時: %s\n    現在:   %s\n", difference.Path, difference.Recorded, difference.Current)
+	}
+	for _, note := range comparison.NotCompared {
+		printf(cmd, "  注記: %s\n", note)
 	}
 }
 

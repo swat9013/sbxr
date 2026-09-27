@@ -9,9 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/swat9013/sbxr/internal/secret"
 )
 
 // repoEgressDroppedFile は git URL を --yes で通して repo の egress を落として作った印。drift を比べるときに同じ扱いを再現する。
@@ -82,13 +83,20 @@ func ReadRecord(places Places, target Target) (record Record, found bool, err er
 
 // CompareWithRecord は現在の宣言を作成時と同じ repo の egress の扱いで確定し、作成時の宣言との差分を返す。
 // git URL の Target は呼び出し側が clone してから渡す。
-func CompareWithRecord(ctx context.Context, places Places, target Target, record Record) ([]Difference, Prepared, error) {
+func CompareWithRecord(ctx context.Context, places Places, target Target, record Record) (Comparison, Prepared, error) {
 	prepared, err := Prepare(ctx, places, target, record.RepoEgress)
 	if err != nil {
-		return nil, Prepared{}, err
+		return Comparison{}, Prepared{}, err
 	}
-	differences, err := record.Drift(prepared.Declaration)
-	return differences, prepared, err
+	comparison, err := record.Drift(prepared.Declaration)
+	return comparison, prepared, err
+}
+
+// Comparison は作成時の宣言と現在の宣言を比べた結果。
+type Comparison struct {
+	Differences []Difference
+	// NotCompared は作成時に記録していないので比べなかったことの説明。drift ではない。
+	NotCompared []string
 }
 
 // Difference は作成時の宣言と現在の宣言で値が違う 1 箇所。Path は key を . で繋いだもの (profile.model 等)。
@@ -101,25 +109,24 @@ type Difference struct {
 // Drift は作成時の宣言と現在の宣言の違いを葉の単位で並べる。宣言の key はすべて作成時に VM へ焼き込まれるものなので、全部比べる
 // (user の egress は宣言に入らず、sbxr policy sync --check が比べる)。
 // 両方を同じ YAML の形へ直してから比べるので、書き出し方の違いは差にならない。
-// secret の並びと注入先 host の並びは VM に効かないので、並べ替えてから比べる。
-func (r Record) Drift(current Declaration) ([]Difference, error) {
-	before, err := declarationTree(r.Declaration)
+// 配線した secret は、配線の結果が揃えた形で比べる (並びを差にせず、作成時に記録していない項目は比べない)。
+func (r Record) Drift(current Declaration) (Comparison, error) {
+	var comparison Comparison
+	recorded := r.Declaration
+	recorded.Secrets, current.Secrets, comparison.NotCompared = secret.Comparable(recorded.Secrets, current.Secrets)
+	before, err := declarationTree(recorded)
 	if err != nil {
-		return nil, err
+		return Comparison{}, err
 	}
 	after, err := declarationTree(current)
 	if err != nil {
-		return nil, err
+		return Comparison{}, err
 	}
-	return compareValues("", before, after)
+	comparison.Differences, err = compareValues("", before, after)
+	return comparison, err
 }
 
 func declarationTree(decl Declaration) (map[string]any, error) {
-	decl.Secrets = slices.Clone(decl.Secrets)
-	for i := range decl.Secrets {
-		decl.Secrets[i].Hosts = slices.Sorted(slices.Values(decl.Secrets[i].Hosts))
-	}
-	slices.SortFunc(decl.Secrets, func(a, b WiredSecret) int { return strings.Compare(a.Name, b.Name) })
 	data, err := yaml.Marshal(decl)
 	if err != nil {
 		return nil, err
