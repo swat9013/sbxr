@@ -51,3 +51,12 @@ boot は埋め込みの kit `sbxr-boot`（状態ディレクトリの `kits/` �
 - 作成が終わった印（`declaration.yaml`）は、egress 自己検証が通った後に書く（[decision/0006](../design/sbxr/decision/0006-egress-self-check-from-vm.md)）
 - 作成時の宣言があっても VM が無い（VM 消失）なら、create は drift を報告せず、destroy を促して止まる
 - template を作る build 用 VM も状態ディレクトリを持ち、build の印と出所を記録する。状態ディレクトリの無い VM に触らないという約束は、build 用 VM の残骸の撤去にも及ぶ（[decision/0005](../design/sbxr/decision/0005-template-build-inputs-and-refresh.md)）
+
+## 改訂（2026-09-28、#50）
+
+create と destroy の間に sbxr を更新しても destroy できることを、状態ディレクトリの形でも守る。v0.1.0 は release 済みなので、次のように改める。
+
+- 状態ディレクトリの記録は足すだけにする。file と field は改名も削除もしない。新しい記録には、無いときの扱い（v0.1.0 の状態ディレクトリとして読む）を決める
+- v0.1.0 が作った状態ディレクトリを fixture にし（`cmd/sbxr/testdata/v0.1.0/`）、新しい sbxr が inspect・stop・destroy・plan できることを test で固定する
+- file の配置と旧い形の読み方は、`internal/sandbox` の 1 つの module だけが知る。実行基盤の定義（sbx では env 定義と kit）は Runtime の adapter が書き、読む
+- 作成の最初の記録として `creation.yaml` を足す（herdr 連携の有無。ADR 0007 の改訂）。書く順序は、定義 → 作成の最初の記録 → 出所。出所を先に書いて定義で失敗すると、destroy が `no sbxenv.yaml found` で詰む（上の実測）
