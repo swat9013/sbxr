@@ -1,0 +1,8 @@
+# EnterWorktree / claude --worktree が worktree 作成時にコピーする gitignored file。
+# 再生成できない machine-local 設定だけを列挙する（dist/ は build で作り直せるので含めない）。
+
+# 個人の permission 許可。無いと worktree 内で許可済みの command が毎回確認に戻る
+.claude/settings.local.json
+
+# 個人の CLAUDE.md override
+CLAUDE.local.md
