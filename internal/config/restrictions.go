@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -59,52 +60,52 @@ var repoScopeTable = map[string]repoAccess{
 	"herdr.version": repoCannotWrite,
 }
 
-// repoCanWrite は repo が key (表で引く名前) を書けるかを返す。key の行が「この key だけ」か「この下は全部」なら書ける。
-// 行が無ければ、祖先のどれかが「この下は全部」を許すときだけ書ける。
-func repoCanWrite(tableName string) bool {
-	if access, ok := repoScopeTable[tableName]; ok {
+// repoCanWrite は repo が key (表で引く列) を書けるかを返す。key の行が「この key だけ」か「この下は全部」なら書ける。
+// 行が無ければ、最も近い祖先の行が「この下は全部」を許すときだけ書ける。
+func repoCanWrite(table []string) bool {
+	if access, ok := tableRow(table); ok {
 		return access != repoCannotWrite
 	}
-	for ancestor := parentKey(tableName); ancestor != ""; ancestor = parentKey(ancestor) {
-		if access, ok := repoScopeTable[ancestor]; ok {
+	for n := len(table) - 1; n > 0; n-- {
+		if access, ok := tableRow(table[:n]); ok {
 			return access == repoWritesSubtree
 		}
 	}
 	return false
 }
 
-// parentKey は key の親 ("egress.*.allow" の親は "egress.*")。top-level の key なら空。
-func parentKey(key string) string {
-	i := strings.LastIndex(key, ".")
-	if i < 0 {
-		return ""
+// tableRow は key (表で引く列) の行を引く。行の名前は key を "." でつないだものなので、
+// 名前に "." を含む key はどの行とも取り違えないよう、行が無いものとして扱う。
+func tableRow(table []string) (repoAccess, bool) {
+	if slices.ContainsFunc(table, func(name string) bool { return strings.Contains(name, ".") }) {
+		return repoCannotWrite, false
 	}
-	return key[:i]
+	access, ok := repoScopeTable[strings.Join(table, ".")]
+	return access, ok
 }
 
-// childTableName は親 (表で引く名前) の下の key を表で引く名前。表が親の下を "*" で引くなら、利用者が付けた名前を "*" にする。
-func childTableName(parent, key string) string {
-	if _, named := repoScopeTable[joinKey(parent, "*")]; named {
-		return joinKey(parent, "*")
+// tableSegment は親 (表で引く列) の下の key を表で引く名前。表が親の下を "*" で引くなら、利用者が付けた名前を "*" にする。
+func tableSegment(parent []string, key string) string {
+	if _, named := tableRow(append(slices.Clip(parent), "*")); named {
+		return "*"
 	}
-	return joinKey(parent, key)
+	return key
 }
 
-func joinKey(parent, key string) string {
-	if parent == "" {
-		return key
-	}
-	return parent + "." + key
-}
-
+// checkScopeRestrictions は repo が書けない key を止める。書けない key の下の key は、同じ理由なので報告しない。
 func checkScopeRestrictions(scope Scope, keys []writtenKey) error {
 	if scope != ScopeRepo {
 		return nil
 	}
 	var errs []error
+	var rejected [][]string
 	for _, key := range keys {
-		if !repoCanWrite(key.tableName) {
+		if slices.ContainsFunc(rejected, key.isBelow) {
+			continue
+		}
+		if !repoCanWrite(key.table) {
 			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない", key.name()))
+			rejected = append(rejected, key.path)
 		}
 	}
 	return errors.Join(errs...)

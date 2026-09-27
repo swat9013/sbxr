@@ -104,19 +104,20 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 
 // writtenKey は宣言ファイルに書かれた key。値が null でも書かれたものとして数える。
 type writtenKey struct {
-	parent string // 入れ子の key なら親の key ("profile" や "egress.github")。top-level の key は空
-	key    string
-	value  *yaml.Node
-	// tableName は制限表で引く名前。egress の group 名は利用者が付けるので "*" に置き換える ("egress.*.enabled")
-	tableName string
+	path  []string // top-level から辿った key 名の列 ("egress", "github", "enabled")
+	value *yaml.Node
+	// table は制限表で引く列。egress の group 名は利用者が付けるので "*" に置き換える ("egress", "*", "enabled")
+	table []string
 }
 
-// name は error と制限表に使う key 名 ("profile.model" のように親の key を前に付ける)。
+// name は error に使う key 名 ("profile.model" のように親の key を前に付ける)。
 func (k writtenKey) name() string {
-	if k.parent == "" {
-		return k.key
-	}
-	return k.parent + "." + k.key
+	return strings.Join(k.path, ".")
+}
+
+// isBelow は k が ancestor の下の key か。
+func (k writtenKey) isBelow(ancestor []string) bool {
+	return len(k.path) > len(ancestor) && slices.Equal(k.path[:len(ancestor)], ancestor)
 }
 
 // decode は宣言を型へ読み込む。未知の key と 2 つ目以降の document は error にする。
@@ -142,7 +143,8 @@ func listWrittenKeys(data []byte) ([]writtenKey, error) {
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
 	}
-	return writtenKeysUnder(documentBody(&root), "", ""), nil
+	lister := keyLister{expanding: map[*yaml.Node]bool{}}
+	return lister.under(documentBody(&root), nil, nil), nil
 }
 
 func documentBody(root *yaml.Node) *yaml.Node {
@@ -152,53 +154,69 @@ func documentBody(root *yaml.Node) *yaml.Node {
 	return root
 }
 
-// writtenKeysUnder は node の下に書かれた key を列挙する。parent は key 名の親、tableParent は制限表で引く名前の親。
-// list の要素の下の key は list の key の下として数え、alias は参照先まで降りる (表の外の key を alias で隠させない)。
-func writtenKeysUnder(node *yaml.Node, parent, tableParent string) []writtenKey {
+// keyLister は node の下に書かれた key を列挙する。
+// alias は key でも値でも参照先まで辿る (表が止める key を alias で隠させない)。list の要素の下の key は list の key の下として数える。
+type keyLister struct {
+	// expanding は展開中の alias の参照先。自分の祖先を指す alias を無限に降りない
+	// (循環と過剰な展開は decode が先に止めるが、列挙はその順序に頼らない)
+	expanding map[*yaml.Node]bool
+}
+
+func (l keyLister) under(node *yaml.Node, path, table []string) []writtenKey {
 	var keys []writtenKey
 	switch node.Kind {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			name := node.Content[i].Value
-			key := writtenKey{parent: parent, key: name, value: node.Content[i+1], tableName: childTableName(tableParent, name)}
+			name := resolved(node.Content[i]).Value
+			key := writtenKey{
+				path:  append(slices.Clip(path), name),
+				value: node.Content[i+1],
+				table: append(slices.Clip(table), tableSegment(table, name)),
+			}
 			keys = append(keys, key)
-			keys = append(keys, writtenKeysUnder(key.value, key.name(), key.tableName)...)
+			keys = append(keys, l.under(key.value, key.path, key.table)...)
 		}
 	case yaml.SequenceNode:
 		for _, item := range node.Content {
-			keys = append(keys, writtenKeysUnder(item, parent, tableParent)...)
+			keys = append(keys, l.under(item, path, table)...)
 		}
 	case yaml.AliasNode:
-		keys = append(keys, writtenKeysUnder(node.Alias, parent, tableParent)...)
+		if l.expanding[node.Alias] {
+			return nil
+		}
+		l.expanding[node.Alias] = true
+		keys = l.under(node.Alias, path, table)
+		delete(l.expanding, node.Alias)
 	}
 	return keys
 }
 
-// checksEmptyValue は、値の書き忘れ (null) と空文字を止める key か。型が読む key (profile・git・herdr の下) と
-// egress の group の下までを見る。それより深い key (profile.env の変数など) の値は、空でも利用者の意図として通す。
-func (k writtenKey) checksEmptyValue() bool {
-	top, rest, nested := strings.Cut(k.tableName, ".")
-	switch depth := strings.Count(k.tableName, ".") + 1; {
-	case !nested || depth == 1:
-		return true
-	case depth == 2:
-		return top == "profile" || top == "git" || top == "herdr" || top == "egress"
-	case depth == 3:
-		return top == "egress" && strings.HasPrefix(rest, "*.")
+// resolved は alias を参照先まで辿った node。
+func resolved(node *yaml.Node) *yaml.Node {
+	for node.Kind == yaml.AliasNode {
+		node = node.Alias
 	}
-	return false
+	return node
 }
 
-// checkWrittenValues は書いた key の値の書き忘れ (null) と、profile / git の空文字を止める。
+// checksEmptyValue は、値の書き忘れ (null) と空文字を止める key か。表は宣言の型が読む key をすべて行に持つので
+// (test が確かめる)、行のある key を止める。型が読まない深さの key (profile.env の変数など) の値は、空でも利用者の意図として通す。
+func (k writtenKey) checksEmptyValue() bool {
+	_, typed := tableRow(k.table)
+	return typed
+}
+
+// checkWrittenValues は、checksEmptyValue が選んだ key の値の書き忘れ (null) と、入れ子の key の空文字を止める。
 // 型へ読み込むと null と空は「書いていない」と区別できず、黙って下の層の値に落ちるため。
 func checkWrittenValues(keys []writtenKey) error {
 	var errs []error
 	for _, key := range keys {
+		value := resolved(key.value)
 		switch {
 		case !key.checksEmptyValue():
-		case key.value.Tag == "!!null":
+		case value.Tag == "!!null":
 			errs = append(errs, fmt.Errorf("%s に値が無い", key.name()))
-		case key.parent != "" && key.value.Tag == "!!str" && key.value.Value == "":
+		case len(key.path) > 1 && value.Tag == "!!str" && value.Value == "":
 			errs = append(errs, fmt.Errorf("%s が空", key.name()))
 		}
 	}
