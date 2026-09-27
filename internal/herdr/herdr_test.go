@@ -25,9 +25,9 @@ func TestParseMachinesRejectsOutputThatIsNotAList(t *testing.T) {
 
 func TestRecoveryCommandsAreTheHerdrCommandLines(t *testing.T) {
 	for got, want := range map[string]string{
-		AddCommand("app.sbx", "app"): "herdr machine add app.sbx --label app",
-		EnableCommand("ab12"):        "herdr machine enable ab12",
-		RemoveCommand("ab12"):        "herdr machine remove ab12",
+		addCommand("app.sbx", "app"): "herdr machine add app.sbx --label app",
+		enableCommand("ab12"):        "herdr machine enable ab12",
+		removeCommand("ab12"):        "herdr machine remove ab12",
 	} {
 		if got != want {
 			t.Errorf("command = %q, want %q", got, want)

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/swat9013/sbxr/internal/herdr/herdrtest"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 	"github.com/swat9013/sbxr/internal/sandbox"
@@ -19,7 +20,7 @@ const lifecycleUserConfig = "version: 1\ngit:\n  name: tester\n  email: tester@e
 type lifecycle struct {
 	deps     dependencies
 	stub     *sbxstub.Stub
-	herdr    *fakeHerdr
+	herdr    *herdrtest.Fake
 	places   sandbox.Places
 	prompter *fakePrompter
 	// clonedRepoDecl は fake clone が作る repo に置く repo 宣言。空なら置かない。
@@ -32,7 +33,7 @@ func newLifecycle(t *testing.T, userConfig string) *lifecycle {
 	root := t.TempDir()
 	lc := &lifecycle{
 		stub:     &sbxstub.Stub{VM: &sbxstub.FakeVM{}},
-		herdr:    &fakeHerdr{},
+		herdr:    &herdrtest.Fake{},
 		prompter: &fakePrompter{},
 		places: sandbox.Places{
 			StateRoot:  filepath.Join(root, "state", "sbxr", "sandboxes"),

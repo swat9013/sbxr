@@ -240,7 +240,7 @@ func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, 
 		return err
 	}
 	if prepared.Declaration.Herdr != nil {
-		return registerHerdrMachine(ctx, hosts, name, progress)
+		return hosts.machines().Register(ctx, name, progress)
 	}
 	return nil
 }
