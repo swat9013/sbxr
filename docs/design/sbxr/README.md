@@ -49,7 +49,7 @@ path の repo `/Users/u/src/app` の宣言は `template: {inputs: [.mise.toml], 
    - build 用 VM `sbxr-build-1a2b`（状態ディレクトリに build の印と出所）に `.mise.toml` だけを置いて `mise install` を走らせ、template `sbxr-app-1a2b:3f9a`（作成日時 2026-10-01）を作る
    - `sbxr-build-1a2b` を撤去する
 2. VM `app` を `sbxr-app-1a2b:3f9a` から作る
-   - egress 自己検証: `github.com:443` に届き、`example.com:443` に届かない
+   - egress 自己検証: `astral.sh:443` に届き、`example.com:443` に届かない
    - 作成時の宣言（template の hash `3f9a`、投入方式 clone）を書く
    - 状態は、未作成から稼働中になる
 3. `sbxr stop` で停止中になる

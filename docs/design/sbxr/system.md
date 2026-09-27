@@ -87,7 +87,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 - 回収（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は未回収に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)・[decision/0003](decision/0003-destroy-checks-unrecovered.md)
 - 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)
 - init の重さ（#13）: 重い tool の導入が create のたびに init で走る。→ [decision/0004](decision/0004-template-per-repo-built-in-create.md)・[decision/0005](decision/0005-template-build-inputs-and-refresh.md)
-- egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)
+- egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)
 
 ## 未実測の前提
 
@@ -134,4 +134,4 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
    - 403 の body は `Blocked by network policy: domain example.com:443`。TLS は proxy が終端しているので、状態コードだけでは宛先自身の 403 と区別できない
    - `curl -f` は許可外で exit 22、許可先の `https://github.com` で exit 0 を返す。ただし、宛先が 4xx を返すと誤判定する
    - `--noproxy '*'` では、許可外は exit 6（名前解決の失敗）、許可先は 200 だった。`http://example.com` も 403 で拒否された
-   - decision/0006 の核（VM 内から実際の通信で 1 往復ずつ確かめる）は成り立つ。「届く」「届かない」の判定の決め方を #39 で見直す
+   - decision/0006 の核（VM 内から実際の通信で 1 往復ずつ確かめる）は成り立つ。「届く」「届かない」の判定は、#39 で proxy の拒否応答（403 と body の `Blocked by network policy`）に置き換えた → [decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)
