@@ -82,27 +82,33 @@ func (p Plan) VMEnv() (map[string]string, error) {
 	return env, errors.Join(errs...)
 }
 
+// RequireValues は配線する secret の値がすべて secret ファイルにあるかを確かめ、足りない key をすべて挙げて error にする。
+// create は状態ディレクトリを書く前にこれで止める (何も残さずに止まるため)。
+func (p Plan) RequireValues(values Values) error {
+	var errs []error
+	for _, wire := range p.Wired {
+		if values[wire.Definition.Key] == "" {
+			errs = append(errs, fmt.Errorf("secret %s: secret ファイルに %s が無い (sbxr secret setup で書く)", wire.Name, wire.Definition.Key))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 // Apply は計画した secret を sandbox VM に限った secret として実行基盤に置く。
 // 値がすべて secret ファイルにあることを確かめてから書き込む (値が足りないまま一部だけ置くことはしない)。
 // 実行基盤への書き込みが途中で失敗したら、置いた分は残る。sandbox スコープの secret なので destroy で消える。
 func Apply(ctx context.Context, rt runtime.Runtime, sandbox string, plan Plan, values Values) error {
+	if err := plan.RequireValues(values); err != nil {
+		return err
+	}
 	secrets := make([]runtime.SandboxSecret, 0, len(plan.Wired))
-	var errs []error
 	for _, wire := range plan.Wired {
-		value, ok := values[wire.Definition.Key]
-		if !ok || value == "" {
-			errs = append(errs, fmt.Errorf("secret %s: secret ファイルに %s が無い (sbxr secret setup で書く)", wire.Name, wire.Definition.Key))
-			continue
-		}
 		secrets = append(secrets, runtime.SandboxSecret{
 			Service: wire.Definition.Service,
 			Hosts:   wire.Definition.Hosts,
 			Env:     wire.Definition.Env,
-			Value:   value,
+			Value:   values[wire.Definition.Key],
 		})
-	}
-	if err := errors.Join(errs...); err != nil {
-		return err
 	}
 	for i, secret := range secrets {
 		if err := rt.SetSandboxSecret(ctx, sandbox, secret); err != nil {
