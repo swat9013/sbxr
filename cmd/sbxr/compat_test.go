@@ -37,8 +37,11 @@ func TestCreateOfAV010SandboxReportsItAsExistingInsteadOfCreating(t *testing.T) 
 
 	out, err := lc.run(t, "create", v010URL, "--yes")
 
-	if err != nil || !strings.Contains(out, "sandbox VM app は既にある") {
-		t.Errorf("output = %q, error = %v, want the existing VM reported without drift", out, err)
+	if err != nil {
+		t.Errorf("create error = %v, want the existing VM reported without drift", err)
+	}
+	if !strings.Contains(out, "sandbox VM app は既にある") {
+		t.Errorf("output = %q, want the existing VM reported", out)
 	}
 	if slices.ContainsFunc(lc.stub.Writes, func(w string) bool { return strings.HasPrefix(w, "env create") }) {
 		t.Errorf("sbx writes = %q, want nothing created", lc.stub.Writes)
@@ -86,8 +89,11 @@ func TestDestroyOfAHalfCreatedV010SandboxRemovesItsHerdrMachineByItsEnvDefinitio
 
 	lc.mustRun(t, "destroy", v010URL, "--yes", "--force")
 
-	if !slices.Contains(lc.herdr.Calls, "remove id1") || exists(lc.places.StateDir("app")) {
-		t.Errorf("herdr calls = %v, want the machine and the state dir removed", lc.herdr.Calls)
+	if !slices.Contains(lc.herdr.Calls, "remove id1") {
+		t.Errorf("herdr calls = %v, want the machine removed", lc.herdr.Calls)
+	}
+	if exists(lc.places.StateDir("app")) {
+		t.Errorf("the state dir was kept, want it removed")
 	}
 }
 

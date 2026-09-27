@@ -165,7 +165,7 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 	if err != nil {
 		return Inspection{}, err
 	}
-	dir := places.dir(target.Name)
+	dir := places.stateDirOf(target.Name)
 	recorded, found, err := dir.source()
 	switch {
 	case err != nil:
@@ -215,7 +215,7 @@ func (i Inspection) NotRunning() bool {
 func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
 	rt := hosts.Runtime
 	name := prepared.Target.Name
-	dir := places.dir(name)
+	dir := places.stateDirOf(name)
 	spec, err := sandboxSpec(prepared, values)
 	if err != nil {
 		return err
@@ -318,7 +318,7 @@ func Destroy(ctx context.Context, hosts Hosts, places Places, target Target, run
 	if !inspection.NotRunning() && running == RefuseRunning {
 		return nil, &RunningError{Status: inspection.Status}
 	}
-	dir := places.dir(target.Name)
+	dir := places.stateDirOf(target.Name)
 	// herdr machine の解除は VM を消す前に行う。失敗しても撤去は続ける
 	if err := removeHerdrMachine(ctx, hosts, dir, target.Name); err != nil {
 		warnings = append(warnings, err)

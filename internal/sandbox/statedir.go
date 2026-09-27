@@ -32,7 +32,7 @@ func (p Places) StateDir(name string) string {
 
 // creation は作成の最初に書く記録。作成途中の VM の stop と destroy が読む。
 type creation struct {
-	// Herdr は herdr 連携を有効にして作ったか。nil は記録が無い (v0.1.0 の状態ディレクトリと同じに読む)。
+	// Herdr は herdr 連携を有効にして作ったか。file があって値が無ければ、記録が壊れている。
 	Herdr *bool `yaml:"herdr"`
 }
 
@@ -41,7 +41,7 @@ type stateDir struct {
 	path string
 }
 
-func (p Places) dir(name string) stateDir {
+func (p Places) stateDirOf(name string) stateDir {
 	return stateDir{path: p.StateDir(name)}
 }
 
@@ -56,8 +56,8 @@ func (d stateDir) ensure() error {
 // writeCreation は作成の最初の記録と出所を書く。実行基盤の定義を書いた後に呼ぶ
 // (出所だけが残ると、destroy が定義の無い状態ディレクトリで詰む。ADR 0006)。
 // 出所を最後に書くので、出所のある状態ディレクトリには作成の最初の記録もある (v0.1.0 のものを除く)。
-func (d stateDir) writeCreation(source string, start creation) error {
-	data, err := yaml.Marshal(start)
+func (d stateDir) writeCreation(source string, created creation) error {
+	data, err := yaml.Marshal(created)
 	if err != nil {
 		return err
 	}
@@ -113,16 +113,14 @@ func (d stateDir) herdrEnabled(definedWithHerdr func(stateDir string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	var start creation
-	if found {
-		if err := yaml.Unmarshal(data, &start); err != nil {
-			return false, fmt.Errorf("作成の最初の記録 %s を読めない: %w", filepath.Join(d.path, creationFile), err)
-		}
-	}
-	if start.Herdr == nil {
+	if !found {
 		return definedWithHerdr(d.path)
 	}
-	return *start.Herdr, nil
+	var created creation
+	if err := yaml.Unmarshal(data, &created); err != nil || created.Herdr == nil {
+		return false, fmt.Errorf("作成の最初の記録 %s を読めない (herdr 連携の有無が無い): %v", filepath.Join(d.path, creationFile), err)
+	}
+	return *created.Herdr, nil
 }
 
 // remove は状態ディレクトリを消す。実行基盤の定義も一緒に消えるので、VM を消せた後にだけ呼ぶ。

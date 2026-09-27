@@ -21,7 +21,7 @@ type Record struct {
 // ReadRecord は target の作成時の記録を状態ディレクトリから読む。sbx には問い合わせない。
 // 作り終えた記録が無い (状態ディレクトリが無い・別の repo のもの・作成が途中で止まった) なら found が false。
 func ReadRecord(places Places, target Target) (record Record, found bool, err error) {
-	dir := places.dir(target.Name)
+	dir := places.stateDirOf(target.Name)
 	source, found, err := dir.source()
 	if err != nil || !found || source != target.Source() {
 		return Record{}, false, err
