@@ -2,6 +2,8 @@
 
 作業を始める前に `CONTRIBUTING.md` を読み、branch・worktree 運用と commit・PR 規約に従う。
 
+repo の追跡対象 file を変更する作業は、`main` の checkout で始まったセッションなら最初の編集の前に EnterWorktree tool で worktree に入り、その中だけで編集・commit する（既に worktree で始まったセッションはそのまま続ける）。tool が付ける branch 名 `worktree-<name>` は、入った直後に `git branch -m` で `<type>/<issue 番号>-<slug>`（例: `fix/34-vm-vanished`。issue が無ければ `<type>/<slug>`）へ直す。完了したら push して PR を作るところまで確認なしで進める。`main` の checkout は並行する worktree の起点なので、常に clean に保つ。
+
 設計ドキュメント（`docs/design/sbxr/README.md` の索引が挙げる正本）に書かれた構造を変える・足す実装は、同じ PR の中で、実装の commit より前に次を済ませる。
 
 - `docs/design/sbxr/decision/` へ決定ごとに 1 file を足す。既存の file は残す（README の索引のとおり不変）
