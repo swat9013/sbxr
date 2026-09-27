@@ -7,11 +7,11 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
 	"slices"
 	"strings"
 
 	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/testenv"
 )
 
 // Runtime は実行基盤の状態を memory に持つ。
@@ -24,7 +24,7 @@ type Runtime struct {
 	Commands []Command
 	// Respond は VM 内のコマンドへの応答。nil なら空の出力で成功する。
 	Respond func(sandbox string, command runtime.SandboxCommand) ([]byte, error)
-	// Definitions は状態ディレクトリごとの定義 (secret の値を除いた作る内容)。
+	// Definitions は状態ディレクトリごとの定義 (secret の値を除いた作る内容)。状態ディレクトリが消えた定義は無いものとして扱う。
 	Definitions map[string]runtime.SandboxSpec
 	// FailOnGlobalWrite が n (1 始まり) なら、global rule への n 回目の書き込みを失敗させる。0 なら失敗させない。
 	FailOnGlobalWrite int
@@ -37,9 +37,7 @@ type Runtime struct {
 
 // Sandbox は 1 つの sandbox VM に置かれたもの。
 type Sandbox struct {
-	Status runtime.SandboxStatus
-	// Spec は VM を作ったときに受け取った作る内容。
-	Spec    runtime.SandboxSpec
+	Status  runtime.SandboxStatus
 	Secrets []runtime.SandboxSecret
 	// EgressRules は sandbox スコープ rule の宛先。
 	EgressRules []string
@@ -121,7 +119,11 @@ func (r *Runtime) SandboxStatus(_ context.Context, sandbox string) (runtime.Sand
 }
 
 // DefineSandbox は作る内容を状態ディレクトリごとに覚える (ファイルは書かない)。
+// 状態ディレクトリが無ければ error (sbx adapter と同じく、adapter は状態ディレクトリを作らない)。
 func (r *Runtime) DefineSandbox(stateDir string, spec runtime.SandboxSpec) error {
+	if _, err := os.Stat(stateDir); err != nil {
+		return fmt.Errorf("inmemory: 状態ディレクトリ %s が無い: %w", stateDir, err)
+	}
 	if r.Definitions == nil {
 		r.Definitions = map[string]runtime.SandboxSpec{}
 	}
@@ -130,14 +132,32 @@ func (r *Runtime) DefineSandbox(stateDir string, spec runtime.SandboxSpec) error
 	return nil
 }
 
-// CreateSandbox は定義された sandbox VM を作り、secret と rule を置いて稼働中にする。定義が無ければ error (sbx の実測)。
+// definition は状態ディレクトリの定義を返す。sbx adapter の定義は状態ディレクトリのファイルなので、
+// 状態ディレクトリが消えていれば定義も無い。
+func (r *Runtime) definition(stateDir string) (runtime.SandboxSpec, bool) {
+	spec, ok := r.Definitions[stateDir]
+	if !ok {
+		return runtime.SandboxSpec{}, false
+	}
+	if _, err := os.Stat(stateDir); err != nil {
+		delete(r.Definitions, stateDir)
+		return runtime.SandboxSpec{}, false
+	}
+	return spec, true
+}
+
+// CreateSandbox は定義された sandbox VM を作り、secret と rule を置いて稼働中にする。
+// 定義が無いか名前が食い違えば、何も置かずに error (sbx adapter と同じ)。
 func (r *Runtime) CreateSandbox(_ context.Context, stateDir string, spec runtime.SandboxSpec) error {
-	if _, ok := r.Definitions[stateDir]; !ok {
+	defined, ok := r.definition(stateDir)
+	if !ok {
 		return fmt.Errorf("inmemory: %s に定義が無い", stateDir)
+	}
+	if defined.Name != spec.Name {
+		return fmt.Errorf("inmemory: 作る内容の名前 %s が定義 (%s) と食い違う", spec.Name, defined.Name)
 	}
 	sb := r.Sandbox(spec.Name)
 	sb.Status = runtime.SandboxRunning
-	sb.Spec = spec
 	sb.Secrets = append(sb.Secrets, spec.Secrets...)
 	sb.EgressRules = append(sb.EgressRules, spec.EgressRules...)
 	return nil
@@ -145,21 +165,18 @@ func (r *Runtime) CreateSandbox(_ context.Context, stateDir string, spec runtime
 
 // DefinedWithHerdr は覚えた定義が herdr を導入するかを返す。
 func (r *Runtime) DefinedWithHerdr(stateDir string) (bool, error) {
-	return r.Definitions[stateDir].Herdr != nil, nil
+	spec, _ := r.definition(stateDir)
+	return spec.Herdr != nil, nil
 }
 
-// RemoveEnvironment は VM を、置かれた secret と rule ごと消す。VM が無くても secret を消して成功する (sbx の実測)。
-// 覚えた定義が無い状態ディレクトリは、置かれた env 定義から名前を読む (作り直す前の sbxr が書いた状態ディレクトリ)。
+// RemoveEnvironment は定義が指す VM を、置かれた secret と rule ごと消す。VM が無くても secret を消して成功する。
+// 定義は残す (sbx の env rm は env 定義を消さない)。定義が無ければ error (sbx の実測)。
 func (r *Runtime) RemoveEnvironment(_ context.Context, envDir string) error {
-	name := r.Definitions[envDir].Name
-	if name == "" {
-		var err error
-		if name, err = testenv.Name(envDir); err != nil {
-			return err
-		}
+	spec, ok := r.definition(envDir)
+	if !ok {
+		return fmt.Errorf("inmemory: %s に定義が無い", envDir)
 	}
-	delete(r.Sandboxes, name)
-	delete(r.Definitions, envDir)
+	delete(r.Sandboxes, spec.Name)
 	return nil
 }
 

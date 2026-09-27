@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -45,9 +46,9 @@ func TestTheHerdrKitReportsEachFailureWithTheLineSbxrReads(t *testing.T) {
 }
 
 func TestWaitingForKitStartupGivesUpAfterTheBudget(t *testing.T) {
-	saved := StartupWait
-	t.Cleanup(func() { StartupWait = saved })
-	StartupWait.Budget, StartupWait.Interval, StartupWait.Sleep = 3*time.Second, time.Second, func(time.Duration) {}
+	saved := startupWait
+	t.Cleanup(func() { startupWait = saved })
+	startupWait.Budget, startupWait.Interval, startupWait.Sleep = 3*time.Second, time.Second, func(time.Duration) {}
 	fake := &sbxstub.FakeVM{Files: map[string]string{kitStartupLog: "=== dispatcher run ===\n> /etc/durable-startup.d/002-startup-sbxr-herdr/000-cmd.sh\n"}}
 	stub := &sbxstub.Stub{Sandboxes: map[string]string{"app": "running"}, VM: fake}
 
@@ -63,5 +64,43 @@ func TestTheBootKitRunsTheScriptWhereSbxrWritesIt(t *testing.T) {
 
 	if err != nil || !strings.Contains(string(spec), `"$HOME/`+BootScriptRelPath+`"`) {
 		t.Errorf("sbxr-boot spec = %q, %v, want it to run $HOME/%s", spec, err, BootScriptRelPath)
+	}
+}
+
+func TestAFailedSecretIsNamedWithTheSecretsAlreadyPlaced(t *testing.T) {
+	stub := &sbxstub.Stub{FailOn: "secret set-custom"}
+	sbx := NewSbx(stub.Run)
+	dir := t.TempDir()
+	spec := SandboxSpec{Name: "app", Repo: "/src/app", Secrets: []SandboxSecret{
+		{Service: "github", Value: "v"},
+		{Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Value: "v"},
+	}}
+	if err := sbx.DefineSandbox(dir, spec); err != nil {
+		t.Fatal(err)
+	}
+
+	err := sbx.CreateSandbox(context.Background(), dir, spec)
+
+	if err == nil || !strings.Contains(err.Error(), "secret env GITLAB_TOKEN を置けない") || !strings.Contains(err.Error(), "置いた分: [service github]") {
+		t.Errorf("CreateSandbox() error = %v, want the failed secret and the placed ones", err)
+	}
+}
+
+func TestTheEnvDefinitionCarriesTheBootKitOnlyWhenBootIsReplayed(t *testing.T) {
+	for _, replay := range []bool{true, false} {
+		dir := t.TempDir()
+
+		if err := NewSbx((&sbxstub.Stub{}).Run).DefineSandbox(dir, SandboxSpec{Name: "app", Repo: "/src/app", ReplayBoot: replay}); err != nil {
+			t.Fatal(err)
+		}
+
+		env, _, err := readEnvDefinition(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		carries := slices.ContainsFunc(env.Kits, func(k envKit) bool { return k.Source == "./kits/"+bootKit })
+		if carries != replay {
+			t.Errorf("ReplayBoot %v: env kits = %+v, want the boot kit %v", replay, env.Kits, replay)
+		}
 	}
 }

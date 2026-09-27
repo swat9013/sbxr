@@ -55,7 +55,8 @@ func waitForApt(ctx context.Context, v vm) (bool, error) {
 	return false, nil
 }
 
-// runBoot は boot を VM の boot script に書き、create 時の 1 回を実行する。2 回目以降の起動では kit sbxr-boot が実行する。
+// runBoot は boot を VM の boot script に書き、create 時の 1 回を実行する。2 回目以降の起動では実行基盤が再生する
+// (作る内容の ReplayBoot)。
 // 起動ごとに宣言を読み直さず、作成時に確定した内容を再生する。
 func runBoot(ctx context.Context, v vm, repo string, commands []string, progress io.Writer) error {
 	if len(commands) == 0 {
@@ -74,7 +75,7 @@ func runBoot(ctx context.Context, v vm, repo string, commands []string, progress
 // (起動ごとの実行では host から見えないので、どの entry が失敗したかを log に残す)。
 func bootScript(repo string, commands []string) string {
 	var b strings.Builder
-	b.WriteString("#!/bin/bash\n# sbxr が create 時に書いた boot。kit sbxr-boot が sandbox VM の起動ごとに実行する。\n")
+	b.WriteString("#!/bin/bash\n# sbxr が create 時に書いた boot。sandbox VM の起動ごとに実行される。\n")
 	fmt.Fprintf(&b, "rc=0\ncd %s || exit 1\n", shellQuote(repo))
 	for i, command := range commands {
 		fmt.Fprintf(&b, "echo 'boot[%d]: start'\n", i+1)

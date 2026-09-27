@@ -22,9 +22,12 @@ type Runtime interface {
 	// SandboxStatus は sandbox VM の状態を返す。無ければ SandboxAbsent。
 	SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error)
 	// DefineSandbox は stateDir に、spec の sandbox VM を作るための定義を書く (sbx では env 定義と kit)。
+	// stateDir は呼び出し側が作ったもの (持ち主だけが読み書きできる mode) で、adapter は作らない。定義は VM の環境変数を含む。
 	// 前の定義があれば置き換える。secret の値は定義に書かない。作成 (CreateSandbox) と撤去 (RemoveEnvironment) はこの定義を使う。
+	// 定義は stateDir に置かれるので、stateDir を消せば定義も無くなる。
 	DefineSandbox(stateDir string, spec SandboxSpec) error
-	// CreateSandbox は stateDir の定義から spec の sandbox VM を作り、起動する。sandbox スコープの secret と rule を置き、
+	// CreateSandbox は stateDir の定義から spec の sandbox VM を作り、起動する。spec は定義を書いたときと同じもの
+	// (名前が食い違えば何も置かずに error)。定義が無ければ何も置かずに error。sandbox スコープの secret と rule を置き、
 	// herdr を導入するなら VM の起動時の処理が終わるまで待つ。secret と rule をどの順で置くかは adapter が決める。
 	// VM を作れた後の段で失敗したら *CreatedError を返す (VM は残っている)。
 	CreateSandbox(ctx context.Context, stateDir string, spec SandboxSpec) error
@@ -56,6 +59,8 @@ type SandboxSpec struct {
 	Repo string
 	// Env は VM の環境変数 (配線した secret の付随値)。
 	Env map[string]string
+	// ReplayBoot なら VM の起動ごとに boot script (BootScriptRelPath) を再生する。
+	ReplayBoot bool
 	// Herdr は VM に導入する herdr。nil なら導入しない。
 	Herdr *HerdrInstall
 	// Secrets は sandbox VM に限って置く secret (値を含む)。
@@ -70,7 +75,7 @@ type HerdrInstall struct {
 }
 
 // BootScriptRelPath は VM の agent user の home からの、起動ごとに再生する boot script の置き場。
-// adapter は VM の起動ごとにここにある script を実行する (無ければ何もしない)。
+// 作る内容が ReplayBoot なら、adapter は VM の起動ごとにここにある script を実行する (無ければ何もしない)。
 const BootScriptRelPath = ".config/sbxr/boot.sh"
 
 // CreatedStep は VM を作れた後の段。
@@ -79,8 +84,8 @@ type CreatedStep int
 const (
 	// CreatedStepSandboxEgress は sandbox スコープ rule を足す段。
 	CreatedStepSandboxEgress CreatedStep = iota + 1
-	// CreatedStepStartup は VM の起動時の処理 (herdr の導入) が終わるのを待つ段。
-	CreatedStepStartup
+	// CreatedStepHerdrStartup は VM の起動時の herdr の導入が終わるのを待つ段。
+	CreatedStepHerdrStartup
 )
 
 // CreatedError は CreateSandbox が VM を作れた後の段で失敗したときの error。VM は残っている。

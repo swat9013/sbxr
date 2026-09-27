@@ -61,14 +61,17 @@ type embeddedKit struct {
 // source は env 定義から kit を指す相対 path。
 func (k embeddedKit) source() string { return "./" + kitsDir + "/" + k.name }
 
-// kits は env 定義に入れる埋め込みの kit。boot の再生は常に入れ、herdr は導入するときだけ入れる。
+// kits は env 定義に入れる埋め込みの kit。herdr と boot の再生は、作る内容が求めるときだけ入れる。
 // herdr を先に置く (順序の理由は ADR 0007)。
 func kits(spec SandboxSpec) []embeddedKit {
 	var list []embeddedKit
 	if spec.Herdr != nil {
 		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": spec.Herdr.Version}})
 	}
-	return append(list, embeddedKit{name: bootKit})
+	if spec.ReplayBoot {
+		list = append(list, embeddedKit{name: bootKit})
+	}
+	return list
 }
 
 // DefineSandbox は状態ディレクトリ (sbxr が作ったもの) に env 定義と埋め込みの kit を書く。
@@ -111,12 +114,27 @@ func (s *Sbx) DefineSandbox(stateDir string, spec SandboxSpec) error {
 // CreateSandbox は sbx の順序の制約 (ADR 0006 の実測) どおりに作る: sandbox スコープの secret は作成前に置き
 // (作成時に VM の環境変数へ placeholder が入る)、sandbox スコープ rule は作成後に足す (作成前には置けない)。
 // herdr を導入するなら、kit が settings.json に integration を書き終えるまで待つ (後段の書き込みと競合させない)。
+// secret は env 定義の VM の名前に置くので、定義が無いか名前が食い違えば何も置かずに止まる
+// (定義の無い状態ディレクトリは env rm で撤去できず、置いた secret が残る)。
 // secret を置く途中で失敗したら、置いた分は残る。sandbox スコープの secret なので destroy で消える。
 func (s *Sbx) CreateSandbox(ctx context.Context, stateDir string, spec SandboxSpec) error {
-	for i, secret := range spec.Secrets {
+	env, found, err := readEnvDefinition(stateDir)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("状態ディレクトリ %s に %s が無い (先に定義を書く)", stateDir, envFile)
+	}
+	if env.Name != spec.Name {
+		return fmt.Errorf("作る内容の名前 %s が %s の定義 (%s) と食い違う", spec.Name, envFile, env.Name)
+	}
+	var placed []string
+	for _, secret := range spec.Secrets {
 		if err := s.setSandboxSecret(ctx, spec.Name, secret); err != nil {
-			return fmt.Errorf("sandbox スコープの secret を置けない (%d 件目。置いた分は sandbox VM の destroy で消える): %w", i+1, err)
+			return fmt.Errorf("sandbox スコープの secret %s を置けない (置いた分: [%s]。sandbox VM の destroy で消える): %w",
+				secretLabel(secret), strings.Join(placed, ", "), err)
 		}
+		placed = append(placed, secretLabel(secret))
 	}
 	if err := s.createEnvironment(ctx, stateDir); err != nil {
 		return fmt.Errorf("sandbox VM %s を作れない: %w", spec.Name, err)
@@ -128,24 +146,40 @@ func (s *Sbx) CreateSandbox(ctx context.Context, stateDir string, spec SandboxSp
 	}
 	if spec.Herdr != nil {
 		if err := s.waitStartup(ctx, spec.Name); err != nil {
-			return &CreatedError{Step: CreatedStepStartup, Err: err}
+			return &CreatedError{Step: CreatedStepHerdrStartup, Err: err}
 		}
 	}
 	return nil
 }
 
-// DefinedWithHerdr は状態ディレクトリの env 定義に herdr の kit があるかを返す。
-func (s *Sbx) DefinedWithHerdr(stateDir string) (bool, error) {
+// secretLabel は secret を、置く先の service か環境変数で示す (値は出さない)。
+func secretLabel(secret SandboxSecret) string {
+	if secret.Service != "" {
+		return "service " + secret.Service
+	}
+	return "env " + secret.Env
+}
+
+// readEnvDefinition は状態ディレクトリの env 定義を読む。無ければ found は false。
+func readEnvDefinition(stateDir string) (env envDefinition, found bool, err error) {
 	data, err := os.ReadFile(filepath.Join(stateDir, envFile))
 	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
+		return envDefinition{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return envDefinition{}, false, err
 	}
-	var env envDefinition
 	if err := yaml.Unmarshal(data, &env); err != nil {
-		return false, fmt.Errorf("状態ディレクトリの %s を読めない: %w", envFile, err)
+		return envDefinition{}, false, fmt.Errorf("状態ディレクトリの %s を読めない: %w", envFile, err)
+	}
+	return env, true, nil
+}
+
+// DefinedWithHerdr は状態ディレクトリの env 定義に herdr の kit があるかを返す。
+func (s *Sbx) DefinedWithHerdr(stateDir string) (bool, error) {
+	env, _, err := readEnvDefinition(stateDir)
+	if err != nil {
+		return false, err
 	}
 	herdrSource := embeddedKit{name: herdrKit}.source()
 	for _, kit := range env.Kits {
@@ -159,9 +193,9 @@ func (s *Sbx) DefinedWithHerdr(stateDir string) (bool, error) {
 // kitStartupLog は sbx が VM 内に kit startup の経過を書く log (VM の /etc/durable-startup.d/run.sh が決める)。
 const kitStartupLog = "/var/log/sbx-kit-startup.log"
 
-// StartupWait は kit startup の完了を待つ上限と間隔。Sleep は test が差し替える。
+// startupWait は kit startup の完了を待つ上限と間隔。Sleep は test が差し替える。
 // 上限は herdr の release の取得と server の起動を含む。sbx exec にかかる時間は数えないので、実際の待ちは上限より長くなりうる。
-var StartupWait = struct {
+var startupWait = struct {
 	Budget, Interval time.Duration
 	Sleep            func(time.Duration)
 }{300 * time.Second, 2 * time.Second, time.Sleep}
@@ -170,7 +204,7 @@ var StartupWait = struct {
 // kit startup の失敗は host からは見えないので、create 時はここで見る。
 func (s *Sbx) waitStartup(ctx context.Context, sandbox string) error {
 	var readErr error
-	for waited := time.Duration(0); waited < StartupWait.Budget; waited += StartupWait.Interval {
+	for waited := time.Duration(0); waited < startupWait.Budget; waited += startupWait.Interval {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -182,12 +216,12 @@ func (s *Sbx) waitStartup(ctx context.Context, sandbox string) error {
 		case startupFailed:
 			return fmt.Errorf("VM の kit startup が失敗した (sbx exec %s -- cat %s で確かめる)", sandbox, kitStartupLog)
 		}
-		StartupWait.Sleep(StartupWait.Interval)
+		startupWait.Sleep(startupWait.Interval)
 	}
 	if readErr != nil {
-		return fmt.Errorf("VM の kit startup が %s の間に終わらない (最後の log の読み取り: %w)", StartupWait.Budget, readErr)
+		return fmt.Errorf("VM の kit startup が %s の間に終わらない (最後の log の読み取り: %w)", startupWait.Budget, readErr)
 	}
-	return fmt.Errorf("VM の kit startup が %s の間に終わらない (sbx exec %s -- tail %s で確かめる)", StartupWait.Budget, sandbox, kitStartupLog)
+	return fmt.Errorf("VM の kit startup が %s の間に終わらない (sbx exec %s -- tail %s で確かめる)", startupWait.Budget, sandbox, kitStartupLog)
 }
 
 type startup int

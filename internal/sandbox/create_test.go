@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -37,7 +38,7 @@ func vmAnswers(allowed []string) func(string, runtime.SandboxCommand) ([]byte, e
 	}
 }
 
-// preparedApp は secret を 1 つ配線し、repo の egress を 1 つ持つ sandbox VM app の作る内容。herdr・plugin・init は持たない。
+// preparedApp は secret を 1 つ配線し、repo の egress を 1 つ持つ sandbox VM app の作る内容。herdr・plugin・init・boot は持たない。
 func preparedApp() Prepared {
 	var p Prepared
 	p.Target = Target{Name: "app", Repo: "/src/app"}
@@ -52,10 +53,16 @@ func preparedApp() Prepared {
 	return p
 }
 
-func TestCreateHandsTheRuntimeWhatToCreate(t *testing.T) {
-	prepared := preparedApp()
+// newAppRuntime は preparedApp の作成の段に答える in-memory の実行基盤。
+func newAppRuntime(prepared Prepared) *inmemory.Runtime {
 	rt := inmemory.New()
 	rt.Respond = vmAnswers(append(slices.Clone(prepared.GlobalEgress), prepared.Declaration.SandboxEgress...))
+	return rt
+}
+
+func TestCreateDefinesTheSandboxWithItsNameRepoAndEnv(t *testing.T) {
+	prepared := preparedApp()
+	rt := newAppRuntime(prepared)
 	places := Places{StateRoot: t.TempDir()}
 
 	err := Create(context.Background(), Hosts{Runtime: rt}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
@@ -63,60 +70,126 @@ func TestCreateHandsTheRuntimeWhatToCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create() error = %v", err)
 	}
-	want := runtime.SandboxSpec{
-		Name: "app", Repo: "/src/app",
-		Env:         map[string]string{"GITLAB_HOST": "gitlab.example.com"},
-		Secrets:     []runtime.SandboxSecret{{Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Value: "glpat_x"}},
-		EgressRules: []string{"api.example.com:443"},
+	got := rt.Definitions[places.StateDir("app")]
+	if got.Name != "app" || got.Repo != "/src/app" || !reflect.DeepEqual(got.Env, map[string]string{"GITLAB_HOST": "gitlab.example.com"}) {
+		t.Errorf("definition = %+v, want app from /src/app with GITLAB_HOST", got)
 	}
-	if got := rt.Sandbox("app").Spec; !reflect.DeepEqual(got, want) {
-		t.Errorf("spec = %+v, want %+v", got, want)
+}
+
+func TestCreatePlacesTheWiredSecretValueAndTheSandboxRules(t *testing.T) {
+	prepared := preparedApp()
+	rt := newAppRuntime(prepared)
+	places := Places{StateRoot: t.TempDir()}
+
+	err := Create(context.Background(), Hosts{Runtime: rt}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
+
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	sb := rt.Sandbox("app")
+	wantSecrets := []runtime.SandboxSecret{{Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Value: "glpat_x"}}
+	if !reflect.DeepEqual(sb.Secrets, wantSecrets) {
+		t.Errorf("secrets = %+v, want %+v", sb.Secrets, wantSecrets)
+	}
+	if !slices.Equal(sb.EgressRules, []string{"api.example.com:443"}) {
+		t.Errorf("sandbox rules = %q, want api.example.com:443", sb.EgressRules)
+	}
+}
+
+func TestCreateAsksTheRuntimeToReplayBootEvenWithoutADeclaredBoot(t *testing.T) {
+	prepared := preparedApp()
+	rt := newAppRuntime(prepared)
+	places := Places{StateRoot: t.TempDir()}
+
+	err := Create(context.Background(), Hosts{Runtime: rt}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
+
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if !rt.Definitions[places.StateDir("app")].ReplayBoot {
+		t.Errorf("ReplayBoot = false, want the replay asked for")
 	}
 }
 
 func TestCreateAsksTheRuntimeToInstallTheDeclaredHerdr(t *testing.T) {
 	prepared := preparedApp()
 	prepared.Declaration.Herdr = &HerdrPin{Version: "v0.9.0"}
-	rt := inmemory.New()
-	rt.Respond = vmAnswers(prepared.GlobalEgress)
+	rt := newAppRuntime(prepared)
 	places := Places{StateRoot: t.TempDir()}
 
-	// host の herdr が無いので登録の段で止まるが、作る内容はその前に渡っている
-	_ = Create(context.Background(), Hosts{Runtime: rt, Herdr: missingHerdr{}}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
+	err := Create(context.Background(), Hosts{Runtime: rt, Herdr: &hostHerdr{}}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
 
-	if got := rt.Sandbox("app").Spec.Herdr; got == nil || got.Version != "v0.9.0" {
-		t.Errorf("spec.Herdr = %+v, want v0.9.0", got)
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if got := rt.Definitions[places.StateDir("app")].Herdr; got == nil || got.Version != "v0.9.0" {
+		t.Errorf("definition herdr = %+v, want v0.9.0", got)
 	}
 }
 
 func TestCreateShowsAFailureAfterTheVMWasCreatedAsItsStage(t *testing.T) {
-	err := createdStageError(&runtime.CreatedError{Step: runtime.CreatedStepSandboxEgress, Err: io.ErrUnexpectedEOF})
+	for step, want := range map[runtime.CreatedStep]Stage{
+		runtime.CreatedStepSandboxEgress: StageSandboxEgress,
+		runtime.CreatedStepHerdrStartup:  StageHerdr,
+	} {
+		t.Run(string(want), func(t *testing.T) {
+			rt := &failingCreate{Runtime: newAppRuntime(preparedApp()), step: step}
+			places := Places{StateRoot: t.TempDir()}
 
-	var stage *StageError
-	if !errors.As(err, &stage) || stage.Stage != StageSandboxEgress {
-		t.Errorf("error = %v, want the sandbox egress stage", err)
+			err := Create(context.Background(), Hosts{Runtime: rt}, places, preparedApp(), secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
+
+			var stage *StageError
+			if !errors.As(err, &stage) || stage.Stage != want {
+				t.Errorf("error = %v, want the %s stage", err, want)
+			}
+		})
 	}
 }
 
-func TestCreateWritesNothingWhenAWiredValueIsMissing(t *testing.T) {
+func TestCreateStopsWhenAWiredValueIsMissing(t *testing.T) {
 	rt := inmemory.New()
 	places := Places{StateRoot: t.TempDir()}
 
 	err := Create(context.Background(), Hosts{Runtime: rt}, places, preparedApp(), secret.Values{}, io.Discard)
 
-	if err == nil || !strings.Contains(err.Error(), "GITLAB_TOKEN") || len(rt.Definitions) != 0 {
-		t.Errorf("Create() = %v, definitions = %v, want to stop before defining the sandbox", err, rt.Definitions)
+	if err == nil || !strings.Contains(err.Error(), "GITLAB_TOKEN") {
+		t.Errorf("Create() error = %v, want the missing GITLAB_TOKEN", err)
 	}
 }
 
-// missingHerdr は host に herdr が無い状態。
-type missingHerdr struct{}
+func TestCreateLeavesNoStateDirWhenAWiredValueIsMissing(t *testing.T) {
+	rt := inmemory.New()
+	places := Places{StateRoot: t.TempDir()}
 
-var errNoHerdr = errors.New("herdr が PATH に無い")
+	_ = Create(context.Background(), Hosts{Runtime: rt}, places, preparedApp(), secret.Values{}, io.Discard)
 
-func (missingHerdr) Available() error                              { return errNoHerdr }
-func (missingHerdr) List(context.Context) ([]herdr.Machine, error) { return nil, errNoHerdr }
-func (missingHerdr) Add(context.Context, string, string) error     { return errNoHerdr }
-func (missingHerdr) Enable(context.Context, string) error          { return errNoHerdr }
-func (missingHerdr) Disable(context.Context, string) error         { return errNoHerdr }
-func (missingHerdr) Remove(context.Context, string) error          { return errNoHerdr }
+	if _, err := os.Stat(places.StateDir("app")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("state dir stat = %v, want no state dir", err)
+	}
+}
+
+// failingCreate は VM を作れた後の段 step で失敗する実行基盤。
+type failingCreate struct {
+	*inmemory.Runtime
+	step runtime.CreatedStep
+}
+
+func (f *failingCreate) CreateSandbox(ctx context.Context, stateDir string, spec runtime.SandboxSpec) error {
+	if err := f.Runtime.CreateSandbox(ctx, stateDir, spec); err != nil {
+		return err
+	}
+	return &runtime.CreatedError{Step: f.step, Err: io.ErrUnexpectedEOF}
+}
+
+// hostHerdr は登録を受け付ける host の herdr。
+type hostHerdr struct{ added []string }
+
+func (h *hostHerdr) Available() error                              { return nil }
+func (h *hostHerdr) List(context.Context) ([]herdr.Machine, error) { return nil, nil }
+func (h *hostHerdr) Add(_ context.Context, target, _ string) error {
+	h.added = append(h.added, target)
+	return nil
+}
+func (h *hostHerdr) Enable(context.Context, string) error  { return nil }
+func (h *hostHerdr) Disable(context.Context, string) error { return nil }
+func (h *hostHerdr) Remove(context.Context, string) error  { return nil }

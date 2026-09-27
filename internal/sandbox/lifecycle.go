@@ -217,10 +217,10 @@ func (i Inspection) NotRunning() bool {
 	return i.Status == runtime.SandboxStopped || i.Status == runtime.SandboxAbsent
 }
 
-// Create は状態ディレクトリを書き、secret を配線し、sandbox VM を作って sandbox スコープ rule を足し、VM の中を宣言どおりにする
-// (materialize → read-back → init → boot)、VM 内から egress 自己検証を行う。secret は作成前に置く (作成時に VM の環境変数へ placeholder が入る)。
-// rule は作成後にしか置けない (ADR 0006 の実測)。途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
-// 作成が終わった印 (declaration.yaml) は最後に書く。VM の中の段の失敗は *StageError で返す。
+// Create は作る内容を組み立てて実行基盤に定義と作成を頼み (secret と rule をどの順で置くかは実行基盤が守る。decision/0009)、
+// VM の中を宣言どおりにし (materialize → read-back → init → boot)、VM 内から egress 自己検証を行う。
+// 途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
+// 作成が終わった印 (declaration.yaml) は最後に書く。VM を作れた後の段の失敗は *StageError で返す。
 func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
 	rt := hosts.Runtime
 	name := prepared.Target.Name
@@ -267,6 +267,9 @@ func sandboxSpec(prepared Prepared, values secret.Values) (runtime.SandboxSpec, 
 		Env:         prepared.VMEnv,
 		Secrets:     secrets,
 		EgressRules: prepared.Declaration.SandboxEgress,
+		// boot を宣言していなくても再生を頼む (script を置かなければ何も走らない)。再生の仕組みの無い VM を
+		// 実 sbx で確かめていないので、作る VM の形を変えない
+		ReplayBoot: true,
 	}
 	if pin := prepared.Declaration.Herdr; pin != nil {
 		spec.Herdr = &runtime.HerdrInstall{Version: pin.Version}
@@ -275,6 +278,7 @@ func sandboxSpec(prepared Prepared, values secret.Values) (runtime.SandboxSpec, 
 }
 
 // createdStageError は VM を作れた後の段の失敗を、表示する段の error にする。VM を作れなかった失敗はそのまま返す。
+// 知らない段でも *StageError にする (VM が残っていることを呼び出し側へ落とさない)。
 func createdStageError(err error) error {
 	var created *runtime.CreatedError
 	if !errors.As(err, &created) {
@@ -283,10 +287,10 @@ func createdStageError(err error) error {
 	switch created.Step {
 	case runtime.CreatedStepSandboxEgress:
 		return stageError(StageSandboxEgress, created.Err)
-	case runtime.CreatedStepStartup:
+	case runtime.CreatedStepHerdrStartup:
 		return stageError(StageHerdr, created.Err)
 	}
-	return fmt.Errorf("sandbox VM を作った後の段 %d が失敗した: %w", created.Step, created.Err)
+	return stageError(Stage(fmt.Sprintf("sandbox VM を作った後の段 %d", created.Step)), created.Err)
 }
 
 // RunningPolicy は稼働中の VM を撤去するか。

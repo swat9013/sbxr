@@ -82,7 +82,7 @@ func TestSbxSetsAServiceSecretScopedToTheSandboxWithTheValueOnStdin(t *testing.T
 	err := NewSbx(stub.Run).setSandboxSecret(context.Background(), "vm1", SandboxSecret{Service: "github", Value: "v"})
 
 	if err != nil {
-		t.Fatalf("SetSandboxSecret() error = %v", err)
+		t.Fatalf("setSandboxSecret() error = %v", err)
 	}
 	if want := []string{"secret set github --sandbox vm1"}; !reflect.DeepEqual(stub.Writes, want) {
 		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
@@ -99,7 +99,7 @@ func TestSbxSetsAPlaceholderSecretForEveryHost(t *testing.T) {
 		SandboxSecret{Hosts: []string{"a.example.com", "b.example.com"}, Env: "TOKEN", Value: "v"})
 
 	if err != nil {
-		t.Fatalf("SetSandboxSecret() error = %v", err)
+		t.Fatalf("setSandboxSecret() error = %v", err)
 	}
 	want := []string{"secret set-custom --sandbox vm1 --host a.example.com --host b.example.com --env TOKEN"}
 	if !reflect.DeepEqual(stub.Writes, want) {

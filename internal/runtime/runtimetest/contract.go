@@ -4,6 +4,7 @@ package runtimetest
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -42,12 +43,30 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		assertStatus(t, h, "app", runtime.SandboxRunning)
 	})
 
-	t.Run("定義の無い状態ディレクトリからは作れない", func(t *testing.T) {
+	t.Run("定義の無い状態ディレクトリからは作れず、secret も置かない", func(t *testing.T) {
 		h := newHarness(t)
+		withSecret := spec("app")
+		withSecret.Secrets = []runtime.SandboxSecret{{Service: "github", Value: "v"}}
 
-		if err := h.Runtime.CreateSandbox(ctx, t.TempDir(), spec("app")); err == nil {
-			t.Errorf("CreateSandbox without a definition = nil, want an error")
+		err := h.Runtime.CreateSandbox(ctx, t.TempDir(), withSecret)
+
+		if err == nil || h.SandboxSecrets("app") != 0 {
+			t.Errorf("CreateSandbox without a definition = %v, secrets = %d, want an error and no secret", err, h.SandboxSecrets("app"))
 		}
+	})
+
+	t.Run("定義と名前の違う作る内容からは作れず、secret も置かない", func(t *testing.T) {
+		h := newHarness(t)
+		dir := define(t, h, spec("app"))
+		other := spec("other")
+		other.Secrets = []runtime.SandboxSecret{{Service: "github", Value: "v"}}
+
+		err := h.Runtime.CreateSandbox(ctx, dir, other)
+
+		if err == nil || h.SandboxSecrets("other") != 0 {
+			t.Errorf("CreateSandbox with another name = %v, secrets = %d, want an error and no secret", err, h.SandboxSecrets("other"))
+		}
+		assertStatus(t, h, "other", runtime.SandboxAbsent)
 	})
 
 	t.Run("止めた VM は stopped", func(t *testing.T) {
@@ -133,6 +152,47 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 
 		if err != nil || got {
 			t.Errorf("DefinedWithHerdr = %v, %v, want false", got, err)
+		}
+	})
+
+	t.Run("撤去しても定義は残り、そこから作り直せる", func(t *testing.T) {
+		h := newHarness(t)
+		dir := create(t, h, spec("app"))
+		must(t, h.Runtime.RemoveEnvironment(ctx, dir))
+
+		must(t, h.Runtime.CreateSandbox(ctx, dir, spec("app")))
+
+		assertStatus(t, h, "app", runtime.SandboxRunning)
+	})
+
+	t.Run("撤去しても herdr を導入する定義は読める", func(t *testing.T) {
+		h := newHarness(t)
+		withHerdr := spec("app")
+		withHerdr.Herdr = &runtime.HerdrInstall{Version: "v0.9.0"}
+		dir := define(t, h, withHerdr)
+		must(t, h.Runtime.RemoveEnvironment(ctx, dir))
+
+		got, err := h.Runtime.DefinedWithHerdr(dir)
+
+		if err != nil || !got {
+			t.Errorf("DefinedWithHerdr after removing = %v, %v, want the definition kept", got, err)
+		}
+	})
+
+	t.Run("消した状態ディレクトリの定義は無い", func(t *testing.T) {
+		h := newHarness(t)
+		withHerdr := spec("app")
+		withHerdr.Herdr = &runtime.HerdrInstall{Version: "v0.9.0"}
+		dir := define(t, h, withHerdr)
+		must(t, os.RemoveAll(dir))
+
+		got, err := h.Runtime.DefinedWithHerdr(dir)
+
+		if err != nil || got {
+			t.Errorf("DefinedWithHerdr of a removed state dir = %v, %v, want false", got, err)
+		}
+		if err := h.Runtime.RemoveEnvironment(ctx, dir); err == nil {
+			t.Errorf("RemoveEnvironment of a removed state dir = nil, want an error")
 		}
 	})
 
