@@ -489,7 +489,7 @@ func TestRepoCannotHideAKeyBehindAnAlias(t *testing.T) {
 			needle: "egress.github.enabled は repo 宣言には書けない",
 		},
 		"top-level の key を alias にする": {
-			repo:   "version: 1\nprofile:\n  model: &init herdr\n*init : {enabled: true}\n",
+			repo:   "version: 1\nprofile:\n  model: &herdr herdr\n*herdr : {enabled: true}\n",
 			needle: "herdr は repo 宣言には書けない",
 		},
 		"group の下の key を alias にする": {

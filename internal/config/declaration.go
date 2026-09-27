@@ -143,8 +143,7 @@ func listWrittenKeys(data []byte) ([]writtenKey, error) {
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
 	}
-	lister := keyLister{expanding: map[*yaml.Node]bool{}}
-	return lister.under(documentBody(&root), nil, nil), nil
+	return writtenKeysUnder(documentBody(&root), nil, nil, nil), nil
 }
 
 func documentBody(root *yaml.Node) *yaml.Node {
@@ -154,15 +153,11 @@ func documentBody(root *yaml.Node) *yaml.Node {
 	return root
 }
 
-// keyLister は node の下に書かれた key を列挙する。
+// writtenKeysUnder は node の下に書かれた key を、親を子より先に並べて列挙する (checkScopeRestrictions がこの順に頼る)。
 // alias は key でも値でも参照先まで辿る (表が止める key を alias で隠させない)。list の要素の下の key は list の key の下として数える。
-type keyLister struct {
-	// expanding は展開中の alias の参照先。自分の祖先を指す alias を無限に降りない
-	// (循環と過剰な展開は decode が先に止めるが、列挙はその順序に頼らない)
-	expanding map[*yaml.Node]bool
-}
-
-func (l keyLister) under(node *yaml.Node, path, table []string) []writtenKey {
+// expanding は展開中の alias の参照先で、自分の祖先を指す alias を無限に降りない
+// (循環と過剰な展開は decode が先に止めるが、列挙はその順序に頼らない)。
+func writtenKeysUnder(node *yaml.Node, path, table []string, expanding []*yaml.Node) []writtenKey {
 	var keys []writtenKey
 	switch node.Kind {
 	case yaml.MappingNode:
@@ -174,19 +169,16 @@ func (l keyLister) under(node *yaml.Node, path, table []string) []writtenKey {
 				table: append(slices.Clip(table), tableSegment(table, name)),
 			}
 			keys = append(keys, key)
-			keys = append(keys, l.under(key.value, key.path, key.table)...)
+			keys = append(keys, writtenKeysUnder(key.value, key.path, key.table, expanding)...)
 		}
 	case yaml.SequenceNode:
 		for _, item := range node.Content {
-			keys = append(keys, l.under(item, path, table)...)
+			keys = append(keys, writtenKeysUnder(item, path, table, expanding)...)
 		}
 	case yaml.AliasNode:
-		if l.expanding[node.Alias] {
-			return nil
+		if !slices.Contains(expanding, node.Alias) {
+			keys = writtenKeysUnder(node.Alias, path, table, append(slices.Clip(expanding), node.Alias))
 		}
-		l.expanding[node.Alias] = true
-		keys = l.under(node.Alias, path, table)
-		delete(l.expanding, node.Alias)
 	}
 	return keys
 }

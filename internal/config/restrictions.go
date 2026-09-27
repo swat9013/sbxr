@@ -78,7 +78,7 @@ func repoCanWrite(table []string) bool {
 // 名前に "." を含む key はどの行とも取り違えないよう、行が無いものとして扱う。
 func tableRow(table []string) (repoAccess, bool) {
 	if slices.ContainsFunc(table, func(name string) bool { return strings.Contains(name, ".") }) {
-		return repoCannotWrite, false
+		return 0, false
 	}
 	access, ok := repoScopeTable[strings.Join(table, ".")]
 	return access, ok

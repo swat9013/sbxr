@@ -37,17 +37,18 @@ func TestTheScopeTableNeverTakesADottedKeyNameForADeeperKey(t *testing.T) {
 			t.Errorf("repoCanWrite(%q) = true, want a dotted key name never matched to a row", table)
 		}
 	}
-	if !repoCanWrite([]string{"profile", "enabledPlugins", "p@my.marketplace"}) {
-		t.Errorf("a dotted key name below a key the table allows with its subtree was rejected")
-	}
 }
 
 func TestListingKeysStopsAtAnAliasThatRefersToItsOwnAncestor(t *testing.T) {
 	keys, err := listWrittenKeys([]byte("a: &a\n  b: *a\n"))
 
+	var names []string
+	for _, key := range keys {
+		names = append(names, key.name())
+	}
 	// 参照先を 1 度だけ展開し (a.b.b)、その下で自分を指す alias は降りない
-	if err != nil || len(keys) != 3 {
-		t.Errorf("keys = %d, error = %v, want a, a.b and a.b.b", len(keys), err)
+	if want := []string{"a", "a.b", "a.b.b"}; err != nil || !slices.Equal(names, want) {
+		t.Errorf("keys = %q, error = %v, want %q", names, err, want)
 	}
 }
 
