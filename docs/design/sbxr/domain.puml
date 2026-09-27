@@ -104,7 +104,7 @@ package "集約: global rule (sbx 側の実体)" as AggGlobal {
 
 class HerdrMachine <<herdr machine>> {
   {field} id : herdr が振る
-  {field} target : <名前>.sbx
+  {field} target : 実行基盤が返す ssh の宛先 (sbx は <名前>.sbx)
   {field} 有効か
 }
 
