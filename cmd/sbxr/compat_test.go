@@ -20,7 +20,7 @@ func v010Lifecycle(t *testing.T, fixture, status string) *lifecycle {
 	t.Helper()
 	lc := herdrLifecycle(t)
 	lc.clonedRepoDecl = repoWithEgress
-	if err := os.CopyFS(lc.places.StateDir("app"), os.DirFS("testdata/v0.1.0/"+fixture)); err != nil {
+	if err := os.CopyFS(lc.stateDir("app"), os.DirFS("testdata/v0.1.0/"+fixture)); err != nil {
 		t.Fatal(err)
 	}
 	lc.stub.Sandboxes = map[string]string{"app": status}
@@ -69,7 +69,7 @@ func TestDestroyOfAV010SandboxRemovesTheVMItsHerdrMachineAndTheStateDir(t *testi
 
 	lc.mustRun(t, "destroy", v010URL, "--yes")
 
-	if _, ok := lc.stub.Sandboxes["app"]; ok || !slices.Contains(lc.herdr.Calls, "remove id1") || exists(lc.places.StateDir("app")) {
+	if _, ok := lc.stub.Sandboxes["app"]; ok || !slices.Contains(lc.herdr.Calls, "remove id1") || exists(lc.stateDir("app")) {
 		t.Errorf("sandboxes = %v, herdr calls = %v, want the VM, the machine and the state dir removed", lc.stub.Sandboxes, lc.herdr.Calls)
 	}
 }
@@ -82,7 +82,7 @@ func TestDestroyOfAHalfCreatedV010SandboxRemovesItsHerdrMachineByItsEnvDefinitio
 	if !slices.Contains(lc.herdr.Calls, "remove id1") {
 		t.Errorf("herdr calls = %v, want the machine removed", lc.herdr.Calls)
 	}
-	if exists(lc.places.StateDir("app")) {
+	if exists(lc.stateDir("app")) {
 		t.Errorf("the state dir was kept, want it removed")
 	}
 }

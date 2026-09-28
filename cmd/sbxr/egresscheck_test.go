@@ -10,8 +10,8 @@ import (
 	"github.com/swat9013/sbxr/internal/sandbox"
 )
 
-// requireEgressCheckFailure は create が egress 自己検証で止まり、VM を残して作成時の宣言を書かなかったことを確かめる。
-func requireEgressCheckFailure(t *testing.T, lc *lifecycle, repo string, err error, wantMessage string) {
+// requireEgressCheckFailure は create が egress 自己検証で止まり、VM を残したことを確かめる (作成途中になることは internal/sandbox の遷移表が見る)。
+func requireEgressCheckFailure(t *testing.T, lc *lifecycle, err error, wantMessage string) {
 	t.Helper()
 	var stageErr *sandbox.StageError
 	if !errors.As(err, &stageErr) || stageErr.Stage != sandbox.StageEgressCheck {
@@ -22,10 +22,6 @@ func requireEgressCheckFailure(t *testing.T, lc *lifecycle, repo string, err err
 	}
 	if _, ok := lc.stub.Sandboxes["app"]; !ok {
 		t.Errorf("sandbox was removed; the VM is kept for inspection")
-	}
-	// 作成が終わった印はまだ無い (自己検証の後に書く) ので、作り直しは途中で止まった VM として拒まれる
-	if _, err := lc.run(t, "create", repo, "--yes"); err == nil || !strings.Contains(err.Error(), "途中で止まっている") {
-		t.Errorf("create again error = %v, want the creation counted as unfinished", err)
 	}
 }
 
@@ -61,7 +57,7 @@ func TestCreateStopsWhenTheProxyDeniesTheAllowedHost(t *testing.T) {
 
 	_, err := lc.run(t, "create", repo, "--yes")
 
-	requireEgressCheckFailure(t, lc, repo, err, "許可先 astral.sh:443 に届かない")
+	requireEgressCheckFailure(t, lc, err, "許可先 astral.sh:443 に届かない")
 	if len(lc.herdr.Machines) != 0 {
 		t.Errorf("herdr machines = %v, want none registered for an unfinished creation", lc.herdr.Machines)
 	}
@@ -74,7 +70,7 @@ func TestCreateStopsWhenTheAllowedHostGivesNoResponse(t *testing.T) {
 
 	_, err := lc.run(t, "create", repo, "--yes")
 
-	requireEgressCheckFailure(t, lc, repo, err, "Connection timed out")
+	requireEgressCheckFailure(t, lc, err, "Connection timed out")
 }
 
 func TestCreateStopsWhenTheDisallowedHostIsNotDeniedByTheProxy(t *testing.T) {
@@ -90,7 +86,7 @@ func TestCreateStopsWhenTheDisallowedHostIsNotDeniedByTheProxy(t *testing.T) {
 
 			_, err := lc.run(t, "create", repo, "--yes")
 
-			requireEgressCheckFailure(t, lc, repo, err, "許可外の example.com:443")
+			requireEgressCheckFailure(t, lc, err, "許可外の example.com:443")
 		})
 	}
 }

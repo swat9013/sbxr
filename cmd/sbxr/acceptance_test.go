@@ -89,7 +89,7 @@ func TestAcceptanceRepoDeclarationCannotWriteRestrictedKeys(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "repo 宣言には書けない") {
 				t.Errorf("error = %v, want the restricted key refused", err)
 			}
-			if len(lc.stub.Writes) != 0 || exists(lc.places.StateDir("app")) {
+			if len(lc.stub.Writes) != 0 || exists(lc.stateDir("app")) {
 				t.Errorf("create wrote %q / a state dir for a refused repo declaration", lc.stub.Writes)
 			}
 		})
@@ -174,7 +174,7 @@ type gatePrompter struct {
 
 func (p *gatePrompter) Confirm(prompt string) (bool, error) {
 	p.writesAtConfirm = len(p.lc.stub.Writes)
-	p.stateDirAtAnswer = exists(p.lc.places.StateDir("app"))
+	p.stateDirAtAnswer = exists(p.lc.stateDir("app"))
 	return p.fakePrompter.Confirm(prompt)
 }
 

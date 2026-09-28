@@ -161,12 +161,7 @@ func (g promptGate) Approve(_ context.Context, proposal sandbox.Proposal) (bool,
 	if g.yes {
 		return true, nil
 	}
-	// 端末が無ければ prompter が error を返す
-	ok, err := g.prompter.Confirm(proposal.Question)
-	if err != nil {
-		return false, fmt.Errorf("%w (確認を省くなら --yes)", err)
-	}
-	return ok, nil
+	return g.prompter.Confirm(proposal.Question) // 端末が無ければ error を返す
 }
 
 func (g promptGate) Unattended() bool { return g.yes }

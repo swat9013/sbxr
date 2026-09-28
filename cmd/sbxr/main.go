@@ -20,7 +20,7 @@ var version string
 // dependencies は subcommand が使う外部との境界。test では stub に差し替える。
 type dependencies struct {
 	runtime runtime.Runtime
-	// userConfigPath は user 設定の path を返す。使う subcommand だけが呼ぶ。
+	// userConfigPath は user 設定の path を返す。home を決められなければ error。
 	userConfigPath func() (string, error)
 	// secretFilePath は secret ファイルの path を返す。使う subcommand だけが呼ぶ。
 	secretFilePath func() (string, error)

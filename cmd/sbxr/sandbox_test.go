@@ -14,7 +14,9 @@ import (
 )
 
 // plan・create・stop・destroy の振る舞い (状態機械の遷移と、それに伴う片付け・前提の確認) は internal/sandbox の遷移表が固定する。
-// ここに置くのは引数と flag の解釈と表示、sbx stub の上の受け入れテスト (acceptance_test.go。ADR 0001)。
+// cmd に置くのは、引数と flag の解釈と表示 (この file) と、sbx stub の上の受け入れテスト (ADR 0001):
+// 宣言の merge と egress・boot・確認関門 (acceptance_test.go)、VM の中の段と egress 自己検証が sbx stub の VM で通ること
+// (materialize_test.go・egresscheck_test.go)、v0.1.0 の状態ディレクトリを扱えること (compat_test.go)。
 
 const lifecycleUserConfig = "version: 1\ngit:\n  name: tester\n  email: tester@example.com\n"
 
@@ -96,6 +98,11 @@ func writeRepoDecl(t *testing.T, repo, decl string) {
 	}
 }
 
+// stateDir は sandbox VM の状態ディレクトリ (状態の置き場の下の <名前>。ADR 0006)。中のファイルは読まない。
+func (lc *lifecycle) stateDir(name string) string {
+	return filepath.Join(lc.places.StateRoot, name)
+}
+
 func (lc *lifecycle) run(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	return runSbxr(t, lc.deps, args...)
@@ -133,9 +140,12 @@ func TestEachCommandNamesTheSandboxOfAGitURLInItsResult(t *testing.T) {
 		{[]string{"stop", url}, "sandbox VM app は止まっている"},
 		{[]string{"destroy", url, "--yes"}, "sandbox VM app を撤去した"},
 	} {
-		if out := lc.mustRun(t, step.args...); !strings.Contains(out, step.want) {
-			t.Errorf("sbxr %s output = %q, want %q", strings.Join(step.args, " "), out, step.want)
-		}
+		// 各段は前の段が残した状態から始まる (作った → 既にある → 止めた → 止まっている → 撤去した)
+		t.Run(step.want, func(t *testing.T) {
+			if out := lc.mustRun(t, step.args...); !strings.Contains(out, step.want) {
+				t.Errorf("sbxr %s output = %q, want %q", strings.Join(step.args, " "), out, step.want)
+			}
+		})
 	}
 }
 

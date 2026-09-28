@@ -16,13 +16,13 @@ func (l Lifecycle) herdrEnabled(name string) (bool, error) {
 	return l.Places.stateDirOf(name).herdrEnabled(l.Runtime.DefinedWithHerdr)
 }
 
-// requireHerdrFor は、herdr 連携を有効にして作った sandbox VM なら host に herdr があることを確かめる。
-func (l Lifecycle) requireHerdrFor(name string) error {
+// herdrRequired は、herdr 連携を有効にして作った sandbox VM かを返す。有効なら host に herdr があることも確かめ、無ければ error。
+func (l Lifecycle) herdrRequired(name string) (bool, error) {
 	enabled, err := l.herdrEnabled(name)
 	if err != nil || !enabled {
-		return err
+		return false, err
 	}
-	return requireHerdrOnHost(l.Herdr)
+	return true, requireHerdrOnHost(l.Herdr)
 }
 
 func requireHerdrOnHost(client herdr.Client) error {
@@ -35,15 +35,12 @@ func requireHerdrOnHost(client herdr.Client) error {
 // stopRunning は稼働中の sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする
 // (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。host に herdr が無ければ、VM に触れずに止まる。
 func (l Lifecycle) stopRunning(ctx context.Context, name string) error {
-	enabled, err := l.herdrEnabled(name)
+	enabled, err := l.herdrRequired(name)
 	if err != nil {
 		return err
 	}
 	if !enabled {
 		return l.Runtime.StopSandbox(ctx, name)
-	}
-	if err := requireHerdrOnHost(l.Herdr); err != nil {
-		return err
 	}
 	enable, err := l.registry().DisableAndStop(ctx, name, l.Output)
 	if err != nil {
@@ -56,11 +53,8 @@ func (l Lifecycle) stopRunning(ctx context.Context, name string) error {
 // disableHerdrMachine は止まっている sandbox VM の herdr machine を、VM に触れずに無効にする (decision/0010)。
 // herdr 連携を有効にせずに作った VM では何もしない。
 func (l Lifecycle) disableHerdrMachine(ctx context.Context, name string) error {
-	enabled, err := l.herdrEnabled(name)
+	enabled, err := l.herdrRequired(name)
 	if err != nil || !enabled {
-		return err
-	}
-	if err := requireHerdrOnHost(l.Herdr); err != nil {
 		return err
 	}
 	enable, err := l.registry().Disable(ctx, name, l.Output)

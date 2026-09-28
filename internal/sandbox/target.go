@@ -22,6 +22,8 @@ type sandboxTarget struct {
 	Repo string
 	// URL は <repo> が git URL のときの URL。path のときは空。
 	URL string
+	// Input は利用者が打った <repo> そのまま。復旧手順のコマンドに使う。
+	Input string
 }
 
 // FromGitURL は <repo> が git URL だったかを返す。
@@ -60,7 +62,7 @@ func resolveTarget(input, cacheRoot string) (sandboxTarget, error) {
 		if err := validateName(name); err != nil {
 			return sandboxTarget{}, fmt.Errorf("git URL %s から sandbox VM の名前を決められない: %w", input, err)
 		}
-		return sandboxTarget{Name: name, Repo: filepath.Join(cacheRoot, name), URL: input}, nil
+		return sandboxTarget{Name: name, Repo: filepath.Join(cacheRoot, name), URL: input, Input: input}, nil
 	}
 	repo, err := filepath.Abs(input)
 	if err != nil {
@@ -70,7 +72,7 @@ func resolveTarget(input, cacheRoot string) (sandboxTarget, error) {
 	if err := validateName(name); err != nil {
 		return sandboxTarget{}, fmt.Errorf("repo のディレクトリ名 %s を sandbox VM の名前にできない: %w", name, err)
 	}
-	return sandboxTarget{Name: name, Repo: repo}, nil
+	return sandboxTarget{Name: name, Repo: repo, Input: input}, nil
 }
 
 func validateName(name string) error {

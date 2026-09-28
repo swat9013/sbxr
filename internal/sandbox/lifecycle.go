@@ -25,15 +25,12 @@ type Places struct {
 // 入口はどれも、利用者が打った <repo> (path か git URL) を受け取る。状態の調べ・宣言の確定・前提の確認・片付けは
 // 入口の内側で行い、失敗には復旧手順を添える (手順には受け取った <repo> をそのまま使う)。
 type Lifecycle struct {
-	// Runtime は sandbox VM の実行基盤。
 	Runtime runtime.Runtime
 	// Herdr は host の herdr。herdr 連携を有効にした VM だけが使う。
-	Herdr  herdr.Client
-	Places Places
-	// UserConfig は user 設定の path。
+	Herdr      herdr.Client
+	Places     Places
 	UserConfig string
-	// Clone は git URL を clone する。
-	Clone Cloner
+	Clone      Cloner
 	// ReadSecrets は secret ファイルの値を読む。確認関門の後に、配線する secret があるときも無いときも呼ぶ。
 	ReadSecrets func() (secret.Values, error)
 	// Output は進み具合と案内の出力先。
@@ -53,14 +50,12 @@ type Gate interface {
 // Proposal は確認関門で見せるもの。
 type Proposal struct {
 	// Summary は承認を求める前に見せる内容 (作る内容、撤去で失われるもの)。
-	Summary string
-	// Question は承認を求める問い。
+	Summary  string
 	Question string
 }
 
 // PlanResult は plan の結果。
 type PlanResult struct {
-	// Summary は作られる内容。
 	Summary string
 	// Drift は作成時の宣言との差分。作成済みの VM が無ければ nil。
 	Drift *Comparison
@@ -68,7 +63,6 @@ type PlanResult struct {
 
 // CreateResult は create の結果。
 type CreateResult struct {
-	// Name は sandbox VM の名前。
 	Name    string
 	Outcome CreateOutcome
 	// Drift は作成済みの VM の、作成時の宣言との差分。作ったときは nil。
@@ -87,14 +81,12 @@ const (
 
 // StopResult は stop の結果。
 type StopResult struct {
-	// Name は sandbox VM の名前。
 	Name    string
 	Outcome StopOutcome
 }
 
 // DestroyResult は destroy の結果。
 type DestroyResult struct {
-	// Name は撤去した sandbox VM の名前。
 	Name string
 }
 
@@ -121,6 +113,18 @@ const (
 // errDeclined は確認関門で承認されなかったときの error。
 var errDeclined = errors.New("中止した")
 
+// approve は確認関門で承認を得る。承認されなければ errDeclined。確かめられなければ (端末が無い等)、確認を省く手順を添える。
+func approve(ctx context.Context, gate Gate, proposal Proposal) error {
+	approved, err := gate.Approve(ctx, proposal)
+	if err != nil {
+		return fmt.Errorf("%w (確認を省くなら --yes)", err)
+	}
+	if !approved {
+		return errDeclined
+	}
+	return nil
+}
+
 // Plan は作られる内容を確定して返す。作成済みの VM があれば、作成時の宣言との drift も返す。
 // host の管理状態・sandbox VM・global rule のどれも変えない (git URL は一時ディレクトリへ clone して読む)。
 func (l Lifecycle) Plan(ctx context.Context, repo string) (PlanResult, error) {
@@ -140,17 +144,18 @@ func (l Lifecycle) Plan(ctx context.Context, repo string) (PlanResult, error) {
 	if err != nil {
 		return PlanResult{}, err
 	}
-	result := PlanResult{Summary: summary}
 	record, found, err := readRecord(l.Places, target)
-	if err != nil || !found {
-		return result, err
+	if err != nil {
+		return PlanResult{}, err
+	}
+	if !found {
+		return PlanResult{Summary: summary}, nil
 	}
 	comparison, err := loaded.drift(record)
 	if err != nil {
 		return PlanResult{}, err
 	}
-	result.Drift = &comparison
-	return result, nil
+	return PlanResult{Summary: summary, Drift: &comparison}, nil
 }
 
 // Create は、未作成なら確認関門を通して sandbox VM を作る。作成済みなら作らずに drift を報告し、差分があれば error を返す。
@@ -167,9 +172,12 @@ func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateRe
 	name := target.Name
 	switch observed.state {
 	case stateAbsent:
-		return CreateResult{Name: name, Outcome: Created}, l.createFromAbsent(ctx, target, repo, gate)
+		if err := l.createFromAbsent(ctx, target, gate); err != nil {
+			return CreateResult{}, err
+		}
+		return CreateResult{Name: name, Outcome: Created}, nil
 	case stateRunning, stateStopped:
-		return l.reportCreated(ctx, target, observed.record, repo)
+		return l.reportCreated(ctx, target, observed.record)
 	case stateIncompleteStopped:
 		return CreateResult{}, fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo)
 	case stateIncompleteRunning:
@@ -184,7 +192,7 @@ func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateRe
 
 // Stop は sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする (ADR 0007)。
 // 停止中の VM は、止めずに herdr machine を無効にする (外部停止の後に herdr が VM を起こし直さないように。decision/0010)。
-// 作成途中の VM は herdr machine を登録する前なので、herdr には触れない。
+// 作成途中・停止の VM には触れない (VM が無いこともある)。
 func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 	target, err := resolveTarget(repo, l.Places.CacheRoot)
 	if err != nil {
@@ -195,16 +203,14 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 		return StopResult{}, err
 	}
 	name := target.Name
-	stopped, alreadyStopped := StopResult{Name: name, Outcome: Stopped}, StopResult{Name: name, Outcome: AlreadyStopped}
 	switch observed.state {
-	case stateRunning:
-		return stopped, l.stopRunning(ctx, name)
-	case stateIncompleteRunning:
-		return stopped, l.Runtime.StopSandbox(ctx, name)
+	case stateRunning, stateIncompleteRunning:
+		// 作成途中の VM の herdr machine は未登録だが、同じ名前の前の VM の登録が残っていれば無効にする
+		return stopResult(name, Stopped, l.stopRunning(ctx, name))
 	case stateStopped:
-		return alreadyStopped, l.disableHerdrMachine(ctx, name)
+		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name))
 	case stateIncompleteStopped:
-		return alreadyStopped, nil
+		return StopResult{Name: name, Outcome: AlreadyStopped}, nil
 	case stateAbsent:
 		return StopResult{}, fmt.Errorf("sandbox VM %s は無い", name)
 	case stateVMGone: // 止める VM が無い。herdr machine にも触れない
@@ -213,6 +219,13 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 		return StopResult{}, observed.outsideMachine(name)
 	}
 	return StopResult{}, unexpectedState(name, observed.state, "stop")
+}
+
+func stopResult(name string, outcome StopOutcome, err error) (StopResult, error) {
+	if err != nil {
+		return StopResult{}, err
+	}
+	return StopResult{Name: name, Outcome: outcome}, nil
 }
 
 // Destroy は確認関門を通して sandbox VM を撤去し、herdr machine・cache clone・状態ディレクトリを片付ける。
@@ -224,35 +237,34 @@ func (l Lifecycle) Destroy(ctx context.Context, repo string, gate Gate, running 
 	if err != nil {
 		return DestroyResult{}, err
 	}
-	return DestroyResult{Name: target.Name}, l.destroy(ctx, target, repo, gate, running)
+	if err := l.destroy(ctx, target, gate, running); err != nil {
+		return DestroyResult{}, err
+	}
+	return DestroyResult{Name: target.Name}, nil
 }
 
-func (l Lifecycle) destroy(ctx context.Context, target sandboxTarget, repo string, gate Gate, running RunningPolicy) error {
+func (l Lifecycle) destroy(ctx context.Context, target sandboxTarget, gate Gate, running RunningPolicy) error {
 	// 確認の前に、撤去できない理由があれば伝える
-	if err := l.requireDestroyable(ctx, target, repo, running); err != nil {
+	if err := l.requireDestroyable(ctx, target, running); err != nil {
 		return err
 	}
-	if err := l.requireHerdrFor(target.Name); err != nil {
+	if _, err := l.herdrRequired(target.Name); err != nil {
 		return err
 	}
-	approved, err := gate.Approve(ctx, Proposal{
+	if err := approve(ctx, gate, Proposal{
 		Summary:  fmt.Sprintf("sandbox VM %s を撤去する。VM 内の commit と変更は失われる\n", target.Name),
 		Question: "撤去する? [y/N]: ",
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
-	if !approved {
-		return errDeclined
-	}
-	if err := l.requireDestroyable(ctx, target, repo, running); err != nil { // 確認の間に起動したか
+	if err := l.requireDestroyable(ctx, target, running); err != nil { // 確認の間に起動したか
 		return err
 	}
 	return l.remove(ctx, target)
 }
 
 // requireDestroyable は target の状態を読み、撤去できなければ理由を error で返す。
-func (l Lifecycle) requireDestroyable(ctx context.Context, target sandboxTarget, repo string, running RunningPolicy) error {
+func (l Lifecycle) requireDestroyable(ctx context.Context, target sandboxTarget, running RunningPolicy) error {
 	observed, err := l.inspect(ctx, target)
 	if err != nil {
 		return err
@@ -265,7 +277,7 @@ func (l Lifecycle) requireDestroyable(ctx context.Context, target sandboxTarget,
 		if running == RemoveRunning {
 			return nil
 		}
-		return fmt.Errorf("sandbox VM %s は %s (使用中かを確かめられない)。sbxr stop %s で止めてから撤去するか、--force で撤去する", name, observed.status, repo)
+		return fmt.Errorf("sandbox VM %s は %s (使用中かを確かめられない)。sbxr stop %s で止めてから撤去するか、--force で撤去する", name, observed.status, target.Input)
 	case stateAbsent:
 		return fmt.Errorf("sandbox VM %s は無い", name)
 	case stateUnmanaged, stateOtherSource:
@@ -304,10 +316,12 @@ func (l Lifecycle) remove(ctx context.Context, target sandboxTarget) error {
 
 // createFromAbsent は未作成の sandbox VM を、確認関門を通して作る。
 // 出所を記録する前に止まったら、書きかけの状態ディレクトリと cache clone を消して未作成に戻す (decision/0011)。
-func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, repo string, gate Gate) (err error) {
-	recorded := false
+func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, gate Gate) (err error) {
+	// discardOnFailure は、失敗したら書きかけを片付けるか。出所を記録した後と、確認の間に別の create が
+	// 同じ名前を使い始めたときは片付けない (前者は destroy が、後者はその create が持ち主)
+	discardOnFailure := true
 	defer func() {
-		if err != nil && !recorded {
+		if err != nil && discardOnFailure {
 			l.discardUnrecorded(target)
 		}
 	}()
@@ -316,7 +330,7 @@ func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, r
 			return err
 		}
 	}
-	loaded, err := l.loadDeclaration(ctx, target, target.Repo)
+	loaded, err := l.loadDeclarationAndWarn(ctx, target, target.Repo)
 	if err != nil {
 		return err
 	}
@@ -328,7 +342,7 @@ func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, r
 	if err != nil {
 		return err
 	}
-	if prepared.Declaration.Herdr != nil { // 確認関門の前に止める
+	if prepared.Declaration.herdrEnabled() { // 確認関門の前に止める
 		if err := requireHerdrOnHost(l.Herdr); err != nil {
 			return err
 		}
@@ -340,12 +354,17 @@ func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, r
 	if len(prepared.DroppedRepoEgress) > 0 {
 		summary += fmt.Sprintf("git URL を --yes で通したので、repo 宣言の egress (%d 件) を落とした\n", len(prepared.DroppedRepoEgress))
 	}
-	approved, err := gate.Approve(ctx, Proposal{Summary: summary, Question: fmt.Sprintf("sandbox VM %s を作る? [y/N]: ", target.Name)})
+	if err := approve(ctx, gate, Proposal{Summary: summary, Question: fmt.Sprintf("sandbox VM %s を作る? [y/N]: ", target.Name)}); err != nil {
+		return err
+	}
+	// 確認の間に同じ名前の VM が作られていたら、その状態ディレクトリを書き換えも片付けもしない
+	observed, err := l.inspect(ctx, target)
 	if err != nil {
 		return err
 	}
-	if !approved {
-		return errDeclined
+	if observed.state != stateAbsent {
+		discardOnFailure = false
+		return fmt.Errorf("確認の間に sandbox VM %s の状態が %s に変わったので作らない。sbxr create %s で今の状態を確かめる", target.Name, observed.state, target.Input)
 	}
 	values, err := l.ReadSecrets()
 	if err != nil {
@@ -354,33 +373,40 @@ func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, r
 	if err := prepared.Wiring.RequireValues(values); err != nil { // 状態ディレクトリを書く前に止める (UC2 5a)
 		return err
 	}
-	return l.build(ctx, prepared, values, repo, &recorded)
+	recorded, err := l.build(ctx, prepared, values)
+	discardOnFailure = !recorded
+	return err
 }
 
 // build は作る内容を組み立てて実行基盤に定義と作成を頼み (secret と rule をどの順で置くかは実行基盤が守る。decision/0009)、
 // VM の中を宣言どおりにし (materialize → read-back → init → boot)、VM 内から egress 自己検証を行う。
-// 状態ディレクトリは定義 → 作成の最初の記録 → 出所の順に書き、出所を書けたら recorded を立てる。
+// 状態ディレクトリは定義 → 作成の最初の記録 → 出所の順に書き、出所を書けたかを recorded で返す。
 // 出所を書いた後の失敗は、状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
 // 作成が終わった印 (作成時の宣言) は最後に書き、herdr machine はその後に登録する。
-func (l Lifecycle) build(ctx context.Context, prepared preparation, values secret.Values, repo string, recorded *bool) error {
-	rt := l.Runtime
-	name := prepared.Target.Name
-	dir := l.Places.stateDirOf(name)
+func (l Lifecycle) build(ctx context.Context, prepared preparation, values secret.Values) (recorded bool, err error) {
+	dir := l.Places.stateDirOf(prepared.Target.Name)
 	spec, err := sandboxSpec(prepared, values)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := dir.ensure(); err != nil {
-		return err
+		return false, err
 	}
-	if err := rt.DefineSandbox(dir.path, spec); err != nil {
-		return err
+	if err := l.Runtime.DefineSandbox(dir.path, spec); err != nil {
+		return false, err
 	}
-	herdrEnabled := prepared.Declaration.Herdr != nil
+	herdrEnabled := prepared.Declaration.herdrEnabled()
 	if err := dir.writeCreation(prepared.Target.Source(), creation{Herdr: &herdrEnabled}); err != nil {
-		return err
+		return false, err
 	}
-	*recorded = true
+	return true, l.createRecorded(ctx, prepared, spec)
+}
+
+// createRecorded は出所を記録した後の段: VM を作り、中を宣言どおりにし、作成時の宣言を書いて herdr machine を登録する。
+func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spec runtime.SandboxSpec) error {
+	rt := l.Runtime
+	name, repo := prepared.Target.Name, prepared.Target.Input
+	dir := l.Places.stateDirOf(name)
 	// VM は稼働したまま残る (destroy は稼働中の VM を拒むので、先に止める)
 	leftRunning := func(err error) error {
 		return fmt.Errorf("%w\nsandbox VM %s は調べられるように残した。復旧: sbxr stop %s → sbxr destroy %s → sbxr create %s", err, name, repo, repo, repo)
@@ -398,7 +424,7 @@ func (l Lifecycle) build(ctx context.Context, prepared preparation, values secre
 	if err := dir.writeRecord(creationRecord{Declaration: prepared.Declaration, RepoEgress: prepared.RepoEgress}); err != nil {
 		return leftRunning(err)
 	}
-	if !herdrEnabled {
+	if !prepared.Declaration.herdrEnabled() {
 		return nil
 	}
 	if err := l.registry().Register(ctx, name, l.Output); err != nil {
@@ -428,25 +454,25 @@ func (l Lifecycle) discardUnrecorded(target sandboxTarget) {
 
 // reportCreated は作成済みの sandbox VM について、作成時の宣言からの drift を返す。drift があれば error も返す。
 // 作成にも destroy にも進まない。
-func (l Lifecycle) reportCreated(ctx context.Context, target sandboxTarget, record creationRecord, repo string) (CreateResult, error) {
+func (l Lifecycle) reportCreated(ctx context.Context, target sandboxTarget, record creationRecord) (CreateResult, error) {
 	// git URL は default branch の HEAD の repo 宣言を読む (VM の cache clone には触れない)
+	var comparison Comparison
 	loaded, err := l.loadCurrentDeclaration(ctx, target)
-	if err != nil {
-		return CreateResult{}, fmt.Errorf("sandbox VM %s は既にある。現在の宣言を確定できないので作成時との差分を確かめられない: %w", target.Name, err)
+	if err == nil {
+		comparison, err = loaded.drift(record)
 	}
-	comparison, err := loaded.drift(record)
 	if err != nil {
 		return CreateResult{}, fmt.Errorf("sandbox VM %s は既にある。現在の宣言を確定できないので作成時との差分を確かめられない: %w", target.Name, err)
 	}
 	result := CreateResult{Name: target.Name, Outcome: AlreadyCreated, Drift: &comparison}
 	if len(comparison.Differences) > 0 {
-		return result, fmt.Errorf("sandbox VM %s は既にあり、宣言が作成時から変わっている。反映するなら作り直す: sbxr destroy %s → sbxr create %s", target.Name, repo, repo)
+		return result, fmt.Errorf("sandbox VM %s は既にあり、宣言が作成時から変わっている。反映するなら作り直す: sbxr destroy %s → sbxr create %s", target.Name, target.Input, target.Input)
 	}
 	return result, nil
 }
 
-// loadDeclaration は repoDir の宣言を読み、警告を出す。
-func (l Lifecycle) loadDeclaration(ctx context.Context, target sandboxTarget, repoDir string) (loadedDeclaration, error) {
+// loadDeclarationAndWarn は repoDir の宣言を読み、読みながら見つけた警告を出す。
+func (l Lifecycle) loadDeclarationAndWarn(ctx context.Context, target sandboxTarget, repoDir string) (loadedDeclaration, error) {
 	loaded, err := loadDeclaration(ctx, l.UserConfig, target, repoDir)
 	if err != nil {
 		return loadedDeclaration{}, err
@@ -459,7 +485,7 @@ func (l Lifecycle) loadDeclaration(ctx context.Context, target sandboxTarget, re
 // (host に何も残さず、作成済みの VM の cache clone にも触れない)。
 func (l Lifecycle) loadCurrentDeclaration(ctx context.Context, target sandboxTarget) (loadedDeclaration, error) {
 	if !target.FromGitURL() {
-		return l.loadDeclaration(ctx, target, target.Repo)
+		return l.loadDeclarationAndWarn(ctx, target, target.Repo)
 	}
 	tmp, err := os.MkdirTemp("", "sbxr-read-")
 	if err != nil {
@@ -471,16 +497,7 @@ func (l Lifecycle) loadCurrentDeclaration(ctx context.Context, target sandboxTar
 	if err := freshClone(ctx, l.Clone, readable); err != nil {
 		return loadedDeclaration{}, err
 	}
-	return l.loadDeclaration(ctx, target, readable.Repo)
-}
-
-// drift は現在の宣言を作成時と同じ repo の egress の扱いで確定し、作成時の宣言と比べる。
-func (d loadedDeclaration) drift(record creationRecord) (Comparison, error) {
-	current, err := d.prepare(record.RepoEgress)
-	if err != nil {
-		return Comparison{}, err
-	}
-	return record.Drift(current.Declaration)
+	return l.loadDeclarationAndWarn(ctx, target, readable.Repo)
 }
 
 // sandboxSpec は確定した宣言と secret の値から、実行基盤に渡す作る内容を組み立てる。

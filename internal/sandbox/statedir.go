@@ -25,8 +25,8 @@ const (
 	repoEgressDroppedFile = "repo-egress-dropped"
 )
 
-// StateDir は sandbox VM の状態ディレクトリの path。
-func (p Places) StateDir(name string) string {
+// stateDirPath は sandbox VM の状態ディレクトリの path。
+func (p Places) stateDirPath(name string) string {
 	return filepath.Join(p.StateRoot, name)
 }
 
@@ -42,7 +42,7 @@ type stateDir struct {
 }
 
 func (p Places) stateDirOf(name string) stateDir {
-	return stateDir{path: p.StateDir(name)}
+	return stateDir{path: p.stateDirPath(name)}
 }
 
 // ensure は状態ディレクトリを持ち主だけが読み書きできる mode で作る (VM の環境変数を含む定義が置かれる)。

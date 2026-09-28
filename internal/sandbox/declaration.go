@@ -33,6 +33,11 @@ type sandboxDeclaration struct {
 	Herdr *herdrPin `yaml:"herdr,omitempty"`
 }
 
+// herdrEnabled は herdr 連携を有効にした宣言か。
+func (d sandboxDeclaration) herdrEnabled() bool {
+	return d.Herdr != nil
+}
+
 // herdrPin は作成時に確定した herdr 連携 (VM に入れる版)。
 type herdrPin struct {
 	Version string `yaml:"version"`
@@ -126,6 +131,15 @@ func (l loadedDeclaration) prepare(repoEgress repoEgressPolicy) (preparation, er
 	}
 	decl.Secrets = prepared.Wiring.WiredSecrets()
 	return prepared, nil
+}
+
+// drift は現在の宣言を作成時と同じ repo の egress の扱いで確定し、作成時の宣言と比べる。
+func (d loadedDeclaration) drift(record creationRecord) (Comparison, error) {
+	current, err := d.prepare(record.RepoEgress)
+	if err != nil {
+		return Comparison{}, err
+	}
+	return record.Drift(current.Declaration)
 }
 
 // summary は確認関門と plan で見せる merge 結果。

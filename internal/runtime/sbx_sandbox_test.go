@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"os"
 	"slices"
@@ -129,6 +130,42 @@ func TestCreateSandboxSetsTheSecretsBeforeCreatingAndAddsTheRulesAfter(t *testin
 	ruleAt := slices.IndexFunc(stub.Writes, func(w string) bool { return strings.HasPrefix(w, "policy allow network --sandbox app") })
 	if secretAt < 0 || createAt < 0 || ruleAt < 0 || secretAt > createAt || createAt > ruleAt {
 		t.Errorf("sbx writes = %q, want the secret before env create and the rule after it", stub.Writes)
+	}
+}
+
+func TestCreateSandboxReportsAFailureAfterTheVMWasCreatedWithItsStep(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		arrange func(*sbxstub.Stub)
+		spec    SandboxSpec
+		want    CreatedStep
+	}{
+		{"a sandbox rule", func(s *sbxstub.Stub) { s.FailOn = "policy allow network --sandbox" },
+			SandboxSpec{Name: "app", Repo: "/src/app", EgressRules: []string{"api.example.com:443"}}, CreatedStepSandboxEgress},
+		{"the herdr kit", func(s *sbxstub.Stub) { s.VM.FailHerdrKit() },
+			SandboxSpec{Name: "app", Repo: "/src/app", Herdr: &HerdrInstall{Version: "v0.9.0"}}, CreatedStepHerdrStartup},
+		{"the kit dispatcher", func(s *sbxstub.Stub) { s.VM.FailKitStartup() },
+			SandboxSpec{Name: "app", Repo: "/src/app", Herdr: &HerdrInstall{Version: "v0.9.0"}}, CreatedStepHerdrStartup},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &sbxstub.Stub{VM: &sbxstub.FakeVM{}}
+			tc.arrange(stub)
+			sbx := NewSbx(stub.Run)
+			dir := t.TempDir()
+			if err := sbx.DefineSandbox(dir, tc.spec); err != nil {
+				t.Fatal(err)
+			}
+
+			err := sbx.CreateSandbox(context.Background(), dir, tc.spec)
+
+			var created *CreatedError
+			if !errors.As(err, &created) || created.Step != tc.want {
+				t.Errorf("CreateSandbox() error = %v, want a failure after the VM was created at step %d", err, tc.want)
+			}
+			if stub.Sandboxes["app"] != "running" {
+				t.Errorf("sandboxes = %v, want the VM kept running", stub.Sandboxes)
+			}
+		})
 	}
 }
 

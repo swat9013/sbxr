@@ -41,9 +41,13 @@ type world struct {
 
 	// 実行基盤に起こす失敗
 	failDefine, failEnvCreate, failRemove bool
-	failAfterCreated                      runtime.CreatedStep
-	// stops は StopSandbox を呼ばれた VM。
+	// failCreationRecord なら、定義を書いた後に状態ディレクトリを書き込めなくする (作成の最初の記録を書けない)。
+	failCreationRecord bool
+	failAfterCreated   runtime.CreatedStep
+	// stops は StopSandbox を呼ばれた VM (arrive が着いた後から数える)。
 	stops []string
+	// definitionsAtArrival は arrive が着いたときの実行基盤の定義の数。
+	definitionsAtArrival int
 }
 
 func newWorld(t *testing.T, userConfig string) *world {
@@ -194,6 +198,12 @@ type worldRuntime struct {
 func (r worldRuntime) DefineSandbox(stateDir string, spec runtime.SandboxSpec) error {
 	if r.w.failDefine {
 		return errors.New("定義を書けない")
+	}
+	if r.w.failCreationRecord {
+		if err := os.Chmod(stateDir, 0o500); err != nil {
+			return err
+		}
+		r.w.t.Cleanup(func() { _ = os.Chmod(stateDir, 0o700) })
 	}
 	return r.Runtime.DefineSandbox(stateDir, spec)
 }

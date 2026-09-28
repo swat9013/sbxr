@@ -40,9 +40,20 @@ func TestCreateDefinesTheSandboxWithItsNameRepoAndEnv(t *testing.T) {
 
 	w.mustCreate(repo)
 
-	got := w.vms.Definitions[w.places.StateDir("app")]
-	if got.Name != "app" || got.Repo != repo || !reflect.DeepEqual(got.Env, map[string]string{"GITLAB_HOST": "gitlab.example.com"}) || !got.ReplayBoot {
-		t.Errorf("definition = %+v, want app from %s with GITLAB_HOST and the boot replayed", got, repo)
+	got := w.vms.Definitions[w.places.stateDirPath("app")]
+	if got.Name != "app" || got.Repo != repo || !reflect.DeepEqual(got.Env, map[string]string{"GITLAB_HOST": "gitlab.example.com"}) {
+		t.Errorf("definition = %+v, want app from %s with GITLAB_HOST", got, repo)
+	}
+}
+
+// boot を宣言していなくても再生を頼む (再生の仕組みの無い VM を実 sbx で確かめていないので、作る VM の形を変えない)。
+func TestCreateAsksTheRuntimeToReplayBootEvenWithoutADeclaredBoot(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+
+	w.mustCreate(localRepo(t, "app", ""))
+
+	if !w.vms.Definitions[w.places.stateDirPath("app")].ReplayBoot {
+		t.Errorf("ReplayBoot = false, want the replay asked for")
 	}
 }
 
@@ -85,7 +96,7 @@ func TestCreateShowsWhatItCreatesAtTheGateBeforeCreatingAnything(t *testing.T) {
 	if len(gate.proposals) != 1 || !strings.Contains(gate.proposals[0].Summary, "api.example.com:443") || !strings.Contains(gate.proposals[0].Summary, "make setup") {
 		t.Errorf("proposals = %+v, want the merged declaration shown once", gate.proposals)
 	}
-	if exists(w.places.StateDir("app")) || len(w.vms.Sandboxes) != 0 {
+	if exists(w.places.stateDirPath("app")) || len(w.vms.Sandboxes) != 0 {
 		t.Errorf("state dir or sandbox was created after declining")
 	}
 }
@@ -106,7 +117,7 @@ func TestCreateStopsWhenTheGateCannotAsk(t *testing.T) {
 
 	_, err := w.create(localRepo(t, "app", ""), &fakeGate{err: noTerminal})
 
-	if !errors.Is(err, noTerminal) || exists(w.places.StateDir("app")) {
+	if !errors.Is(err, noTerminal) || exists(w.places.stateDirPath("app")) {
 		t.Errorf("Create() error = %v, want the gate's error before anything is created", err)
 	}
 }
@@ -151,7 +162,7 @@ func TestCreateStopsBeforeTheStateDirWhenASecretValueIsMissing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GITLAB_TOKEN") {
 		t.Errorf("Create() error = %v, want the missing GITLAB_TOKEN", err)
 	}
-	if exists(w.places.StateDir("app")) || exists(filepath.Join(w.places.CacheRoot, "app")) || len(w.vms.Definitions) != 0 {
+	if exists(w.places.stateDirPath("app")) || exists(filepath.Join(w.places.CacheRoot, "app")) || len(w.vms.Definitions) != 0 {
 		t.Errorf("create left a state dir, a cache clone or a definition despite the missing value")
 	}
 }
@@ -161,7 +172,7 @@ func TestCreateStopsOnASecretRequestWithoutADefinition(t *testing.T) {
 
 	_, err := w.create(localRepo(t, "app", "version: 1\nsecrets: [jira]\n"), unattended())
 
-	if err == nil || !strings.Contains(err.Error(), "jira") || exists(w.places.StateDir("app")) {
+	if err == nil || !strings.Contains(err.Error(), "jira") || exists(w.places.stateDirPath("app")) {
 		t.Errorf("Create() error = %v, want it to name the undefined secret before anything is written", err)
 	}
 }
@@ -173,7 +184,7 @@ func TestCreateStopsBeforeTheGateWhenTheHostHasNoHerdr(t *testing.T) {
 
 	_, err := w.create(localRepo(t, "app", ""), gate)
 
-	if err == nil || len(gate.proposals) != 0 || exists(w.places.StateDir("app")) {
+	if err == nil || len(gate.proposals) != 0 || exists(w.places.stateDirPath("app")) {
 		t.Errorf("Create() error = %v, proposals = %d, want the missing herdr before the gate", err, len(gate.proposals))
 	}
 }
@@ -202,19 +213,26 @@ func TestCreateOfAGitURLClonesAgainInsteadOfReusingALeftoverClone(t *testing.T) 
 // --- create: 出所を記録する前の失敗 (decision/0011) ---
 
 func TestACreationThatFailsBeforeRecordingTheSourceLeavesNoStateDirOrCacheClone(t *testing.T) {
-	w := newWorld(t, testUserConfig)
-	w.failDefine = true
+	for name, fail := range map[string]func(w *world){
+		"実行基盤の定義":  func(w *world) { w.failDefine = true },
+		"作成の最初の記録": func(w *world) { w.failCreationRecord = true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, testUserConfig)
+			fail(w)
 
-	_, err := w.create(appURL, unattended())
+			_, err := w.create(appURL, unattended())
 
-	if err == nil {
-		t.Fatal("Create() error = nil, want the failure to define the sandbox")
-	}
-	if exists(w.places.StateDir("app")) || exists(filepath.Join(w.places.CacheRoot, "app")) {
-		t.Errorf("the half-written state dir or the cache clone was left; destroy cannot find them without a source")
-	}
-	if strings.Contains(err.Error(), "sbxr destroy") {
-		t.Errorf("error = %v, want no destroy suggested for a sandbox that is not there", err)
+			if err == nil {
+				t.Fatal("Create() error = nil, want the failure before the source")
+			}
+			if exists(w.places.stateDirPath("app")) || exists(filepath.Join(w.places.CacheRoot, "app")) {
+				t.Errorf("the half-written state dir or the cache clone was left; destroy cannot find them without a source")
+			}
+			if strings.Contains(err.Error(), "sbxr destroy") {
+				t.Errorf("error = %v, want no destroy suggested for a sandbox that is not there", err)
+			}
+		})
 	}
 }
 
@@ -227,7 +245,7 @@ func TestCreateFailureBeforeTheVMKeepsTheStateDirAndShowsHowToRecover(t *testing
 
 	_, err := w.create(repo, unattended())
 
-	if err == nil || !strings.Contains(err.Error(), "sbxr destroy "+repo) || !exists(w.places.StateDir("app")) {
+	if err == nil || !strings.Contains(err.Error(), "sbxr destroy "+repo) || !exists(w.places.stateDirPath("app")) {
 		t.Errorf("Create() error = %v, want the state dir kept and destroy suggested", err)
 	}
 }
@@ -372,10 +390,14 @@ func TestARepoNameThatWouldEscapeTheStateDirIsRejected(t *testing.T) {
 // --- stop ---
 
 func TestStopOfAStoppedVMLeavesTheVMAlone(t *testing.T) {
-	for _, from := range []state{stateStopped, stateIncompleteStopped} {
-		t.Run(from.String(), func(t *testing.T) {
+	for name, arrive := range map[string]func(w *world){
+		"停止中":         func(w *world) { w.arrive(stateStopped) },
+		"作成途中・停止":     func(w *world) { w.arrive(stateIncompleteStopped) },
+		"作成途中・VM が無い": arriveHalfCreatedWithoutAVM,
+	} {
+		t.Run(name, func(t *testing.T) {
 			w := newWorld(t, testUserConfig)
-			w.arrive(from)
+			arrive(w)
 
 			outcome, err := w.stop(w.repo())
 
@@ -383,6 +405,19 @@ func TestStopOfAStoppedVMLeavesTheVMAlone(t *testing.T) {
 				t.Errorf("Stop() = %v, %v, sbx stops = %v, want it reported as stopped without touching the VM", outcome, err, w.stops)
 			}
 		})
+	}
+}
+
+// arriveHalfCreatedWithoutAVM は、sbx の env create が secret を置いた後に VM を作れなかった作成途中の状態にする。
+func arriveHalfCreatedWithoutAVM(w *world) {
+	w.t.Helper()
+	w.failEnvCreate = true
+	if _, err := w.create(w.repo(), unattended()); err == nil {
+		w.t.Fatal("Create() error = nil, want the creation stopped before the VM")
+	}
+	w.failEnvCreate = false
+	if got := w.stateOf(w.repo()); got != stateIncompleteStopped || w.vms.Sandbox("app").Status != runtime.SandboxAbsent {
+		w.t.Fatalf("state = %s, VM = %s, want a half-created sandbox without a VM", got, w.vms.Sandbox("app").Status)
 	}
 }
 
@@ -448,28 +483,33 @@ func TestDestroyOfAGitURLRemovesTheCacheCloneAndDoesNotClone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if exists(w.places.StateDir("app")) || exists(filepath.Join(w.places.CacheRoot, "app")) || len(w.clones) != 0 {
+	if exists(w.places.stateDirPath("app")) || exists(filepath.Join(w.places.CacheRoot, "app")) || len(w.clones) != 0 {
 		t.Errorf("clones = %v, want the state dir and the cache clone removed without cloning", w.clones)
 	}
 }
 
-func TestDestroyOfAPathRepoKeepsTheRepoEvenAfterItWasDeleted(t *testing.T) {
+func TestDestroyOfAPathRepoKeepsTheRepo(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	w.arrive(stateStopped)
 
-	if err := w.destroy(w.repo(), RefuseRunning); err != nil {
-		t.Fatal(err)
-	}
-	if !exists(w.repo()) {
-		t.Errorf("destroy removed the user's repo")
-	}
+	err := w.destroy(w.repo(), RefuseRunning)
 
+	if err != nil || !exists(w.repo()) {
+		t.Errorf("Destroy() = %v, want the user's repo kept", err)
+	}
+}
+
+func TestDestroyWorksAfterTheLocalRepoWasDeleted(t *testing.T) {
+	w := newWorld(t, testUserConfig)
 	w.arrive(stateStopped)
 	if err := os.RemoveAll(w.repo()); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.destroy(w.repo(), RefuseRunning); err != nil || w.stateOf(w.repo()) != stateAbsent {
-		t.Errorf("Destroy() after the repo was deleted = %v, want the sandbox removed", err)
+
+	err := w.destroy(w.repo(), RefuseRunning)
+
+	if err != nil || w.stateOf(w.repo()) != stateAbsent {
+		t.Errorf("Destroy() = %v, want the sandbox removed", err)
 	}
 }
 
@@ -492,7 +532,7 @@ func TestDestroyRemovesTheSandboxSecretsEvenWithoutAVM(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if _, ok := w.vms.Sandboxes["app"]; ok || exists(w.places.StateDir("app")) {
+			if _, ok := w.vms.Sandboxes["app"]; ok || exists(w.places.stateDirPath("app")) {
 				t.Errorf("sandbox = %+v, want the secrets and the state dir removed", w.vms.Sandboxes["app"])
 			}
 		})
@@ -506,7 +546,7 @@ func TestDestroyKeepsTheStateDirWhenTheSandboxCannotBeRemoved(t *testing.T) {
 
 	err := w.destroy(w.repo(), RefuseRunning)
 
-	if err == nil || !exists(w.places.StateDir("app")) {
+	if err == nil || !exists(w.places.stateDirPath("app")) {
 		t.Errorf("Destroy() error = %v, want a failure that keeps the state dir for a retry", err)
 	}
 }
@@ -620,7 +660,7 @@ func TestHerdrIsNeverCalledWhenDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(w.herdr.Calls) != 0 || w.vms.Definitions[w.places.StateDir("app")].Herdr != nil {
+	if len(w.herdr.Calls) != 0 || w.vms.Definitions[w.places.stateDirPath("app")].Herdr != nil {
 		t.Errorf("herdr calls = %v, want none and no herdr installed", w.herdr.Calls)
 	}
 }
@@ -630,7 +670,7 @@ func TestCreateInstallsTheDeclaredHerdrAndRegistersTheSandbox(t *testing.T) {
 
 	w.mustCreate(localRepo(t, "app", ""))
 
-	if got := w.vms.Definitions[w.places.StateDir("app")].Herdr; got == nil || got.Version != "v0.9.0" {
+	if got := w.vms.Definitions[w.places.stateDirPath("app")].Herdr; got == nil || got.Version != "v0.9.0" {
 		t.Errorf("definition herdr = %+v, want v0.9.0", got)
 	}
 	if len(w.herdr.Machines) != 1 || w.herdr.Machines[0].Target != w.vms.SSHTarget("app") {
@@ -703,19 +743,48 @@ func TestStopWithoutHerdrOnTheHostLeavesTheVMRunning(t *testing.T) {
 	}
 }
 
-func TestStopOfAHalfCreatedVMLeavesHerdrAlone(t *testing.T) {
+// 作成途中の VM の machine は未登録だが、同じ名前の前の VM の解除に失敗した登録が有効なまま残りうる。
+// 残っていれば無効にしてから止める (herdr が繋ぎ直して起こすと、destroy が稼働中として拒む)。
+func TestStopOfAHalfCreatedVMDisablesALeftoverHerdrMachine(t *testing.T) {
 	w := newWorld(t, herdrUserConfig)
 	w.arrive(stateIncompleteRunning)
-	w.herdr.Missing = true
-	w.herdr.Calls = nil
+	w.herdr.Machines = []herdr.Machine{{ID: "old", Target: w.vms.SSHTarget("app"), Enabled: true}}
 
 	if _, err := w.stop(w.repo()); err != nil {
 		t.Fatal(err)
 	}
 
-	if len(w.herdr.Calls) != 0 {
-		t.Errorf("herdr calls = %v, want none before the machine is registered", w.herdr.Calls)
+	if w.herdr.Machines[0].Enabled || w.stateOf(w.repo()) != stateIncompleteStopped {
+		t.Errorf("machines = %v, state = %s, want the leftover disabled and the VM stopped", w.herdr.Machines, w.stateOf(w.repo()))
 	}
+}
+
+func TestCreateDoesNotTouchASandboxCreatedWhileTheGateWasOpen(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", "")
+	other := newWorld(t, testUserConfig)
+	gate := &creatingGate{fakeGate: unattended(), create: func() {
+		// 同じ置き場と実行基盤で、別の create が先に作り終える
+		other.vms, other.places = w.vms, w.places
+		other.mustCreate(repo)
+	}}
+
+	_, err := w.create(repo, gate)
+
+	if err == nil || w.stateOf(repo) != stateRunning {
+		t.Errorf("Create() error = %v, state = %s, want the other creation left running", err, w.stateOf(repo))
+	}
+}
+
+// creatingGate は承認を求められている間に、同じ名前の sandbox VM が別の create で作られる確認関門。
+type creatingGate struct {
+	*fakeGate
+	create func()
+}
+
+func (g *creatingGate) Approve(ctx context.Context, proposal Proposal) (bool, error) {
+	g.create()
+	return g.fakeGate.Approve(ctx, proposal)
 }
 
 func TestDestroyStopsBeforeTheGateWhenTheHostHasNoHerdr(t *testing.T) {
@@ -755,7 +824,7 @@ func TestDestroyOfAHalfCreatedSandboxRemovesTheHerdrMachineRecordedAtTheStart(t 
 	w := newWorld(t, herdrUserConfig)
 	w.arrive(stateIncompleteRunning)
 	w.herdr.Machines = []herdr.Machine{{ID: "m1", Target: w.vms.SSHTarget("app")}}
-	w.vms.Definitions[w.places.StateDir("app")] = runtime.SandboxSpec{Name: "app"} // 定義は herdr を導入しないと答える
+	w.vms.Definitions[w.places.stateDirPath("app")] = runtime.SandboxSpec{Name: "app"} // 定義は herdr を導入しないと答える
 
 	if err := w.destroy(w.repo(), RemoveRunning); err != nil {
 		t.Fatal(err)

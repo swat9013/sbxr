@@ -97,7 +97,7 @@ func (l Lifecycle) inspect(ctx context.Context, target sandboxTarget) (observati
 	return observation{state: stateRunning, status: status, record: record}, nil
 }
 
-// outsideMachine は、状態機械の外 (管理外・別出所) なら触らない理由を error で返す。
+// outsideMachine は、状態機械の外 (管理外・別出所) の VM に触らない理由を error で返す。状態機械の外の状態でだけ呼ぶ。
 func (o observation) outsideMachine(name string) error {
 	switch o.state {
 	case stateUnmanaged:
@@ -105,5 +105,5 @@ func (o observation) outsideMachine(name string) error {
 	case stateOtherSource:
 		return fmt.Errorf("sandbox VM %s は別の repo (%s) から作られている", name, o.recordedSource)
 	}
-	return nil
+	return fmt.Errorf("sandbox VM %s の状態 %s は状態機械の外ではない (sbxr の不具合)", name, o.state)
 }
