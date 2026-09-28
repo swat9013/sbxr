@@ -4,6 +4,7 @@ linters:
   # errcheck, govet, ineffassign, staticcheck, unused
   default: standard
   enable:
+    - errorlint
     - nolintlint
   exclusions:
     presets:
