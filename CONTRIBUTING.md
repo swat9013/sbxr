@@ -5,10 +5,10 @@ sbxr は v0.1.0 を release 済み。語彙は [CONTEXT.md](./CONTEXT.md)、設�
 ## セットアップ
 
 - 必要なものは [README.md](./README.md#必要なもの) を参照
-- clone ごとに secret 検査の pre-commit hook を有効化する（gitleaks が staged の内容を検査する）
+- clone ごとに pre-commit hook を有効化する（gitleaks が staged の内容を検査し、golangci-lint が CI と同じ `.golangci.yml` で整形する）
 
   ```sh
-  brew install pre-commit gitleaks
+  brew install pre-commit gitleaks golangci-lint
   pre-commit install
   ```
 
@@ -20,14 +20,19 @@ sbxr は v0.1.0 を release 済み。語彙は [CONTEXT.md](./CONTEXT.md)、設�
 
 ## gate（品質チェック）
 
-- commit 前: pre-commit の gitleaks と gofmt
-- PR / push: GitHub Actions で `go test ./...`・`golangci-lint`・`goreleaser check`
-- PR: GitHub Actions が `docs/design/sbxr/decision/` の既存 file の変更・削除・改名を拒む（decision は不変）
-- `v*` tag の push: release workflow が `go test ./...` の後に goreleaser で GitHub Release と `swat9013/homebrew-tap` の cask を出す（secret `HOMEBREW_TAP_GITHUB_TOKEN` が要る）
+- commit 前: pre-commit の gitleaks と `golangci-lint fmt`（gofmt・goimports）
+- PR と `main` への push: CI workflow（`.github/workflows/ci.yml`）が次を走らせる。`main` への merge には集約 job `ci-ok` の通過が要る（ruleset）
+  - test（ubuntu・macOS）: `go mod tidy -diff`・`go mod verify`・`go test -race -shuffle=on ./...`
+  - lint: `golangci-lint`（`.golangci.yml`。整形の崩れもここで落ちる）
+  - vulncheck: `govulncheck`（週 1 回の schedule でも走る）
+  - goreleaser-check: `goreleaser check`
+  - decision-immutable（PR だけ）: `docs/design/sbxr/decision/` の既存 file の変更・削除・改名を拒む（decision は不変）
+- `v*` tag の push: release workflow が CI workflow を呼び、通った後に goreleaser で GitHub Release と `swat9013/homebrew-tap` の cask を出す（secret `HOMEBREW_TAP_GITHUB_TOKEN` が要る）
+- 依存と actions の更新: Dependabot が週 1 回 PR を出す。actions は commit SHA で固定しているので、更新は Dependabot に任せる
 
 ## commit・PR 規約
 
-- commit message は Conventional Commits 形式で、subject は日本語で書く（例: `docs(adr): 0006 の前提が未実測の推論であることを明記する`）
+- commit message は Conventional Commits 形式で、subject は日本語で書く（例: `docs(adr): 0006 の前提が未実測の推論であることを明記する`）。Dependabot の commit（`chore(deps)`・`ci(deps)`）は例外で、生成された英語の subject のままにする
 - 設計判断を変える変更は、該当する ADR の追記・新規 ADR とあわせて出す
 
 ## issue の範囲

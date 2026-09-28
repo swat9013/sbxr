@@ -2,37 +2,66 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  schedule:
+    # merge の後に公開された脆弱性を拾う。schedule では vulncheck だけを走らせる
+    - cron: "0 0 * * 1"
+  workflow_call:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # main への push は merge ごとに検査を残したいので、取り消すのは PR の古い run だけにする
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: go test ./...
+          cache-dependency-path: go.sum
+      - run: go mod tidy -diff
+      - run: go mod verify
+      - run: go test -race -shuffle=on ./...
 
   lint:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v9
+          cache-dependency-path: go.sum
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.14
 
-  goreleaser-check:
+  vulncheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: goreleaser/goreleaser-action@v7
+      - uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+        with:
+          # 既定の 'stable' は setup-go で go-version-file より優先されるので、空にして go.mod の版で検査する
+          go-version-input: ""
+          go-version-file: go.mod
+
+  goreleaser-check:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           version: "~> v2"
           args: check
@@ -41,7 +70,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - env:
@@ -53,3 +82,13 @@ jobs:
             echo "$changed" >&2
             exit 1
           fi
+
+  # ruleset はこの job だけを必須にする。job を足したら needs にも足す
+  ci-ok:
+    if: always()
+    needs: [test, lint, vulncheck, goreleaser-check, decision-immutable]
+    runs-on: ubuntu-latest
+    steps:
+      # skipped は対象外のイベントで走らなかった job なので通す。failure と cancelled だけを落とす
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

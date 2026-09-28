@@ -5,8 +5,10 @@ repos:
       - id: gitleaks
   - repo: local
     hooks:
-      - id: gofmt
-        name: gofmt
-        entry: gofmt -l -w
+      # CI の lint と同じ .golangci.yml の formatters (gofmt, goimports) で整形する
+      - id: golangci-lint-fmt
+        name: golangci-lint fmt
+        entry: golangci-lint fmt
         language: system
         types: [go]
+        pass_filenames: false
