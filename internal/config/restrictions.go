@@ -20,7 +20,7 @@ const (
 
 // repoScopeTable はスコープ制限表。宣言の型が持つすべての key を分類する (分類の漏れは test が止める)。
 // 表に無い key の既定は「repo は書けない」(key を足したときに fail-closed に倒れる。ADR 0004 の改訂)。
-// 利用者が名前を付ける map の key は "*" で引く ("egress.*.allow")。
+// 行は declarationKeyOf の列で引く。宣言の型が利用者が名前を付ける map として読む key は "*" になる ("egress.*.allow")。
 // default と user (信頼済み) は制限を持たない。repo の egress は merge が sandbox スコープ rule として別に置く。
 var repoScopeTable = map[string]repoAccess{
 	"version":                repoWritesKey,

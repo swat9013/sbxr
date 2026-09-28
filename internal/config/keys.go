@@ -7,42 +7,50 @@ import (
 )
 
 // declarationKeys は宣言の型が読む key。名前は key を "." でつなぎ、利用者が名前を付ける map の key は "*" にする ("egress.*.allow")。
-// uncountableKeys は数え方が無くて数えられなかった key で、空であることを test が確かめる。
-var declarationKeys, uncountableKeys = countDeclarationKeys(reflect.TypeFor[Declaration]())
+// 列挙の仕方が無い key が型に無いことは test が確かめる。
+var declarationKeys, _ = listDeclarationKeys(reflect.TypeFor[Declaration]())
 
-// countDeclarationKeys は型が読む key を数える。yaml の key 名を tag に書いていない field と、
-// 要素が struct の list は数え方が無いので、黙って飛ばさずに uncountable に挙げる。
-func countDeclarationKeys(typ reflect.Type) (keys, uncountable []string) {
-	var count func(typ reflect.Type, parent string)
-	count = func(typ reflect.Type, parent string) {
+// listDeclarationKeys は型が読む key を列挙する。yaml の key 名を tag に書いていない field、要素が struct の list、
+// 要素が map か list の map と list は列挙の仕方が無いので、黙って飛ばさずに unlistable に挙げる。
+func listDeclarationKeys(typ reflect.Type) (keys, unlistable []string) {
+	var list func(typ reflect.Type, parent string)
+	list = func(typ reflect.Type, parent string) {
 		for field := range typ.Fields() {
 			name, _, _ := strings.Cut(field.Tag.Get("yaml"), ",")
 			if name == "-" {
 				continue
 			}
 			if name == "" {
-				uncountable = append(uncountable, typ.String()+"."+field.Name)
+				unlistable = append(unlistable, typ.String()+"."+field.Name)
 				continue
 			}
 			key := strings.TrimPrefix(parent+"."+name, ".")
 			keys = append(keys, key)
-			value := field.Type
-			for value.Kind() == reflect.Pointer {
-				value = value.Elem()
-			}
-			switch {
-			case value.Kind() == reflect.Struct:
-				count(value, key)
-			case value.Kind() == reflect.Map && value.Elem().Kind() == reflect.Struct:
-				keys = append(keys, key+".*")
-				count(value.Elem(), key+".*")
-			case value.Kind() == reflect.Slice && value.Elem().Kind() == reflect.Struct:
-				uncountable = append(uncountable, key)
+			value := pointee(field.Type)
+			switch value.Kind() {
+			case reflect.Struct:
+				list(value, key)
+			case reflect.Map, reflect.Slice:
+				switch elem := pointee(value.Elem()); {
+				case value.Kind() == reflect.Map && elem.Kind() == reflect.Struct:
+					keys = append(keys, key+".*")
+					list(elem, key+".*")
+				case elem.Kind() == reflect.Struct || elem.Kind() == reflect.Map || elem.Kind() == reflect.Slice:
+					unlistable = append(unlistable, key)
+				}
 			}
 		}
 	}
-	count(typ, "")
-	return keys, uncountable
+	list(typ, "")
+	return keys, unlistable
+}
+
+// pointee は pointer を辿った先の型。
+func pointee(typ reflect.Type) reflect.Type {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	return typ
 }
 
 // declarationKeyOf は書かれた key の path を、型が読む key の名前の列にする。

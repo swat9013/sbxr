@@ -136,6 +136,7 @@ func decode(data []byte) (Declaration, error) {
 }
 
 // listWrittenKeys は書かれた key をすべての深さまで列挙する (スコープ制限の表を fail-closed に引くため。ADR 0004 の改訂)。
+// 値の書き忘れと空文字の検査もこの列挙を見る。
 // 型へ読み込んだ後では、null を書いた key と書いていない key を区別できないため YAML node から数える。
 func listWrittenKeys(data []byte) ([]writtenKey, error) {
 	var root yaml.Node
