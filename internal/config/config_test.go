@@ -286,6 +286,12 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 		{name: "2 つ目の YAML document", repoYAML: "version: 1\n---\ninit: [make setup]\n", needle: "document"},
 		{name: "enabledPlugins の値の書き忘れ", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk:\n", needle: "p@mk"},
 		{name: "secret_defs の定義が mapping でない", userYAML: "version: 1\nsecret_defs:\n  gitlab: GITLAB_TOKEN\n", needle: "cannot unmarshal"},
+		{name: "herdr の値の書き忘れ", userYAML: "version: 1\nherdr:\n  enabled:\n", needle: "herdr.enabled に値が無い"},
+		{name: "herdr の値が空", userYAML: "version: 1\nherdr:\n  version: ''\n", needle: "herdr.version が空"},
+		{name: "egress の group の値の書き忘れ", userYAML: "version: 1\negress:\n  api:\n    rationale:\n    allow: [api.example.com:443]\n", needle: "egress.api.rationale に値が無い"},
+		{name: "egress の group の値が空", userYAML: "version: 1\negress:\n  api:\n    rationale: ''\n    allow: [api.example.com:443]\n", needle: "egress.api.rationale が空"},
+		{name: "alias で空文字を書く", userYAML: "version: 1\nprofile:\n  env:\n    X: &e ''\ngit:\n  email: *e\n", needle: "git.email が空"},
+		{name: "alias で null を書く", userYAML: "version: 1\nprofile:\n  env:\n    X: &n ~\ngit:\n  email: *n\n", needle: "git.email に値が無い"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -293,6 +299,12 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 
 			assertErrorMentions(t, err, tt.needle)
 		})
+	}
+}
+
+func TestUserMayLeaveAnEnvValueOfTheProfileEmpty(t *testing.T) {
+	if _, err := Parse(ScopeUser, "user", []byte("version: 1\nprofile:\n  env:\n    EMPTY: ''\n")); err != nil {
+		t.Errorf("Parse() error = %v, want an empty env value kept as written", err)
 	}
 }
 
@@ -445,6 +457,81 @@ func TestRepoCannotExcludeEgressGroups(t *testing.T) {
 	_, err := mergeYAML(t, testDefault, "", "version: 1\negress:\n  github:\n    enabled: false\n")
 
 	assertErrorMentions(t, err, "egress.github.enabled")
+}
+
+// --- スコープ制限の表はすべての深さで引く (ADR 0004 の改訂) ---
+
+func TestRepoCannotWriteBelowAKeyTheTableAllowsAlone(t *testing.T) {
+	repo := "version: 1\negress:\n  api:\n    rationale:\n      note: hidden\n    allow: [api.example.com:443]\n"
+
+	_, err := Parse(ScopeRepo, "repo", []byte(repo))
+
+	assertErrorMentions(t, err, "egress.api.rationale.note は repo 宣言には書けない")
+}
+
+func TestRepoWritesAnythingBelowAKeyTheTableAllowsWithItsSubtree(t *testing.T) {
+	for name, repo := range map[string]string{
+		"profile.enabledPlugins": "version: 1\nprofile:\n  enabledPlugins:\n    repo-plugin@my.mk: true\n",
+		"egress.*.allow":         "version: 1\negress:\n  api:\n    rationale: API\n    allow: [api.example.com:443]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse(ScopeRepo, "repo", []byte(repo)); err != nil {
+				t.Errorf("Parse() error = %v, want the subtree written", err)
+			}
+		})
+	}
+}
+
+func TestRepoCannotHideAKeyBehindAnAlias(t *testing.T) {
+	for name, tt := range map[string]struct{ repo, needle string }{
+		"値を alias にする": {
+			repo:   "version: 1\negress:\n  api:\n    rationale: API\n    allow: [&hidden {enabled: false}]\n  github: *hidden\n",
+			needle: "egress.github.enabled は repo 宣言には書けない",
+		},
+		"top-level の key を alias にする": {
+			repo:   "version: 1\nprofile:\n  model: &herdr herdr\n*herdr : {enabled: true}\n",
+			needle: "herdr は repo 宣言には書けない",
+		},
+		"group の下の key を alias にする": {
+			repo:   "version: 1\negress:\n  api:\n    rationale: &allow enabled\n    allow: [api.example.com:443]\n  github: {*allow : false}\n",
+			needle: "egress.github.enabled は repo 宣言には書けない",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse(ScopeRepo, "repo", []byte(tt.repo))
+
+			assertErrorMentions(t, err, tt.needle)
+		})
+	}
+}
+
+func TestRepoCannotMergeInAKeyTheTableForbids(t *testing.T) {
+	for name, repo := range map[string]string{
+		"top-level": "version: 1\n<<: {herdr: {enabled: true}}\n",
+		"group の下":  "version: 1\negress:\n  github:\n    <<: {enabled: false}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse(ScopeRepo, "repo", []byte(repo))
+
+			assertErrorMentions(t, err, "<< は repo 宣言には書けない")
+		})
+	}
+}
+
+func TestRepoCannotWriteAKeyWhoseNameHasADot(t *testing.T) {
+	repo := "version: 1\negress:\n  api:\n    rationale: API\n    allow: [api.example.com:443]\n    allow.enabled: false\n"
+
+	_, err := Parse(ScopeRepo, "repo", []byte(repo))
+
+	assertErrorMentions(t, err, "egress.api.allow.enabled は repo 宣言には書けない")
+}
+
+func TestRepoIsToldOnceAboutAKeyItCannotWriteWithoutItsChildren(t *testing.T) {
+	_, err := Parse(ScopeRepo, "repo", []byte("version: 1\nprofile:\n  env:\n    A: x\n    B: y\n"))
+
+	if err == nil || strings.Count(err.Error(), "repo 宣言には書けない") != 1 {
+		t.Errorf("error = %v, want profile.env reported once", err)
+	}
 }
 
 // --- herdr 連携 (ADR 0007) ---

@@ -16,3 +16,12 @@ egress は sbxr 独自の形式で書き、実行基盤の rule へは adapter �
 - 制限表: repo は `template.run` と `template.inputs` を書けるが、`template.max_age_days` は書けない
 - 重ね方: `run` は init と同じく並べて足し、`inputs` は secrets と同じく和集合、`max_age_days` は override
 - repo の投入方式（clone・copy・mount）は宣言の key にせず、create の flag でだけ選ぶ（[decision/0002](../design/sbxr/decision/0002-workspace-modes.md)）
+
+## 改訂（2026-09-28、#47）
+
+スコープ制限の表を、すべての深さで fail-closed にする。
+
+- repo 宣言に書かれた key は、すべての深さまで列挙して表で引く。これまでは profile・git・herdr・egress の group の 1 段下までしか列挙しておらず、表で親だけを許した key の子を repo が書けた（上の改訂の `template.max_age_days` を禁じるには、`template` の下まで引く必要がある）
+- 表の各行は、「この key だけ書ける」か「この下は全部書ける」（例: `profile.enabledPlugins`・`egress.*.allow`）かを明示する。書けない key も表に行を持たせる
+- 宣言の型が持つすべての key が、表の中で「書ける」「書けない」のどちらかに分類されていることを、型から key を数える test で確かめる。型に key を足して表に分類を足し忘れると、test が止める
+- 表に無い key の既定は、これまでどおり「repo は書けない」
