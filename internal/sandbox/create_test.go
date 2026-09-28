@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/herdr"
+	"github.com/swat9013/sbxr/internal/herdr/herdrtest"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 	"github.com/swat9013/sbxr/internal/secret"
@@ -117,7 +118,7 @@ func TestCreateAsksTheRuntimeToInstallTheDeclaredHerdr(t *testing.T) {
 	rt := newAppRuntime(prepared)
 	places := Places{StateRoot: t.TempDir()}
 
-	host := &hostHerdr{}
+	host := &herdrtest.Fake{}
 
 	err := Create(context.Background(), Hosts{Runtime: rt, Herdr: host}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard)
 
@@ -127,8 +128,8 @@ func TestCreateAsksTheRuntimeToInstallTheDeclaredHerdr(t *testing.T) {
 	if got := rt.Definitions[places.StateDir("app")].Herdr; got == nil || got.Version != "v0.9.0" {
 		t.Errorf("definition herdr = %+v, want v0.9.0", got)
 	}
-	if !slices.Equal(host.added, []string{rt.SSHTarget("app")}) {
-		t.Errorf("herdr machines added = %q, want the VM registered", host.added)
+	if len(host.Machines) != 1 || host.Machines[0].Target != rt.SSHTarget("app") {
+		t.Errorf("herdr machines = %v, want the VM registered once", host.Machines)
 	}
 }
 
@@ -156,15 +157,15 @@ func TestDestroyOfAHalfCreatedSandboxRemovesTheHerdrMachineRecordedAtTheStart(t 
 	prepared.Declaration.Herdr = &HerdrPin{Version: "v0.9.0"}
 	rt := &failingCreate{Runtime: newAppRuntime(prepared), step: runtime.CreatedStepSandboxEgress}
 	places := Places{StateRoot: t.TempDir()}
-	host := &hostHerdr{machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app")}}}
+	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app")}}}
 	if err := Create(context.Background(), Hosts{Runtime: rt, Herdr: host}, places, prepared, secret.Values{"GITLAB_TOKEN": "glpat_x"}, io.Discard); err == nil {
 		t.Fatal("Create() = nil, want the creation stopped halfway")
 	}
 
 	_, err := Destroy(context.Background(), Hosts{Runtime: definitionWithoutHerdr{rt}, Herdr: host}, places, prepared.Target, RemoveRunning)
 
-	if err != nil || !slices.Equal(host.removed, []string{"m1"}) {
-		t.Errorf("Destroy() = %v, removed = %q, want the machine removed", err, host.removed)
+	if err != nil || len(host.Machines) != 0 {
+		t.Errorf("Destroy() = %v, machines = %v, want the machine removed", err, host.Machines)
 	}
 }
 
@@ -216,28 +217,6 @@ func (f *failingCreate) CreateSandbox(ctx context.Context, stateDir string, spec
 		return err
 	}
 	return &runtime.CreatedError{Step: f.step, Err: io.ErrUnexpectedEOF}
-}
-
-// hostHerdr は登録と解除を受け付ける host の herdr。machines は登録済みの machine。
-type hostHerdr struct {
-	machines []herdr.Machine
-	added    []string
-	removed  []string
-}
-
-func (h *hostHerdr) Available() error { return nil }
-func (h *hostHerdr) List(context.Context) ([]herdr.Machine, error) {
-	return slices.Clone(h.machines), nil
-}
-func (h *hostHerdr) Add(_ context.Context, target, _ string) error {
-	h.added = append(h.added, target)
-	return nil
-}
-func (h *hostHerdr) Enable(context.Context, string) error  { return nil }
-func (h *hostHerdr) Disable(context.Context, string) error { return nil }
-func (h *hostHerdr) Remove(_ context.Context, id string) error {
-	h.removed = append(h.removed, id)
-	return nil
 }
 
 // definitionWithoutHerdr は、定義が herdr を導入しないと答える実行基盤 (定義と作成の最初の記録が食い違う状況)。

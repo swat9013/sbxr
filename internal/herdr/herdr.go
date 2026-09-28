@@ -29,8 +29,8 @@ type Client interface {
 	Remove(ctx context.Context, id string) error
 }
 
-// Find は target の machine を返す。無ければ ok が false。
-func Find(machines []Machine, target string) (Machine, bool) {
+// findTarget は target の machine を返す。無ければ ok が false。
+func findTarget(machines []Machine, target string) (Machine, bool) {
 	for _, machine := range machines {
 		if machine.Target == target {
 			return machine, true
@@ -50,14 +50,14 @@ func removeArgs(id string) []string  { return []string{"machine", "remove", id} 
 
 func command(args []string) string { return "herdr " + strings.Join(args, " ") }
 
-// AddCommand は target を登録する herdr のコマンド (復旧手順として見せる)。
-func AddCommand(target, label string) string { return command(addArgs(target, label)) }
+// addCommand は target を登録する herdr のコマンド (復旧手順として見せる)。
+func addCommand(target, label string) string { return command(addArgs(target, label)) }
 
-// EnableCommand は machine を有効に戻す herdr のコマンド。
-func EnableCommand(id string) string { return command(enableArgs(id)) }
+// enableCommand は machine を有効に戻す herdr のコマンド。
+func enableCommand(id string) string { return command(enableArgs(id)) }
 
-// RemoveCommand は machine を解除する herdr のコマンド。
-func RemoveCommand(id string) string { return command(removeArgs(id)) }
+// removeCommand は machine を解除する herdr のコマンド。
+func removeCommand(id string) string { return command(removeArgs(id)) }
 
 // ParseMachines は herdr machine list --json の出力を読む。
 func ParseMachines(out []byte) ([]Machine, error) {

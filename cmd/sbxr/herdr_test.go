@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,71 +11,6 @@ import (
 	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 )
-
-// fakeHerdr は host の herdr を再現する。呼ばれた操作を Calls に起きた順に並べる。
-type fakeHerdr struct {
-	Machines []herdr.Machine
-	Calls    []string
-	// Missing が true なら host に herdr が無い。
-	Missing                          bool
-	FailAdd, FailDisable, FailRemove bool
-}
-
-var _ herdr.Client = (*fakeHerdr)(nil)
-
-func (f *fakeHerdr) Available() error {
-	f.Calls = append(f.Calls, "available")
-	if f.Missing {
-		return errors.New("host に herdr が無い")
-	}
-	return nil
-}
-
-func (f *fakeHerdr) List(context.Context) ([]herdr.Machine, error) {
-	f.Calls = append(f.Calls, "list")
-	return slices.Clone(f.Machines), nil
-}
-
-func (f *fakeHerdr) Add(_ context.Context, target, label string) error {
-	f.Calls = append(f.Calls, "add "+target+" "+label)
-	if f.FailAdd {
-		return errors.New("herdr machine add: exit status 1")
-	}
-	f.Machines = append(f.Machines, herdr.Machine{ID: fmt.Sprintf("id%d", len(f.Machines)+1), Target: target, Enabled: true})
-	return nil
-}
-
-func (f *fakeHerdr) Enable(_ context.Context, id string) error {
-	f.Calls = append(f.Calls, "enable "+id)
-	for i := range f.Machines {
-		if f.Machines[i].ID == id {
-			f.Machines[i].Enabled = true
-		}
-	}
-	return nil
-}
-
-func (f *fakeHerdr) Disable(_ context.Context, id string) error {
-	f.Calls = append(f.Calls, "disable "+id)
-	if f.FailDisable {
-		return errors.New("herdr machine disable: exit status 1")
-	}
-	for i := range f.Machines {
-		if f.Machines[i].ID == id {
-			f.Machines[i].Enabled = false
-		}
-	}
-	return nil
-}
-
-func (f *fakeHerdr) Remove(_ context.Context, id string) error {
-	f.Calls = append(f.Calls, "remove "+id)
-	if f.FailRemove {
-		return errors.New("herdr machine remove: exit status 1")
-	}
-	f.Machines = slices.DeleteFunc(f.Machines, func(m herdr.Machine) bool { return m.ID == id })
-	return nil
-}
 
 const herdrUserConfig = lifecycleUserConfig + "herdr:\n  enabled: true\n"
 
@@ -160,7 +92,7 @@ func TestCreateLeavesALeftoverRegistrationAloneAndShowsHowToReplaceIt(t *testing
 
 	_, err := lc.run(t, "create", repo, "--yes")
 
-	if err == nil || !strings.Contains(err.Error(), "herdr machine remove old; sbx exec app -- pkill -x herdr; herdr machine add app.sbx --label app") {
+	if err == nil || !strings.Contains(err.Error(), "herdr machine remove old; VM app の中で pkill -x herdr を実行してから herdr machine add app.sbx --label app") {
 		t.Errorf("error = %v, want a non-zero exit with how to replace the leftover", err)
 	}
 	if len(lc.herdr.Machines) != 1 || lc.herdr.Machines[0].ID != "old" {
@@ -189,38 +121,6 @@ func TestStopDisablesTheHerdrMachineFirstAndShowsHowToEnableIt(t *testing.T) {
 	}
 }
 
-func TestStopKeepsTheVMRunningWhenTheMachineCannotBeDisabled(t *testing.T) {
-	lc := herdrLifecycle(t)
-	repo := localRepo(t, "app", "")
-	lc.mustRun(t, "create", repo, "--yes")
-	lc.herdr.FailDisable = true
-
-	_, err := lc.run(t, "stop", repo)
-
-	if err == nil {
-		t.Fatal("stop succeeded, want the disable failure")
-	}
-	if lc.stub.Sandboxes["app"] != "running" {
-		t.Errorf("status = %q, want the VM left running (herdr would restart a stopped VM)", lc.stub.Sandboxes["app"])
-	}
-}
-
-func TestStopReenablesTheMachineWhenTheVMCannotBeStopped(t *testing.T) {
-	lc := herdrLifecycle(t)
-	repo := localRepo(t, "app", "")
-	lc.mustRun(t, "create", repo, "--yes")
-	lc.stub.FailOn = "stop"
-
-	_, err := lc.run(t, "stop", repo)
-
-	if err == nil {
-		t.Fatal("stop succeeded, want the sbx failure")
-	}
-	if !slices.Contains(lc.herdr.Calls, "enable id1") || !lc.herdr.Machines[0].Enabled {
-		t.Errorf("herdr calls = %v, want the machine enabled again for the still running VM", lc.herdr.Calls)
-	}
-}
-
 func TestStopWithoutHerdrOnTheHostIsAnErrorAndKeepsTheVMRunning(t *testing.T) {
 	lc := herdrLifecycle(t)
 	repo := localRepo(t, "app", "")
@@ -231,6 +131,9 @@ func TestStopWithoutHerdrOnTheHostIsAnErrorAndKeepsTheVMRunning(t *testing.T) {
 
 	if err == nil || lc.stub.Sandboxes["app"] != "running" {
 		t.Errorf("error = %v, status = %q, want an error with the VM left running", err, lc.stub.Sandboxes["app"])
+	}
+	if err != nil && !strings.Contains(err.Error(), "PATH に herdr を入れる") {
+		t.Errorf("error = %v, want how to put herdr on the host", err)
 	}
 }
 

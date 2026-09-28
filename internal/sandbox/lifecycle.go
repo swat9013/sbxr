@@ -13,6 +13,7 @@ import (
 
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/egress"
+	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/secret"
 )
@@ -159,6 +160,16 @@ type Inspection struct {
 	recordedSource string
 }
 
+// Hosts は sbxr が扱う外部: sandbox VM の実行基盤と host の herdr。
+type Hosts struct {
+	Runtime runtime.Runtime
+	Herdr   herdr.Client
+}
+
+func (h Hosts) registry() herdr.Registry {
+	return herdr.Registry{Client: h.Herdr, VM: h.Runtime}
+}
+
 // Inspect は target の sandbox VM と状態ディレクトリを調べる。
 func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Target) (Inspection, error) {
 	status, err := rt.SandboxStatus(ctx, target.Name)
@@ -240,7 +251,7 @@ func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, 
 		return err
 	}
 	if prepared.Declaration.Herdr != nil {
-		return registerHerdrMachine(ctx, hosts, name, progress)
+		return hosts.registry().Register(ctx, name, progress)
 	}
 	return nil
 }
@@ -372,4 +383,27 @@ func (p Prepared) Summary() (string, error) {
 	}
 	data, err := yaml.Marshal(view)
 	return string(data), err
+}
+
+// Stop は sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする (ADR 0007)。
+// host に herdr が無ければ、VM に触れずに error で止める。
+func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress io.Writer) error {
+	enabled, err := hosts.herdrEnabled(places.stateDirOf(name))
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return hosts.Runtime.StopSandbox(ctx, name)
+	}
+	if err := requireHerdrOnHost(hosts.Herdr); err != nil {
+		return err
+	}
+	enable, err := hosts.registry().DisableAndStop(ctx, name, progress)
+	if err != nil {
+		return err
+	}
+	if enable != "" {
+		logf(progress, "herdr: %s の herdr machine を無効にした (起動し直したら %s で有効に戻す)\n", name, enable)
+	}
+	return nil
 }

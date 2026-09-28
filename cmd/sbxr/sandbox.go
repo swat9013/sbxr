@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/sandbox"
 	"github.com/swat9013/sbxr/internal/secret"
@@ -192,7 +193,7 @@ func createApproved(cmd *cobra.Command, deps dependencies, places sandbox.Places
 		return false, err
 	}
 	if err := sandbox.Create(cmd.Context(), deps.hosts(), places, prepared, values, cmd.OutOrStdout()); err != nil {
-		var herdrErr *sandbox.HerdrMachineError
+		var herdrErr *herdr.RegistrationError
 		if errors.As(err, &herdrErr) { // VM は作り終えている
 			return true, fmt.Errorf("%w\nsandbox VM %s は作った。復旧: %s", err, target.Name, herdrErr.Recovery)
 		}
