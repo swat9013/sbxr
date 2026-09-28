@@ -211,7 +211,7 @@ func TestTheTableHasExactlyTheLinesOfTheStatechart(t *testing.T) {
 		t.Fatal(err)
 	}
 	var fromChart []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if m := statechartTransition.FindStringSubmatch(line); m != nil {
 			fromChart = append(fromChart, fmt.Sprintf("%s × %s [%s] → %s", statechartIDs[m[1]], m[3], m[4], statechartIDs[m[2]]))
 		} else if m := statechartUncovered.FindStringSubmatch(line); m != nil {

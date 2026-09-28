@@ -145,7 +145,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		if s.DropWrites {
 			return nil, nil
 		}
-		for _, resource := range strings.Split(args[3], ",") {
+		for resource := range strings.SplitSeq(args[3], ",") {
 			s.nextID++
 			s.Rules = append(s.Rules, GlobalAllow(fmt.Sprintf("added-%d", s.nextID), resource))
 		}

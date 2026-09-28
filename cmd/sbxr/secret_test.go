@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -161,9 +162,7 @@ func TestSecretSetupGithubDoesNotWriteATokenThatFailsAProbe(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			responses := recommendedToken()
-			for path, response := range override {
-				responses[path] = response
-			}
+			maps.Copy(responses, override)
 			github := &fakeGitHub{responses: responses}
 			prompter := &fakePrompter{lines: []string{"me/private"}, hidden: []string{"ghp_bad"}}
 			deps, secretFile := setupDeps(t, github.serve(t), prompter)

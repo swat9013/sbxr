@@ -22,7 +22,7 @@
 
 - commit 前: pre-commit の gitleaks と `golangci-lint fmt`（gofmt・goimports）
 - PR と `main` への push: CI workflow（`.github/workflows/ci.yml`）が次を走らせる。`main` への merge には集約 job `ci-ok` の通過が要る（ruleset）
-  - test（ubuntu・macOS）: `go mod tidy -diff`・`go mod verify`・`go test -race -shuffle=on ./...`
+  - test（ubuntu・macOS）: `go mod tidy -diff`・`go fix -diff ./...`・`go mod verify`・`go test -race -shuffle=on ./...`
   - lint: `golangci-lint`（`.golangci.yml`。整形の崩れもここで落ちる）
   - vulncheck: `govulncheck`（週 1 回の schedule でも走る）
   - goreleaser-check: `goreleaser check`

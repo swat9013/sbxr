@@ -55,8 +55,8 @@ func TestCompleteRequiresARationaleAndAllow(t *testing.T) {
 		needle string
 	}{
 		"rationale が無い":  {group: GroupDeclaration{Allow: []string{"x.example.com:443"}}, needle: "rationale"},
-		"allow が空":       {group: GroupDeclaration{Rationale: ptr("x")}, needle: "allow"},
-		"除外だけを書いた group": {group: GroupDeclaration{Enabled: ptr(false)}, needle: "rationale"},
+		"allow が空":       {group: GroupDeclaration{Rationale: new("x")}, needle: "allow"},
+		"除外だけを書いた group": {group: GroupDeclaration{Enabled: new(false)}, needle: "rationale"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := tt.group.Complete()
@@ -69,7 +69,7 @@ func TestCompleteRequiresARationaleAndAllow(t *testing.T) {
 }
 
 func TestCompleteKeepsAnExcludedGroupWithItsContents(t *testing.T) {
-	group, err := GroupDeclaration{Rationale: ptr("GitHub"), Allow: []string{"github.com:443"}, Enabled: ptr(false)}.Complete()
+	group, err := GroupDeclaration{Rationale: new("GitHub"), Allow: []string{"github.com:443"}, Enabled: new(false)}.Complete()
 
 	if err != nil || group.Enabled {
 		t.Errorf("Complete() = %+v, error = %v, want a valid group that is excluded", group, err)
@@ -77,18 +77,14 @@ func TestCompleteKeepsAnExcludedGroupWithItsContents(t *testing.T) {
 }
 
 func TestOverlayUnionsAllowAndLetsTheUpperScopeOverrideTheRest(t *testing.T) {
-	lower := GroupDeclaration{Rationale: ptr("GitHub"), Allow: []string{"github.com:443"}}
+	lower := GroupDeclaration{Rationale: new("GitHub"), Allow: []string{"github.com:443"}}
 
-	got := lower.Overlay(GroupDeclaration{Allow: []string{"ghe.example.com:443", "github.com:443"}, Enabled: ptr(false)})
+	got := lower.Overlay(GroupDeclaration{Allow: []string{"ghe.example.com:443", "github.com:443"}, Enabled: new(false)})
 
-	want := GroupDeclaration{Rationale: ptr("GitHub"), Allow: []string{"github.com:443", "ghe.example.com:443"}, Enabled: ptr(false)}
+	want := GroupDeclaration{Rationale: new("GitHub"), Allow: []string{"github.com:443", "ghe.example.com:443"}, Enabled: new(false)}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Overlay() = %+v, want %+v", got, want)
 	}
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }
 
 func TestDesiredResourcesSkipDisabledGroupsAndDeduplicate(t *testing.T) {

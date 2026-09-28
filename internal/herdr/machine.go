@@ -95,6 +95,7 @@ func (r Registry) DisableAndStop(ctx context.Context, sandbox string, progress i
 	if err := r.VM.StopSandbox(ctx, sandbox); err != nil {
 		// 止める側の中断 (Ctrl-C など) で、戻す操作まで止めない
 		if enableErr := r.Client.Enable(context.WithoutCancel(ctx), machine.ID); enableErr != nil {
+			//nolint:errorlint // 後始末の失敗は止められなかった原因ではない。wrap すると errors.Is が後始末の失敗にも一致する
 			return "", fmt.Errorf("%w (無効にした herdr machine も有効に戻せない: %s で戻す: %v)", err, enable, enableErr)
 		}
 		return "", err

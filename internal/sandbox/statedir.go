@@ -116,9 +116,13 @@ func (d stateDir) herdrEnabled(definedWithHerdr func(stateDir string) (bool, err
 	if !found {
 		return definedWithHerdr(d.path)
 	}
+	path := filepath.Join(d.path, creationFile)
 	var created creation
-	if err := yaml.Unmarshal(data, &created); err != nil || created.Herdr == nil {
-		return false, fmt.Errorf("作成の最初の記録 %s を読めない (herdr 連携の有無が無い): %v", filepath.Join(d.path, creationFile), err)
+	if err := yaml.Unmarshal(data, &created); err != nil {
+		return false, fmt.Errorf("作成の最初の記録 %s を読めない: %w", path, err)
+	}
+	if created.Herdr == nil {
+		return false, fmt.Errorf("作成の最初の記録 %s を読めない (herdr 連携の有無が無い)", path)
 	}
 	return *created.Herdr, nil
 }
