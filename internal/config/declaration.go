@@ -107,8 +107,6 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 type writtenKey struct {
 	path  []string // top-level から辿った key 名の列 ("egress", "github", "enabled")
 	value *yaml.Node
-	// table は制限表で引く列。利用者が名前を付ける map の key (egress の group 名) は "*" に置き換える ("egress", "*", "enabled")
-	table []string
 }
 
 // name は error に使う key 名 ("profile.model" のように親の key を前に付ける)。
@@ -144,7 +142,7 @@ func listWrittenKeys(data []byte) ([]writtenKey, error) {
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
 	}
-	return writtenKeysUnder(documentBody(&root), nil, nil, nil), nil
+	return writtenKeysUnder(documentBody(&root), nil, nil), nil
 }
 
 func documentBody(root *yaml.Node) *yaml.Node {
@@ -158,27 +156,25 @@ func documentBody(root *yaml.Node) *yaml.Node {
 // alias は key でも値でも参照先まで辿る (表が止める key を alias で隠させない)。list の要素の下の key は list の key の下として数える。
 // expanding は展開中の alias の参照先で、自分の祖先を指す alias を無限に降りない
 // (循環と過剰な展開は decode が先に止めるが、列挙はその順序に頼らない)。
-func writtenKeysUnder(node *yaml.Node, path, table []string, expanding []*yaml.Node) []writtenKey {
+func writtenKeysUnder(node *yaml.Node, path []string, expanding []*yaml.Node) []writtenKey {
 	var keys []writtenKey
 	switch node.Kind {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(node.Content); i += 2 {
-			name := resolved(node.Content[i]).Value
 			key := writtenKey{
-				path:  append(slices.Clip(path), name),
+				path:  append(slices.Clip(path), resolved(node.Content[i]).Value),
 				value: node.Content[i+1],
-				table: append(slices.Clip(table), tableSegment(table, name)),
 			}
 			keys = append(keys, key)
-			keys = append(keys, writtenKeysUnder(key.value, key.path, key.table, expanding)...)
+			keys = append(keys, writtenKeysUnder(key.value, key.path, expanding)...)
 		}
 	case yaml.SequenceNode:
 		for _, item := range node.Content {
-			keys = append(keys, writtenKeysUnder(item, path, table, expanding)...)
+			keys = append(keys, writtenKeysUnder(item, path, expanding)...)
 		}
 	case yaml.AliasNode:
 		if !slices.Contains(expanding, node.Alias) {
-			keys = writtenKeysUnder(node.Alias, path, table, append(slices.Clip(expanding), node.Alias))
+			keys = writtenKeysUnder(node.Alias, path, append(slices.Clip(expanding), node.Alias))
 		}
 	}
 	return keys
@@ -192,11 +188,14 @@ func resolved(node *yaml.Node) *yaml.Node {
 	return node
 }
 
-// checksEmptyValue は、値の書き忘れ (null) と空文字を止める key か。表は宣言の型が読む key をすべて行に持つので
-// (test が確かめる)、行のある key を止める。型が読まない深さの key (profile.env の変数など) の値は、空でも利用者の意図として通す。
+// checksEmptyValue は、値の書き忘れ (null) と空文字を止める key か。宣言の型が読む key を止める。
+// 型が読まない深さの key (profile.env の変数など) の値は、空でも利用者の意図として通す。
+// secret_defs の下は止めない。中身は secret.Definition.Validate が確かめ、空の service は placeholder 注入を表す。
 func (k writtenKey) checksEmptyValue() bool {
-	_, typed := tableRow(k.table)
-	return typed
+	if k.isBelow([]string{"secret_defs"}) {
+		return false
+	}
+	return readByDeclaration(declarationKeyOf(k.path))
 }
 
 // checkWrittenValues は、checksEmptyValue が選んだ key の値の書き忘れ (null) と、入れ子の key の空文字を止める。
