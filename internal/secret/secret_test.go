@@ -338,3 +338,29 @@ func TestVMEnvStopsWhenTwoSecretsGiveOneVarDifferentValues(t *testing.T) {
 
 	assertErrorMentions(t, err, "HOST")
 }
+
+// --- 作成時の宣言に残す形 ---
+
+func TestTheRecordOfAWiredSecretHoldsEverythingButTheValue(t *testing.T) {
+	plan := Plan{Wired: []Wire{{Name: "gitlab", Definition: Definition{
+		Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"},
+	}}}}
+
+	got := plan.WiredSecrets()
+
+	want := []WiredSecret{{Name: "gitlab", Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("WiredSecrets = %+v, want %+v", got, want)
+	}
+}
+
+func TestSandboxSecretsCarryTheValueOfTheKey(t *testing.T) {
+	plan := Plan{Wired: []Wire{{Name: "gitlab", Definition: Definition{Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN"}}}}
+
+	got, err := plan.SandboxSecrets(Values{"GITLAB_TOKEN": "glpat_x"})
+
+	want := []runtime.SandboxSecret{{Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Value: "glpat_x"}}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("SandboxSecrets = %+v, %v, want %+v", got, err, want)
+	}
+}

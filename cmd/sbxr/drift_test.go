@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 // --- 既存 VM への create と drift ---
@@ -96,6 +98,100 @@ func TestChangingTheHostsOfASecretDefinitionIsDrift(t *testing.T) {
 
 	if err == nil || !strings.Contains(out, "secrets") || !strings.Contains(out, "b.example.com") {
 		t.Errorf("error = %v, output = %q, want drift in the wired secrets", err, out)
+	}
+}
+
+// gitlabSecret は vars を持つ placeholder 注入の secret を配線する user 設定。defs は secret_defs.gitlab の中身。
+func gitlabSecret(defs string) string {
+	return lifecycleUserConfig + "secrets: [gitlab]\negress:\n  gitlab:\n    rationale: GitLab\n    allow: [gitlab.example.com:443]\n" +
+		"secret_defs:\n  gitlab:\n    hosts: [gitlab.example.com]\n    env: GITLAB_TOKEN\n" + defs
+}
+
+// secretDefChanges は作成後に secret 定義の vars か key を変える例。want は drift の「現在:」に出る値。
+var secretDefChanges = []struct {
+	name, defs, want string
+}{
+	{"vars", "    key: GITLAB_TOKEN\n    vars:\n      GITLAB_HOST: git.example.com\n", "git.example.com"},
+	{"key", "    key: GITLAB_PAT\n    vars:\n      GITLAB_HOST: gitlab.example.com\n", "GITLAB_PAT"},
+}
+
+// createWithGitlabSecret は vars を持つ secret を配線して sandbox VM を作り、user 設定の secret_defs.gitlab を defs に書き換える。
+func createWithGitlabSecret(t *testing.T, defs string) (*lifecycle, string) {
+	t.Helper()
+	lc := newLifecycle(t, gitlabSecret("    key: GITLAB_TOKEN\n    vars:\n      GITLAB_HOST: gitlab.example.com\n"))
+	secretFile, _ := lc.deps.secretFilePath()
+	if err := os.WriteFile(secretFile, []byte("GITLAB_TOKEN=glpat_x\nGITLAB_PAT=glpat_y\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	writeUserConfig(t, lc, gitlabSecret(defs))
+	return lc, repo
+}
+
+func TestPlanShowsChangingTheVarsOrKeyOfASecretDefinitionAsDrift(t *testing.T) {
+	for _, tc := range secretDefChanges {
+		t.Run(tc.name, func(t *testing.T) {
+			lc, repo := createWithGitlabSecret(t, tc.defs)
+
+			out := lc.mustRun(t, "plan", repo)
+
+			_, drift, _ := strings.Cut(out, "drift: ")
+			_, current, _ := strings.Cut(drift, "現在:")
+			if !strings.HasPrefix(drift, "作成時の宣言との差分が 1 箇所") || !strings.Contains(drift, "  secrets\n") || !strings.Contains(current, tc.want) {
+				t.Errorf("drift = %q, want the secrets difference with %q now", drift, tc.want)
+			}
+		})
+	}
+}
+
+func TestCreateStopsOnChangingTheVarsOrKeyOfASecretDefinition(t *testing.T) {
+	for _, tc := range secretDefChanges {
+		t.Run(tc.name, func(t *testing.T) {
+			lc, repo := createWithGitlabSecret(t, tc.defs)
+
+			out, err := lc.run(t, "create", repo, "--yes")
+
+			if err == nil || !strings.Contains(out, "  secrets\n") {
+				t.Errorf("error = %v, output = %q, want a non-zero exit for drift in the wired secrets", err, out)
+			}
+		})
+	}
+}
+
+func TestPlanOfASandboxRecordedWithoutSecretKeysNotesItInsteadOfShowingDrift(t *testing.T) {
+	lc := newLifecycle(t, gitlabSecret("    key: GITLAB_TOKEN\n    vars:\n      GITLAB_HOST: gitlab.example.com\n"))
+	secretFile, _ := lc.deps.secretFilePath()
+	if err := os.WriteFile(secretFile, []byte("GITLAB_TOKEN=glpat_x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+	// v0.1.0 が書いた作成時の宣言は、配線した secret の key と vars を持たない
+	declaration := filepath.Join(lc.places.StateDir("app"), "declaration.yaml")
+	data, err := os.ReadFile(declaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree map[string]any
+	if err := yaml.Unmarshal(data, &tree); err != nil {
+		t.Fatal(err)
+	}
+	for _, wired := range tree["secrets"].([]any) {
+		delete(wired.(map[string]any), "key")
+		delete(wired.(map[string]any), "vars")
+	}
+	if data, err = yaml.Marshal(tree); err == nil {
+		err = os.WriteFile(declaration, data, 0o600)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := lc.mustRun(t, "plan", repo)
+
+	if !strings.Contains(out, "差分は無い") || !strings.Contains(out, "gitlab") || !strings.Contains(out, "作成時に記録していないので比べていない") {
+		t.Errorf("output = %q, want no drift and a note that the key and vars of gitlab were not compared", out)
 	}
 }
 
