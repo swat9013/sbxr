@@ -338,6 +338,7 @@ func (w *world) arrive(s state) {
 	case stateVMGone:
 		w.mustCreate(repo)
 		_ = w.removeOutside()
+	case stateUnmanaged, stateOtherSource: // 状態機械の外へは運ばない (下の確認で止まる)
 	}
 	if got := w.stateOf(repo); got != s {
 		w.t.Fatalf("arrived at %s, want %s", got, s)
