@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/herdr"
+	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 )
 
 // fakeHerdr は host の herdr を再現する。呼ばれた操作を Calls に起きた順に並べる。
@@ -81,13 +82,11 @@ func (f *fakeHerdr) Remove(_ context.Context, id string) error {
 
 const herdrUserConfig = lifecycleUserConfig + "herdr:\n  enabled: true\n"
 
-const kitStartupLogPath = "/var/log/sbx-kit-startup.log"
-
 // herdrLifecycle は herdr 連携を有効にした user 設定と、kit startup を終えた VM で動かす。
 func herdrLifecycle(t *testing.T) *lifecycle {
 	t.Helper()
 	lc := newLifecycle(t, herdrUserConfig)
-	lc.stub.VM.Files = map[string]string{kitStartupLogPath: "=== dispatcher run ===\nok /etc/durable-startup.d/001-startup-sbxr-herdr/000-cmd.sh\n=== dispatcher complete ===\n"}
+	lc.stub.VM.CompleteKitStartup()
 	return lc
 }
 
@@ -332,18 +331,18 @@ func TestCreateStopsBeforeTheGateWhenTheHostHasNoHerdr(t *testing.T) {
 }
 
 func TestCreateFailsAndKeepsTheVMWhenTheHerdrKitFails(t *testing.T) {
-	for name, log := range map[string]string{
-		"the kit's own failure line": "=== dispatcher run ===\nsbxr-herdr: fail install v0.9.0\nok /etc/durable-startup.d/002-startup-sbxr-herdr/000-cmd.sh\n=== dispatcher complete ===\n",
-		"a dispatcher failure":       "=== dispatcher run ===\nfail /etc/durable-startup.d/002-startup-sbxr-herdr/001-cmd.sh exit=1\n",
+	for name, fail := range map[string]func(*sbxstub.FakeVM){
+		"the kit's own failure line": (*sbxstub.FakeVM).FailHerdrKit,
+		"a dispatcher failure":       (*sbxstub.FakeVM).FailKitStartup,
 	} {
 		t.Run(name, func(t *testing.T) {
 			lc := herdrLifecycle(t)
-			lc.stub.VM.Files[kitStartupLogPath] = log
+			fail(lc.stub.VM)
 			repo := localRepo(t, "app", "")
 
 			_, err := lc.run(t, "create", repo, "--yes")
 
-			if err == nil || !strings.Contains(err.Error(), kitStartupLogPath) {
+			if err == nil || !strings.Contains(err.Error(), sbxstub.KitStartupLog) {
 				t.Errorf("error = %v, want the kit startup log pointed at", err)
 			}
 			if slices.ContainsFunc(lc.herdr.Calls, func(c string) bool { return strings.HasPrefix(c, "add ") }) {

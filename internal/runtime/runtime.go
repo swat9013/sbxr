@@ -18,20 +18,27 @@ type Runtime interface {
 	AllowGlobalEgress(ctx context.Context, resource string) error
 	// RemoveGlobalEgressRule は global rule を 1 つ消す。
 	RemoveGlobalEgressRule(ctx context.Context, id string) error
-	// SetSandboxSecret は 1 つの sandbox VM に限った secret を置く。sandbox VM の destroy で消える。
-	SetSandboxSecret(ctx context.Context, sandbox string, secret SandboxSecret) error
 
 	// SandboxStatus は sandbox VM の状態を返す。無ければ SandboxAbsent。
 	SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error)
-	// CreateEnvironment は envDir の env 定義から sandbox VM を作り、起動する。
-	CreateEnvironment(ctx context.Context, envDir string) error
-	// RemoveEnvironment は envDir の env 定義が指す sandbox VM を、sandbox スコープの secret と rule ごと消す。
-	// VM が無くても sandbox スコープの secret は消す。使用中の VM も消す。
+	// DefineSandbox は stateDir に、spec の sandbox VM を作るための定義を書く (sbx では env 定義と kit)。
+	// stateDir は呼び出し側が作ったもの (持ち主だけが読み書きできる mode) で、adapter は作らない。定義は VM の環境変数を含む。
+	// 前の定義があれば置き換える。secret の値は定義に書かない。作成 (CreateSandbox) と撤去 (RemoveEnvironment) はこの定義を使う。
+	// 定義は stateDir に置かれるので、stateDir を消せば定義も無くなる。
+	DefineSandbox(stateDir string, spec SandboxSpec) error
+	// CreateSandbox は stateDir の定義から spec の sandbox VM を作り、起動する。spec は定義を書いたときと同じもの
+	// (名前が食い違えば何も置かずに error)。定義が無ければ何も置かずに error。sandbox スコープの secret と rule を置き、
+	// herdr を導入するなら VM の起動時の処理が終わるまで待つ。secret と rule をどの順で置くかは adapter が決める。
+	// VM を作れた後の段で失敗したら *CreatedError を返す (VM は残っている)。
+	CreateSandbox(ctx context.Context, stateDir string, spec SandboxSpec) error
+	// DefinedWithHerdr は stateDir の定義が herdr を導入するかを返す。定義が無ければ false。
+	// 定義は作成の最初に書くので、作成途中の VM でも読める。
+	DefinedWithHerdr(stateDir string) (bool, error)
+	// RemoveEnvironment は envDir の定義が指す sandbox VM を、sandbox スコープの secret と rule ごと消す。
+	// VM が無くても sandbox スコープの secret は消す。使用中の VM も消す。定義が無ければ error。
 	RemoveEnvironment(ctx context.Context, envDir string) error
 	// StopSandbox は sandbox VM を止める。状態は残る。
 	StopSandbox(ctx context.Context, sandbox string) error
-	// AllowSandboxEgress は 1 つの宛先を許可する sandbox スコープ rule を足す。sandbox VM の作成後にしか置けない。
-	AllowSandboxEgress(ctx context.Context, sandbox, resource string) error
 	// ExecInSandbox は sandbox VM 内でコマンドを実行し、stdout を返す。0 以外で終われば error。
 	ExecInSandbox(ctx context.Context, sandbox string, command SandboxCommand) ([]byte, error)
 	// ReadSandboxFile は sandbox VM 内の path (絶対 path) の中身を返す。無ければ error。
@@ -44,6 +51,51 @@ type Runtime interface {
 	// SSHTarget は host から sandbox VM へ ssh で繋ぐ宛先 (herdr machine の登録先)。
 	SSHTarget(sandbox string) string
 }
+
+// SandboxSpec は sandbox VM の作る内容 (decision/0009)。
+type SandboxSpec struct {
+	Name string
+	// Repo は VM 内に clone する host の repo。
+	Repo string
+	// Env は VM の環境変数 (配線した secret の付随値)。
+	Env map[string]string
+	// ReplayBoot なら VM の起動ごとに boot script (BootScriptRelPath) を再生する。
+	ReplayBoot bool
+	// Herdr は VM に導入する herdr。nil なら導入しない。
+	Herdr *HerdrInstall
+	// Secrets は sandbox VM に限って置く secret (値を含む)。
+	Secrets []SandboxSecret
+	// EgressRules は sandbox スコープ rule の宛先。
+	EgressRules []string
+}
+
+// HerdrInstall は VM に導入する herdr の版。
+type HerdrInstall struct {
+	Version string
+}
+
+// BootScriptRelPath は VM の agent user の home からの、起動ごとに再生する boot script の置き場。
+// 作る内容が ReplayBoot なら、adapter は VM の起動ごとにここにある script を実行する (無ければ何もしない)。
+const BootScriptRelPath = ".config/sbxr/boot.sh"
+
+// CreatedStep は VM を作れた後の段。
+type CreatedStep int
+
+const (
+	// CreatedStepSandboxEgress は sandbox スコープ rule を足す段。
+	CreatedStepSandboxEgress CreatedStep = iota + 1
+	// CreatedStepHerdrStartup は VM の起動時の herdr の導入が終わるのを待つ段。
+	CreatedStepHerdrStartup
+)
+
+// CreatedError は CreateSandbox が VM を作れた後の段で失敗したときの error。VM は残っている。
+type CreatedError struct {
+	Step CreatedStep
+	Err  error
+}
+
+func (e *CreatedError) Error() string { return e.Err.Error() }
+func (e *CreatedError) Unwrap() error { return e.Err }
 
 // SandboxCommand は sandbox VM 内で実行するコマンド。
 type SandboxCommand struct {

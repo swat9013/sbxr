@@ -14,6 +14,7 @@ func TestSbxKeepsTheRuntimeContract(t *testing.T) {
 		return runtimetest.Harness{
 			Runtime:        runtime.NewSbx(stub.Run),
 			SandboxSecrets: func(sandbox string) int { return stub.SandboxSecrets[sandbox] },
+			SandboxRules:   func(sandbox string) []string { return stub.SandboxRules[sandbox] },
 		}
 	})
 }

@@ -190,7 +190,7 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 }
 
 // bootScript は kit sbxr-boot が起動ごとに実行する boot script の置き場
-// (sandbox.BootScriptRelPath と kit の spec.yaml の path の一致は internal/sandbox の test が確かめる)。
+// (runtime.BootScriptRelPath と kit の spec.yaml の path の一致は internal/runtime の test が確かめる)。
 const bootScript = Home + "/.config/sbxr/boot.sh"
 
 // Startup は VM の起動で走る kit sbxr-boot の startup を再現する。boot script が実行可能な mode で書かれていれば実行し、
@@ -202,6 +202,30 @@ func (vm *FakeVM) Startup() {
 	}
 	vm.Executed = append(vm.Executed, bootScript)
 	vm.Events = append(vm.Events, "exec "+bootScript)
+}
+
+// KitStartupLog は sbx が VM 内に kit startup の経過を書く log。行の文面は sbx v0.45.1 の VM の
+// /etc/durable-startup.d/run.sh と kit sbxr-herdr に合わせる (Sbx adapter の読み方と同じ)。
+const KitStartupLog = "/var/log/sbx-kit-startup.log"
+
+// CompleteKitStartup は kit sbxr-herdr の startup を終えた log を VM に置く。
+func (vm *FakeVM) CompleteKitStartup() {
+	vm.setKitStartupLog("=== dispatcher run ===\nok /etc/durable-startup.d/001-startup-sbxr-herdr/000-cmd.sh\n=== dispatcher complete ===\n")
+}
+
+// FailHerdrKit は kit sbxr-herdr が自身の段の失敗を残し、dispatcher は完了した log を VM に置く。
+func (vm *FakeVM) FailHerdrKit() {
+	vm.setKitStartupLog("=== dispatcher run ===\nsbxr-herdr: fail install v0.9.0\nok /etc/durable-startup.d/002-startup-sbxr-herdr/000-cmd.sh\n=== dispatcher complete ===\n")
+}
+
+// FailKitStartup は dispatcher が kit sbxr-herdr の失敗で止まった log を VM に置く。
+func (vm *FakeVM) FailKitStartup() {
+	vm.setKitStartupLog("=== dispatcher run ===\nfail /etc/durable-startup.d/002-startup-sbxr-herdr/001-cmd.sh exit=1\n")
+}
+
+func (vm *FakeVM) setKitStartupLog(log string) {
+	vm.ensureMaps()
+	vm.Files[KitStartupLog] = log
 }
 
 func (vm *FakeVM) gitConfig(args []string) ([]byte, error) {

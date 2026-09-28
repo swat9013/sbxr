@@ -1,7 +1,6 @@
 package secret
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -163,25 +162,4 @@ func canonical(records []WiredSecret) []WiredSecret {
 	}
 	slices.SortFunc(records, func(a, b WiredSecret) int { return strings.Compare(a.Name, b.Name) })
 	return records
-}
-
-// Apply は計画した secret を sandbox VM に限った secret として実行基盤に置く。
-// 値がすべて secret ファイルにあることを確かめてから書き込む (値が足りないまま一部だけ置くことはしない)。
-// 実行基盤への書き込みが途中で失敗したら、置いた分は残る。sandbox スコープの secret なので destroy で消える。
-func Apply(ctx context.Context, rt runtime.Runtime, sandbox string, plan Plan, values Values) error {
-	secrets, err := plan.SandboxSecrets(values)
-	if err != nil {
-		return err
-	}
-	for i, secret := range secrets {
-		if err := rt.SetSandboxSecret(ctx, sandbox, secret); err != nil {
-			placed := make([]string, 0, i)
-			for _, wire := range plan.Wired[:i] {
-				placed = append(placed, wire.Name)
-			}
-			return fmt.Errorf("secret %s を配線できない (配線済み: %s。sandbox VM の destroy で消える): %w",
-				plan.Wired[i].Name, strings.Join(placed, ", "), err)
-		}
-	}
-	return nil
 }

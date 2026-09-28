@@ -12,7 +12,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/swat9013/sbxr/internal/assets"
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/egress"
 	"github.com/swat9013/sbxr/internal/runtime"
@@ -37,9 +36,9 @@ func (p Places) StateDir(name string) string {
 // RepoDeclarationFile は repo 宣言のファイル名。
 const RepoDeclarationFile = "sbxr.yaml"
 
-// 状態ディレクトリに置くファイル。declaration.yaml は作成がすべて済んでから書き、作成が終わった印にする。
+// 状態ディレクトリに sbxr が置くファイル。declaration.yaml は作成がすべて済んでから書き、作成が終わった印にする。
+// 実行基盤の定義 (sbx では env 定義と kit) は Runtime が同じディレクトリに書く。
 const (
-	envFile         = "sbxenv.yaml"
 	sourceFile      = "source"
 	declarationFile = "declaration.yaml"
 )
@@ -218,33 +217,30 @@ func (i Inspection) NotRunning() bool {
 	return i.Status == runtime.SandboxStopped || i.Status == runtime.SandboxAbsent
 }
 
-// Create は状態ディレクトリを書き、secret を配線し、sandbox VM を作って sandbox スコープ rule を足し、VM の中を宣言どおりにする
-// (materialize → read-back → init → boot)、VM 内から egress 自己検証を行う。secret は作成前に置く (作成時に VM の環境変数へ placeholder が入る)。
-// rule は作成後にしか置けない (ADR 0006 の実測)。途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
-// 作成が終わった印 (declaration.yaml) は最後に書く。VM の中の段の失敗は *StageError で返す。
+// Create は作る内容を組み立てて実行基盤に定義と作成を頼み (secret と rule をどの順で置くかは実行基盤が守る。decision/0009)、
+// VM の中を宣言どおりにし (materialize → read-back → init → boot)、VM 内から egress 自己検証を行う。
+// 途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
+// 作成が終わった印 (declaration.yaml) は最後に書く。VM を作れた後の段の失敗は *StageError で返す。
 func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
 	rt := hosts.Runtime
 	name := prepared.Target.Name
 	stateDir := places.StateDir(name)
-	if err := writeEnvironment(stateDir, prepared); err != nil {
+	spec, err := sandboxSpec(prepared, values)
+	if err != nil {
 		return err
 	}
-	if err := secret.Apply(ctx, rt, name, prepared.Wiring, values); err != nil {
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return fmt.Errorf("状態ディレクトリ %s を作れない: %w", stateDir, err)
+	}
+	// 定義を先に、出所を後に書く (出所だけが残ると、destroy が定義の無い状態ディレクトリで詰む。ADR 0006)
+	if err := rt.DefineSandbox(stateDir, spec); err != nil {
 		return err
 	}
-	if err := rt.CreateEnvironment(ctx, stateDir); err != nil {
-		return fmt.Errorf("sandbox VM %s を作れない: %w", name, err)
+	if err := os.WriteFile(filepath.Join(stateDir, sourceFile), []byte(prepared.Target.Source()), 0o600); err != nil {
+		return fmt.Errorf("状態ディレクトリに %s を書けない: %w", sourceFile, err)
 	}
-	for _, resource := range prepared.Declaration.SandboxEgress {
-		if err := rt.AllowSandboxEgress(ctx, name, resource); err != nil {
-			return stageError(StageSandboxEgress, fmt.Errorf("%s を足せない: %w", resource, err))
-		}
-	}
-	if prepared.Declaration.Herdr != nil {
-		// herdr の kit が settings.json に integration を書き終えてから materialize する (書き込みを競合させない)
-		if err := stageError(StageHerdr, waitKitStartup(ctx, rt, name)); err != nil {
-			return err
-		}
+	if err := rt.CreateSandbox(ctx, stateDir, spec); err != nil {
+		return createdStageError(err)
 	}
 	if err := setUpInside(ctx, rt, prepared, progress); err != nil {
 		return err
@@ -258,99 +254,43 @@ func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, 
 	return nil
 }
 
-// envDefinition は sbx env create に渡す env 定義。repo は VM 内の clone として渡す (host の作業ツリーを書き換えさせない)。
-// agent は Claude Code に固定する (agent runtime profile は Claude Code の settings.json だけを扱う)。
-type envDefinition struct {
-	SchemaVersion string            `yaml:"schemaVersion"`
-	Agent         string            `yaml:"agent"`
-	Name          string            `yaml:"name"`
-	Workspace     envWorkspace      `yaml:"workspace"`
-	Kits          []envKit          `yaml:"kits"`
-	Env           map[string]string `yaml:"env,omitempty"`
-}
-
-// envKit は env 定義の kits の 1 要素。
-type envKit struct {
-	Source string            `yaml:"source"`
-	Args   map[string]string `yaml:"args,omitempty"`
-}
-
-// 埋め込みの kit の名前 (internal/assets/kits の下のディレクトリ名)。
-const (
-	bootKit  = "sbxr-boot"
-	herdrKit = "sbxr-herdr"
-)
-
-// embeddedKit は env 定義に入れる埋め込みの kit。
-type embeddedKit struct {
-	name string
-	args map[string]string
-}
-
-// source は env 定義から kit を指す相対 path。
-func (k embeddedKit) source() string { return "./" + kitsDir + "/" + k.name }
-
-// kitsDir は状態ディレクトリの中で埋め込みの kit を置くディレクトリ。env 定義からは相対 path で指す
-// (sbx は ./ で始まる kit を env 定義のディレクトリ基準で解決する)。
-const kitsDir = "kits"
-
-type envWorkspace struct {
-	Path  string `yaml:"path"`
-	Clone bool   `yaml:"clone"`
-}
-
-func writeEnvironment(dir string, prepared Prepared) error {
-	selected := kits(prepared.Declaration)
-	var refs []envKit
-	for _, kit := range selected {
-		refs = append(refs, envKit{Source: kit.source(), Args: kit.args})
-	}
-	env, err := yaml.Marshal(envDefinition{
-		SchemaVersion: "1",
-		Agent:         "claude",
-		Name:          prepared.Target.Name,
-		Workspace:     envWorkspace{Path: prepared.Target.Repo, Clone: true},
-		Kits:          refs,
-		Env:           prepared.VMEnv,
-	})
+// sandboxSpec は確定した宣言と secret の値から、実行基盤に渡す作る内容を組み立てる。
+// secret の値を含むので、確認関門と plan が見せる Prepared には載せず、作る直前に組み立てる。
+func sandboxSpec(prepared Prepared, values secret.Values) (runtime.SandboxSpec, error) {
+	secrets, err := prepared.Wiring.SandboxSecrets(values)
 	if err != nil {
+		return runtime.SandboxSpec{}, err
+	}
+	spec := runtime.SandboxSpec{
+		Name:        prepared.Target.Name,
+		Repo:        prepared.Target.Repo,
+		Env:         prepared.VMEnv,
+		Secrets:     secrets,
+		EgressRules: prepared.Declaration.SandboxEgress,
+		// boot を宣言していなくても再生を頼む (script を置かなければ何も走らない)。再生の仕組みの無い VM を
+		// 実 sbx で確かめていないので、作る VM の形を変えない
+		ReplayBoot: true,
+	}
+	if pin := prepared.Declaration.Herdr; pin != nil {
+		spec.Herdr = &runtime.HerdrInstall{Version: pin.Version}
+	}
+	return spec, nil
+}
+
+// createdStageError は VM を作れた後の段の失敗を、表示する段の error にする。VM を作れなかった失敗はそのまま返す。
+// 知らない段でも *StageError にする (VM が残っていることを呼び出し側へ落とさない)。
+func createdStageError(err error) error {
+	var created *runtime.CreatedError
+	if !errors.As(err, &created) {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("状態ディレクトリ %s を作れない: %w", dir, err)
+	switch created.Step {
+	case runtime.CreatedStepSandboxEgress:
+		return stageError(StageSandboxEgress, created.Err)
+	case runtime.CreatedStepHerdrStartup:
+		return stageError(StageHerdr, created.Err)
 	}
-	// CopyFS は既存のファイルを上書きしないので、前回の残りを消してから書く
-	if err := os.RemoveAll(filepath.Join(dir, kitsDir)); err != nil {
-		return fmt.Errorf("状態ディレクトリの kit を書き直せない: %w", err)
-	}
-	for _, kit := range selected {
-		sub, err := fs.Sub(assets.Kits(), kit.name)
-		if err == nil {
-			err = os.CopyFS(filepath.Join(dir, kitsDir, kit.name), sub)
-		}
-		if err != nil {
-			return fmt.Errorf("状態ディレクトリに kit %s を書けない: %w", kit.name, err)
-		}
-	}
-	for _, file := range []struct {
-		name string
-		data []byte
-	}{{envFile, env}, {sourceFile, []byte(prepared.Target.Source())}} {
-		if err := os.WriteFile(filepath.Join(dir, file.name), file.data, 0o600); err != nil {
-			return fmt.Errorf("状態ディレクトリに %s を書けない: %w", file.name, err)
-		}
-	}
-	return nil
-}
-
-// kits は env 定義に入れる埋め込みの kit。herdr 連携が無効なら herdr の kit を入れない。
-// herdr を先に置く (順序の理由は ADR 0007)。
-func kits(decl Declaration) []embeddedKit {
-	var list []embeddedKit
-	if decl.Herdr != nil {
-		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": decl.Herdr.Version}})
-	}
-	return append(list, embeddedKit{name: bootKit})
+	return stageError(Stage(fmt.Sprintf("sandbox VM を作った後の段 %d", created.Step)), created.Err)
 }
 
 // RunningPolicy は稼働中の VM を撤去するか。

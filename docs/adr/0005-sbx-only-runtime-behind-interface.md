@@ -18,4 +18,4 @@ test 用に、in-memory の Runtime adapter を足す。
 - Runtime の interface に、VM のファイルを書く・読む・あるかを見る操作と、herdr が繋ぐ ssh target を置く。VM への書き込みの script（`sbx cp` が host の uid のまま置く癖への対処。ADR 0006）は Sbx adapter の内側に置く
 - VM の状態は型付きにし、sbx の status の解釈は Sbx adapter が決める。状態を得られなかったときは、無いとも止まっているとも読ませない値を返す（destroy を許す側に倒さないため）
 - VM のファイルの書き込みは、mode を変えない指定を持つ（settings.json は sbx が置いた mode を保つ）
-- interface が「作る内容」を domain の言葉で受け取ることは、#49 が decision に書く
+- interface が「作る内容」を domain の言葉で受け取り、kit・startup log・順序の制約を adapter に持たせることは [decision/0009](../design/sbxr/decision/0009-runtime-receives-sandbox-spec.md) に書いた

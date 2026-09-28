@@ -12,6 +12,7 @@ func TestInMemoryKeepsTheRuntimeContract(t *testing.T) {
 		return runtimetest.Harness{
 			Runtime:        rt,
 			SandboxSecrets: func(sandbox string) int { return len(rt.Sandbox(sandbox).Secrets) },
+			SandboxRules:   func(sandbox string) []string { return rt.Sandbox(sandbox).EgressRules },
 		}
 	})
 }

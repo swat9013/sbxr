@@ -1,7 +1,6 @@
 package secret
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
 
 func assertErrorMentions(t *testing.T, err error, needles ...string) {
@@ -218,35 +216,6 @@ func TestPlanStopsOnRequestsWithoutADefinitionAndNamesThemAll(t *testing.T) {
 	_, err := PlanWiring([]string{"github", "jira", "aws"}, testDefs, githubEgress)
 
 	assertErrorMentions(t, err, "aws", "jira")
-}
-
-// --- 配線の適用 ---
-
-func TestApplyPlacesEachWiredSecretInTheSandboxWithItsValue(t *testing.T) {
-	rt := inmemory.New()
-	plan := Plan{Wired: []Wire{{Name: "github", Definition: testDefs["github"]}, {Name: "gitlab", Definition: testDefs["gitlab"]}}}
-
-	err := Apply(context.Background(), rt, "vm1", plan, Values{"GITHUB_TOKEN": "gh-value", "GITLAB_TOKEN": "gl-value"})
-
-	want := []runtime.SandboxSecret{
-		{Service: "github", Hosts: testDefs["github"].Hosts, Value: "gh-value"},
-		{Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Value: "gl-value"},
-	}
-	if err != nil || !reflect.DeepEqual(rt.Sandbox("vm1").Secrets, want) {
-		t.Errorf("Apply() = %v, sandbox secrets = %+v, want %+v", err, rt.Sandbox("vm1").Secrets, want)
-	}
-}
-
-func TestApplyPlacesNothingWhenAWiredValueIsMissingFromTheSecretFile(t *testing.T) {
-	rt := inmemory.New()
-	plan := Plan{Wired: []Wire{{Name: "github", Definition: testDefs["github"]}, {Name: "gitlab", Definition: testDefs["gitlab"]}}}
-
-	err := Apply(context.Background(), rt, "vm1", plan, Values{"GITHUB_TOKEN": "gh-value"})
-
-	assertErrorMentions(t, err, "GITLAB_TOKEN")
-	if secrets := rt.Sandbox("vm1").Secrets; len(secrets) != 0 {
-		t.Errorf("sandbox secrets = %+v, want none before every value is found", secrets)
-	}
 }
 
 func TestWriteValueKeepsLinesAfterAVeryLongValue(t *testing.T) {

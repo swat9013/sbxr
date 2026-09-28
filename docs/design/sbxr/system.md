@@ -28,7 +28,7 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 | secret ファイル | 外 | ファイル（port にしない） | 入 / 出（secret setup） | secret の値 |
 | host 側 repo（path のとき） | 外 | host の git・ファイル（port にしない） | 入 / mount では VM が直接書く | origin の host、copy で持ち込むもの、mount の対象、cache 層の inputs |
 | sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未回収の検査・egress 自己検証・copy の持ち込み）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
-| VM 内の kit dispatcher | 外 | 同梱の kit と startup log の文面（port にしない） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行 |
+| VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009） |
 | host の herdr | 外 | herdr CLI（port にしない） | 出 | herdr machine の登録・無効化・有効化・解除 |
 | git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan と drift の一時 clone |
 | GitHub API | 外 | HTTPS（port にしない） | 出 | secret setup github の token の能力の probe |
@@ -37,7 +37,7 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 
 ### Runtime の順序の制約
 
-sbx v0.45.1 の実測（ADR 0006）から、次の順序を守る。
+sbx v0.45.1 の実測（ADR 0006）から、次の順序を守る。順序は Sbx adapter の内側で守る。domain は作る内容を渡し、定義（env 定義と kit）を書く手順と、定義から VM を作る手順を呼ぶだけにする（decision/0009）。
 
 - sandbox スコープの secret は VM を作る前に置く。作成時に VM の環境変数へ placeholder が入る
 - sandbox スコープ rule は VM を作った後にしか置けない
@@ -54,7 +54,7 @@ port は変動性（取り替えの起きやすさ）で決める。
 - Runtime へは sbx の引数を素通ししない。CLI が要る flag（`--force`・`--yes`・`--workspace` など）を自分で定義し、adapter が実行基盤の引数へ変換する（ADR 0005）
 - host の herdr は port にしない。差し替えれば herdr 連携という機能ごと別物になる。interface は test の継ぎ目で、取り替えの境界ではない
 - git hosting と GitHub API は port にしない。相手が固定で、継ぎ目は test 用
-- kit dispatcher の log の文面は、sbx v0.45.1 の VM の `/etc/durable-startup.d/run.sh` に合わせた約束である。実行基盤を替えれば一緒に変わるので、Runtime の内側に置く
+- kit dispatcher の log の文面は、sbx v0.45.1 の VM の `/etc/durable-startup.d/run.sh` に合わせた約束である。実行基盤を替えれば一緒に変わるので、Runtime の内側に置く。env 定義の schema と kit の参照も同じ理由で Runtime の内側に置き、Runtime は作る内容を domain の言葉で受け取る（decision/0009）
 - sbx から sbxr への着信接続は無い。kit は bash で完結し、sbxr を呼ばない。ADR 0006 の「lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにする」は実装と食い違っている。ADR の修正は follow-up の issue で扱う
 
 ## 状態機械

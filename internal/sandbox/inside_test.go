@@ -3,7 +3,6 @@ package sandbox
 import (
 	"bytes"
 	"context"
-	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -12,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/swat9013/sbxr/internal/assets"
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/inmemory"
@@ -147,13 +145,5 @@ func TestRemoteHostReadsOnlyNetworkRemotes(t *testing.T) {
 		if got := remoteHost(remote); got != host {
 			t.Errorf("remoteHost(%q) = %q, want %q", remote, got, host)
 		}
-	}
-}
-
-func TestTheBootKitRunsTheScriptWhereSbxrWritesIt(t *testing.T) {
-	spec, err := fs.ReadFile(assets.Kits(), "sbxr-boot/spec.yaml")
-
-	if err != nil || !strings.Contains(string(spec), `"$HOME/`+BootScriptRelPath+`"`) {
-		t.Errorf("sbxr-boot spec = %q, %v, want it to run $HOME/%s", spec, err, BootScriptRelPath)
 	}
 }

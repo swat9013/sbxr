@@ -79,10 +79,10 @@ func TestSbxRejectsARuleWithAnUnknownDecision(t *testing.T) {
 func TestSbxSetsAServiceSecretScopedToTheSandboxWithTheValueOnStdin(t *testing.T) {
 	stub := &sbxstub.Stub{}
 
-	err := NewSbx(stub.Run).SetSandboxSecret(context.Background(), "vm1", SandboxSecret{Service: "github", Value: "v"})
+	err := NewSbx(stub.Run).setSandboxSecret(context.Background(), "vm1", SandboxSecret{Service: "github", Value: "v"})
 
 	if err != nil {
-		t.Fatalf("SetSandboxSecret() error = %v", err)
+		t.Fatalf("setSandboxSecret() error = %v", err)
 	}
 	if want := []string{"secret set github --sandbox vm1"}; !reflect.DeepEqual(stub.Writes, want) {
 		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
@@ -95,11 +95,11 @@ func TestSbxSetsAServiceSecretScopedToTheSandboxWithTheValueOnStdin(t *testing.T
 func TestSbxSetsAPlaceholderSecretForEveryHost(t *testing.T) {
 	stub := &sbxstub.Stub{}
 
-	err := NewSbx(stub.Run).SetSandboxSecret(context.Background(), "vm1",
+	err := NewSbx(stub.Run).setSandboxSecret(context.Background(), "vm1",
 		SandboxSecret{Hosts: []string{"a.example.com", "b.example.com"}, Env: "TOKEN", Value: "v"})
 
 	if err != nil {
-		t.Fatalf("SetSandboxSecret() error = %v", err)
+		t.Fatalf("setSandboxSecret() error = %v", err)
 	}
 	want := []string{"secret set-custom --sandbox vm1 --host a.example.com --host b.example.com --env TOKEN"}
 	if !reflect.DeepEqual(stub.Writes, want) {

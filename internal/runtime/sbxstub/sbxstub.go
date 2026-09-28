@@ -10,8 +10,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-
-	"github.com/swat9013/sbxr/internal/runtime/testenv"
 )
 
 // Rule は sbx policy ls --json が返す rule のうち、sbxr が読む field。
@@ -90,7 +88,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		}
 		return json.Marshal(map[string][]sandbox{"sandboxes": list})
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--auto-approve"}):
-		name, err := testenv.Name(args[3])
+		name, err := envName(args[3])
 		if err != nil {
 			return nil, err
 		}
@@ -102,7 +100,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		return nil, nil
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "rm", "--force"}):
 		// 実 sbx と同じく、env 定義が無ければ消せない。sandbox が無くても sandbox スコープの secret は消して成功する
-		name, err := testenv.Name(args[3])
+		name, err := envName(args[3])
 		if err != nil {
 			return nil, err
 		}
