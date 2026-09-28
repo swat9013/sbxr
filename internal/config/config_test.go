@@ -322,6 +322,17 @@ func TestUserMayLeaveAnEnvValueOfTheProfileEmpty(t *testing.T) {
 	}
 }
 
+func TestTheEmptyValueCheckLeavesTheContentsOfASecretDefinitionToItsOwnValidation(t *testing.T) {
+	keys, err := listWrittenKeys([]byte("secret_defs:\n  api:\n    service: ''\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := checkWrittenValues(keys); err != nil {
+		t.Errorf("checkWrittenValues() = %v, want an empty service accepted as placeholder injection", err)
+	}
+}
+
 func TestMergeCarriesEveryProfileFieldFromTheUserScope(t *testing.T) {
 	var profile Profile
 	v := reflect.ValueOf(&profile).Elem()
