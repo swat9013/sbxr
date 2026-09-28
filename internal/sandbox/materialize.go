@@ -96,7 +96,7 @@ func stageError(stage Stage, err error) error {
 }
 
 // setUpInside は作った VM の中を宣言どおりにし、egress を確かめる: materialize → read-back → init → boot → egress 自己検証 (create 時の 1 回)。
-func setUpInside(ctx context.Context, rt runtime.Runtime, prepared Prepared, progress io.Writer) error {
+func setUpInside(ctx context.Context, rt runtime.Runtime, prepared preparation, progress io.Writer) error {
 	v, err := openVM(ctx, rt, prepared.Target.Name)
 	if err != nil {
 		return stageError(StageMaterialize, err)
@@ -153,13 +153,13 @@ func profileSettings(profile config.Profile) (map[string]any, error) {
 }
 
 // gitIdentity は VM の git config に書く identity。
-func gitIdentity(decl Declaration) map[string]string {
+func gitIdentity(decl sandboxDeclaration) map[string]string {
 	return map[string]string{"user.name": decl.Git.Name, "user.email": decl.Git.Email}
 }
 
 // materialize は agent runtime profile (settings.json への merge と plugin) と git identity を VM へ書く。
 // settings.json は sbx が初期値を置いているので、上書きせずに再帰的に merge する。
-func materialize(ctx context.Context, v vm, settings map[string]any, decl Declaration, originHost string) error {
+func materialize(ctx context.Context, v vm, settings map[string]any, decl sandboxDeclaration, originHost string) error {
 	current, err := readSettings(ctx, v)
 	if err != nil {
 		return err
@@ -319,7 +319,7 @@ func addMissingMarketplaces(ctx context.Context, v vm, profile config.Profile, s
 // readBack は materialize の結果を VM から読み戻して宣言と比べる。
 // settings.json は profile の top-level key ごとに、宣言の値が VM の値に含まれるか (map は sbx が足した key を許す) を見る。
 // 読めなかったときは不一致ではなく error で返す。
-func readBack(ctx context.Context, v vm, settings map[string]any, decl Declaration) error {
+func readBack(ctx context.Context, v vm, settings map[string]any, decl sandboxDeclaration) error {
 	var mismatches []string
 	current, err := readSettings(ctx, v)
 	if err != nil {

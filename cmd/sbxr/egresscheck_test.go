@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +10,7 @@ import (
 	"github.com/swat9013/sbxr/internal/sandbox"
 )
 
-// requireEgressCheckFailure は create が egress 自己検証で止まり、VM を残して作成時の宣言を書かなかったことを確かめる。
+// requireEgressCheckFailure は create が egress 自己検証で止まり、VM を残したことを確かめる (作成途中になることは internal/sandbox の遷移表が見る)。
 func requireEgressCheckFailure(t *testing.T, lc *lifecycle, err error, wantMessage string) {
 	t.Helper()
 	var stageErr *sandbox.StageError
@@ -23,9 +22,6 @@ func requireEgressCheckFailure(t *testing.T, lc *lifecycle, err error, wantMessa
 	}
 	if _, ok := lc.stub.Sandboxes["app"]; !ok {
 		t.Errorf("sandbox was removed; the VM is kept for inspection")
-	}
-	if exists(filepath.Join(lc.places.StateDir("app"), "declaration.yaml")) {
-		t.Errorf("declaration.yaml was written; it marks a finished creation and must wait for the self-check")
 	}
 }
 

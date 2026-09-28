@@ -63,7 +63,7 @@ func probeHTTPS(ctx context.Context, v vm, host string) (probe, error) {
 
 // checkEgress は egress 自己検証: VM 内から、許可先に届くことと許可外に届かないことを 1 往復ずつ確かめる
 // (decision/0006・0007)。許可集合は global rule の期待集合と sandbox スコープ rule の宛先。probe 先が無い側は省いて表示する。
-func checkEgress(ctx context.Context, v vm, prepared Prepared, progress io.Writer) error {
+func checkEgress(ctx context.Context, v vm, prepared preparation, progress io.Writer) error {
 	allowed := append(slices.Clone(prepared.GlobalEgress), prepared.Declaration.SandboxEgress...)
 	return errors.Join(checkAllowed(ctx, v, allowed, progress), checkDenied(ctx, v, allowed, progress))
 }

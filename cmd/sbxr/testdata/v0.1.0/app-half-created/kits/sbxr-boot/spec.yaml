@@ -1,0 +1,18 @@
+# sbxr が create 時に VM の ~/.config/sbxr/boot.sh へ書いた boot を、sandbox VM の起動ごとに実行する (ADR 0006)。
+# kit startup は起動ごとに replay される。create 時の startup は boot.sh が書かれる前に走るので、無ければ何もしない
+# (create 時の 1 回目は sbxr が自分で実行する)。出力と失敗は VM 内の /var/log/sbx-kit-startup.log に残る。
+schemaVersion: "2"
+name: sbxr-boot
+kind: mixin
+description: sbxr が create 時に確定した boot を起動ごとに実行する
+
+setup:
+  startup:
+    - description: boot.sh があれば実行する
+      command:
+        - bash
+        - -c
+        - |
+          f="$HOME/.config/sbxr/boot.sh"
+          [ -x "$f" ] || exit 0
+          exec "$f"

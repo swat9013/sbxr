@@ -2,7 +2,10 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"io/fs"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +85,87 @@ func TestAFailedSecretIsNamedWithTheSecretsAlreadyPlaced(t *testing.T) {
 
 	if err == nil || !strings.Contains(err.Error(), "secret env GITLAB_TOKEN を置けない") || !strings.Contains(err.Error(), "置いた分: [service github]") {
 		t.Errorf("CreateSandbox() error = %v, want the failed secret and the placed ones", err)
+	}
+}
+
+func TestTheEnvDefinitionCarriesTheHerdrKitWithItsVersionOnlyWhenHerdrIsInstalled(t *testing.T) {
+	for name, install := range map[string]*HerdrInstall{"installed": {Version: "v0.9.0"}, "not installed": nil} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			if err := NewSbx((&sbxstub.Stub{}).Run).DefineSandbox(dir, SandboxSpec{Name: "app", Repo: "/src/app", Herdr: install}); err != nil {
+				t.Fatal(err)
+			}
+
+			env, _, err := readEnvDefinition(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			i := slices.IndexFunc(env.Kits, func(kit envKit) bool { return kit.Source == "./kits/"+herdrKit })
+			if (install == nil) != (i < 0) || (install != nil && env.Kits[i].Args["version"] != install.Version) {
+				t.Errorf("env kits = %+v, want the herdr kit only when installed, with its version", env.Kits)
+			}
+			if _, err := fs.Stat(os.DirFS(dir), kitsDir+"/"+herdrKit+"/spec.yaml"); (install == nil) != (err != nil) {
+				t.Errorf("herdr kit in the state dir: %v, want it only when installed", err)
+			}
+		})
+	}
+}
+
+func TestCreateSandboxSetsTheSecretsBeforeCreatingAndAddsTheRulesAfter(t *testing.T) {
+	stub := &sbxstub.Stub{VM: &sbxstub.FakeVM{}}
+	sbx := NewSbx(stub.Run)
+	dir := t.TempDir()
+	spec := SandboxSpec{Name: "app", Repo: "/src/app", Secrets: []SandboxSecret{{Service: "github", Value: "v"}}, EgressRules: []string{"api.example.com:443"}}
+	if err := sbx.DefineSandbox(dir, spec); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sbx.CreateSandbox(context.Background(), dir, spec); err != nil {
+		t.Fatal(err)
+	}
+
+	secretAt := slices.Index(stub.Writes, "secret set github --sandbox app")
+	createAt := slices.IndexFunc(stub.Writes, func(w string) bool { return strings.HasPrefix(w, "env create") })
+	ruleAt := slices.IndexFunc(stub.Writes, func(w string) bool { return strings.HasPrefix(w, "policy allow network --sandbox app") })
+	if secretAt < 0 || createAt < 0 || ruleAt < 0 || secretAt > createAt || createAt > ruleAt {
+		t.Errorf("sbx writes = %q, want the secret before env create and the rule after it", stub.Writes)
+	}
+}
+
+func TestCreateSandboxReportsAFailureAfterTheVMWasCreatedWithItsStep(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		arrange func(*sbxstub.Stub)
+		spec    SandboxSpec
+		want    CreatedStep
+	}{
+		{"a sandbox rule", func(s *sbxstub.Stub) { s.FailOn = "policy allow network --sandbox" },
+			SandboxSpec{Name: "app", Repo: "/src/app", EgressRules: []string{"api.example.com:443"}}, CreatedStepSandboxEgress},
+		{"the herdr kit", func(s *sbxstub.Stub) { s.VM.FailHerdrKit() },
+			SandboxSpec{Name: "app", Repo: "/src/app", Herdr: &HerdrInstall{Version: "v0.9.0"}}, CreatedStepHerdrStartup},
+		{"the kit dispatcher", func(s *sbxstub.Stub) { s.VM.FailKitStartup() },
+			SandboxSpec{Name: "app", Repo: "/src/app", Herdr: &HerdrInstall{Version: "v0.9.0"}}, CreatedStepHerdrStartup},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := &sbxstub.Stub{VM: &sbxstub.FakeVM{}}
+			tc.arrange(stub)
+			sbx := NewSbx(stub.Run)
+			dir := t.TempDir()
+			if err := sbx.DefineSandbox(dir, tc.spec); err != nil {
+				t.Fatal(err)
+			}
+
+			err := sbx.CreateSandbox(context.Background(), dir, tc.spec)
+
+			var created *CreatedError
+			if !errors.As(err, &created) || created.Step != tc.want {
+				t.Errorf("CreateSandbox() error = %v, want a failure after the VM was created at step %d", err, tc.want)
+			}
+			if stub.Sandboxes["app"] != "running" {
+				t.Errorf("sandboxes = %v, want the VM kept running", stub.Sandboxes)
+			}
+		})
 	}
 }
 

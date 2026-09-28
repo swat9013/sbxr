@@ -3,9 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -239,33 +237,5 @@ func TestCreateDoesNotOverwriteSettingsItCouldNotRead(t *testing.T) {
 	}
 	if lc.stub.VM.Files[settingsPath] != sbxInitialSettings {
 		t.Errorf("settings.json = %q, want sbx's settings left untouched", lc.stub.VM.Files[settingsPath])
-	}
-}
-
-func TestARuleFailureAfterCreatingTheVMAsksToStopBeforeDestroying(t *testing.T) {
-	lc := newLifecycle(t, lifecycleUserConfig)
-	lc.stub.FailOn = "policy allow network --sandbox"
-	repo := gitRepo(t, "app", repoWithEgress, "https://github.com/me/app.git")
-
-	_, err := lc.run(t, "create", repo, "--yes")
-
-	if err == nil || !strings.Contains(err.Error(), "sbxr stop") {
-		t.Errorf("error = %v, want the running VM's recovery steps", err)
-	}
-}
-
-func TestTheEnvDefinitionCarriesTheBootKit(t *testing.T) {
-	lc := newLifecycle(t, lifecycleUserConfig)
-	repo := gitRepo(t, "app", "", "https://github.com/me/app.git")
-
-	lc.mustRun(t, "create", repo, "--yes")
-
-	stateDir := lc.places.StateDir("app")
-	env, err := os.ReadFile(filepath.Join(stateDir, "sbxenv.yaml"))
-	if err != nil || !strings.Contains(string(env), "./kits/sbxr-boot") {
-		t.Errorf("sbxenv.yaml = %q, %v, want the boot kit", env, err)
-	}
-	if !exists(filepath.Join(stateDir, "kits", "sbxr-boot", "spec.yaml")) {
-		t.Errorf("boot kit was not written to the state dir")
 	}
 }

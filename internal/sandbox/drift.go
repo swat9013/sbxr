@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -11,33 +10,22 @@ import (
 	"github.com/swat9013/sbxr/internal/secret"
 )
 
-// Record は状態ディレクトリに残した作成時の記録。宣言と、それを確定したときの repo の egress の扱い
+// creationRecord は状態ディレクトリに残した作成時の記録。宣言と、それを確定したときの repo の egress の扱い
 // (git URL を --yes で通して repo の egress を落としたなら、drift を比べるときに同じ扱いを再現する)。
-type Record struct {
-	Declaration Declaration
-	RepoEgress  RepoEgressPolicy
+type creationRecord struct {
+	Declaration sandboxDeclaration
+	RepoEgress  repoEgressPolicy
 }
 
-// ReadRecord は target の作成時の記録を状態ディレクトリから読む。sbx には問い合わせない。
+// readRecord は target の作成時の記録を状態ディレクトリから読む。sbx には問い合わせない。
 // 作り終えた記録が無い (状態ディレクトリが無い・別の repo のもの・作成が途中で止まった) なら found が false。
-func ReadRecord(places Places, target Target) (record Record, found bool, err error) {
+func readRecord(places Places, target sandboxTarget) (record creationRecord, found bool, err error) {
 	dir := places.stateDirOf(target.Name)
 	source, found, err := dir.source()
 	if err != nil || !found || source != target.Source() {
-		return Record{}, false, err
+		return creationRecord{}, false, err
 	}
 	return dir.record()
-}
-
-// CompareWithRecord は現在の宣言を作成時と同じ repo の egress の扱いで確定し、作成時の宣言との差分を返す。
-// git URL の Target は呼び出し側が clone してから渡す。
-func CompareWithRecord(ctx context.Context, places Places, target Target, record Record) (Comparison, Prepared, error) {
-	prepared, err := Prepare(ctx, places, target, record.RepoEgress)
-	if err != nil {
-		return Comparison{}, Prepared{}, err
-	}
-	comparison, err := record.Drift(prepared.Declaration)
-	return comparison, prepared, err
 }
 
 // Comparison は作成時の宣言と現在の宣言を比べた結果。
@@ -59,7 +47,7 @@ type Difference struct {
 // 両方を同じ YAML の形へ直してから比べるので、書き出し方の違いは差にならない。
 // 配線した secret は、配線の結果が揃えた形で比べる (並びを差にしない。作成時に記録していない secret の key・vars は比べず、
 // NotCompared に注記する)。
-func (r Record) Drift(current Declaration) (Comparison, error) {
+func (r creationRecord) Drift(current sandboxDeclaration) (Comparison, error) {
 	var comparison Comparison
 	recorded := r.Declaration
 	recorded.Secrets, current.Secrets, comparison.NotCompared = secret.Comparable(recorded.Secrets, current.Secrets)
@@ -75,7 +63,7 @@ func (r Record) Drift(current Declaration) (Comparison, error) {
 	return comparison, err
 }
 
-func declarationTree(decl Declaration) (map[string]any, error) {
+func declarationTree(decl sandboxDeclaration) (map[string]any, error) {
 	data, err := yaml.Marshal(decl)
 	if err != nil {
 		return nil, err

@@ -89,7 +89,7 @@ func TestAcceptanceRepoDeclarationCannotWriteRestrictedKeys(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "repo 宣言には書けない") {
 				t.Errorf("error = %v, want the restricted key refused", err)
 			}
-			if len(lc.stub.Writes) != 0 || exists(lc.places.StateDir("app")) {
+			if len(lc.stub.Writes) != 0 || exists(lc.stateDir("app")) {
 				t.Errorf("create wrote %q / a state dir for a refused repo declaration", lc.stub.Writes)
 			}
 		})
@@ -160,13 +160,6 @@ func TestAcceptanceBootReplaysTheCreationTimeCommandsOnEveryStart(t *testing.T) 
 	if script := lc.stub.VM.Files[bootScriptPath]; !strings.Contains(script, "start-daemon") || strings.Contains(script, "changed-daemon") {
 		t.Errorf("boot script = %q, want the creation-time boot, not the edited declaration", script)
 	}
-	env, err := os.ReadFile(filepath.Join(lc.places.StateDir("app"), "sbxenv.yaml"))
-	if err != nil || !strings.Contains(string(env), "./kits/sbxr-boot") {
-		t.Errorf("sbxenv.yaml = %q, %v, want the boot kit that replays the script on start", env, err)
-	}
-	if !exists(filepath.Join(lc.places.StateDir("app"), "kits", "sbxr-boot", "spec.yaml")) {
-		t.Errorf("the boot kit was not written next to the env definition")
-	}
 }
 
 // --- 5. 確認関門: merge 結果を見せてから承認を求め、承認までは何も作らない ---
@@ -181,7 +174,7 @@ type gatePrompter struct {
 
 func (p *gatePrompter) Confirm(prompt string) (bool, error) {
 	p.writesAtConfirm = len(p.lc.stub.Writes)
-	p.stateDirAtAnswer = exists(p.lc.places.StateDir("app"))
+	p.stateDirAtAnswer = exists(p.lc.stateDir("app"))
 	return p.fakePrompter.Confirm(prompt)
 }
 

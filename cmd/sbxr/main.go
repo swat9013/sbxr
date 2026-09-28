@@ -20,21 +20,17 @@ var version string
 // dependencies は subcommand が使う外部との境界。test では stub に差し替える。
 type dependencies struct {
 	runtime runtime.Runtime
-	// userConfigPath は user 設定の path を返す。使う subcommand だけが呼ぶ。
+	// userConfigPath は user 設定の path を返す。home を決められなければ error。
 	userConfigPath func() (string, error)
 	// secretFilePath は secret ファイルの path を返す。使う subcommand だけが呼ぶ。
 	secretFilePath func() (string, error)
 	// githubAPI は GitHub API の root URL。
 	githubAPI string
 	prompter  prompter
-	// places は状態ディレクトリ・cache clone・user 設定の置き場を返す。
+	// places は状態ディレクトリと cache clone の置き場を返す。
 	places func() (sandbox.Places, error)
 	clone  sandbox.Cloner
 	herdr  herdr.Client
-}
-
-func (d dependencies) hosts() sandbox.Hosts {
-	return sandbox.Hosts{Runtime: d.runtime, Herdr: d.herdr}
 }
 
 func main() {
