@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os/exec"
 	"strings"
 )
@@ -113,29 +114,38 @@ func (s *Sbx) SetSandboxSecret(ctx context.Context, sandbox string, secret Sandb
 func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error) {
 	out, err := s.run(ctx, nil, "ls", "--json")
 	if err != nil {
-		return "", err
+		return SandboxUnknown, err
 	}
 	var listing map[string]json.RawMessage
 	if err := json.Unmarshal(out, &listing); err != nil {
-		return "", fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
 	}
 	raw, ok := listing["sandboxes"]
 	if !ok {
-		return "", fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
 	}
 	var sandboxes []struct { // sandbox が 1 つも無ければ null でも空でもよい
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
 	if err := json.Unmarshal(raw, &sandboxes); err != nil {
-		return "", fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
 	}
 	for _, sb := range sandboxes {
 		if sb.Name == sandbox {
-			return SandboxStatus(sb.Status), nil
+			return sbxStatus(sb.Status), nil
 		}
 	}
 	return SandboxAbsent, nil
+}
+
+// sbxStatus は sbx ls の status を読む。stopped 以外は、使用中かもしれないので稼働中と読む
+// (sbx は running のほかに起動途中などの値を返しうる。稼働中と読めば destroy は拒否する側に倒れる)。
+func sbxStatus(status string) SandboxStatus {
+	if status == "stopped" {
+		return SandboxStopped
+	}
+	return SandboxRunning
 }
 
 // CreateEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --auto-approve を渡す。
@@ -176,4 +186,40 @@ func (s *Sbx) ExecInSandbox(ctx context.Context, sandbox string, command Sandbox
 	}
 	args = append(append(args, sandbox, "--"), command.Args...)
 	return s.run(ctx, stdin, args...)
+}
+
+// writeFileScript は stdin を $1 へ書き、$2 があれば mode にする。ディレクトリが無ければ作る。
+// sbx cp ではなく VM 内の shell で書く理由は ADR 0006 (sbx cp は host の uid のまま置き、VM の agent から読めない)。
+const writeFileScript = `set -e; mkdir -p "$(dirname "$1")"; cat > "$1"; if [ -n "$2" ]; then chmod "$2" "$1"; fi`
+
+// existsScript は $1 があれば yes、無ければ no を出す。exec の失敗 (0 以外) と「無い」を区別するため、有無は出力で返す。
+const existsScript = `if [ -e "$1" ]; then echo yes; else echo no; fi`
+
+// ReadSandboxFile は VM 内で cat して読む。
+func (s *Sbx) ReadSandboxFile(ctx context.Context, sandbox, path string) ([]byte, error) {
+	return s.ExecInSandbox(ctx, sandbox, SandboxCommand{Args: []string{"cat", path}})
+}
+
+// WriteSandboxFile は VM 内の shell で stdin から書く (VM の agent の持ち主で置くため)。
+func (s *Sbx) WriteSandboxFile(ctx context.Context, sandbox, path string, data []byte, mode fs.FileMode) error {
+	args := []string{"sh", "-c", writeFileScript, "sh", path}
+	if mode != KeepMode {
+		args = append(args, fmt.Sprintf("%04o", mode.Perm()))
+	}
+	_, err := s.ExecInSandbox(ctx, sandbox, SandboxCommand{Args: args, Input: data})
+	return err
+}
+
+// SandboxFileExists は VM 内の shell で有無を出力させて読む。
+func (s *Sbx) SandboxFileExists(ctx context.Context, sandbox, path string) (bool, error) {
+	out, err := s.ExecInSandbox(ctx, sandbox, SandboxCommand{Args: []string{"sh", "-c", existsScript, "sh", path}})
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(string(out)) == "yes", nil
+}
+
+// SSHTarget は sbx が host の ~/.ssh/config に置く <name>.sbx。
+func (s *Sbx) SSHTarget(sandbox string) string {
+	return sandbox + ".sbx"
 }

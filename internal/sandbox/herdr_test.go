@@ -9,7 +9,7 @@ import (
 
 	"github.com/swat9013/sbxr/internal/assets"
 	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
+	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
 
 func TestStartupOutcomeReadsOnlyTheLatestDispatcherRun(t *testing.T) {
@@ -49,10 +49,12 @@ func TestWaitingForKitStartupGivesUpAfterTheBudget(t *testing.T) {
 	saved := kitWait
 	t.Cleanup(func() { kitWait = saved })
 	kitWait.budget, kitWait.interval, kitWait.sleep = 3*time.Second, time.Second, func(time.Duration) {}
-	fake := &sbxstub.FakeVM{Files: map[string]string{kitStartupLog: "=== dispatcher run ===\n> /etc/durable-startup.d/002-startup-sbxr-herdr/000-cmd.sh\n"}}
-	stub := &sbxstub.Stub{Sandboxes: map[string]string{"app": "running"}, VM: fake}
+	rt := inmemory.New()
+	app := rt.Sandbox("app")
+	app.Status = runtime.SandboxRunning
+	app.Files[kitStartupLog] = inmemory.File{Data: []byte("=== dispatcher run ===\n> /etc/durable-startup.d/002-startup-sbxr-herdr/000-cmd.sh\n")}
 
-	err := waitKitStartup(context.Background(), runtime.NewSbx(stub.Run), "app")
+	err := waitKitStartup(context.Background(), rt, "app")
 
 	if err == nil || !strings.Contains(err.Error(), "終わらない") {
 		t.Errorf("waitKitStartup() error = %v, want a timeout", err)

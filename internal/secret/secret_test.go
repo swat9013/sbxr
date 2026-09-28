@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
+	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
 
 func assertErrorMentions(t *testing.T, err error, needles ...string) {
@@ -222,36 +222,30 @@ func TestPlanStopsOnRequestsWithoutADefinitionAndNamesThemAll(t *testing.T) {
 
 // --- 配線の適用 ---
 
-func TestApplyWiresSandboxScopedSecretsPassingValuesOnStdin(t *testing.T) {
-	stub := &sbxstub.Stub{}
+func TestApplyPlacesEachWiredSecretInTheSandboxWithItsValue(t *testing.T) {
+	rt := inmemory.New()
 	plan := Plan{Wired: []Wire{{Name: "github", Definition: testDefs["github"]}, {Name: "gitlab", Definition: testDefs["gitlab"]}}}
 
-	err := Apply(context.Background(), runtime.NewSbx(stub.Run), "vm1", plan, Values{"GITHUB_TOKEN": "gh-value", "GITLAB_TOKEN": "gl-value"})
+	err := Apply(context.Background(), rt, "vm1", plan, Values{"GITHUB_TOKEN": "gh-value", "GITLAB_TOKEN": "gl-value"})
 
-	if err != nil {
-		t.Fatalf("Apply() error = %v", err)
+	want := []runtime.SandboxSecret{
+		{Service: "github", Hosts: testDefs["github"].Hosts, Value: "gh-value"},
+		{Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Value: "gl-value"},
 	}
-	want := []string{
-		"secret set github --sandbox vm1",
-		"secret set-custom --sandbox vm1 --host gitlab.example.com --env GITLAB_TOKEN",
-	}
-	if !reflect.DeepEqual(stub.Writes, want) {
-		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
-	}
-	if wantInputs := []string{"gh-value\n", "gl-value\n"}; !reflect.DeepEqual(stub.Inputs, wantInputs) {
-		t.Errorf("sbx stdin = %q, want the values on stdin", stub.Inputs)
+	if err != nil || !reflect.DeepEqual(rt.Sandbox("vm1").Secrets, want) {
+		t.Errorf("Apply() = %v, sandbox secrets = %+v, want %+v", err, rt.Sandbox("vm1").Secrets, want)
 	}
 }
 
-func TestApplyWritesNothingWhenAWiredValueIsMissingFromTheSecretFile(t *testing.T) {
-	stub := &sbxstub.Stub{}
+func TestApplyPlacesNothingWhenAWiredValueIsMissingFromTheSecretFile(t *testing.T) {
+	rt := inmemory.New()
 	plan := Plan{Wired: []Wire{{Name: "github", Definition: testDefs["github"]}, {Name: "gitlab", Definition: testDefs["gitlab"]}}}
 
-	err := Apply(context.Background(), runtime.NewSbx(stub.Run), "vm1", plan, Values{"GITHUB_TOKEN": "gh-value"})
+	err := Apply(context.Background(), rt, "vm1", plan, Values{"GITHUB_TOKEN": "gh-value"})
 
 	assertErrorMentions(t, err, "GITLAB_TOKEN")
-	if len(stub.Writes) != 0 {
-		t.Errorf("sbx writes = %q, want none before every value is found", stub.Writes)
+	if secrets := rt.Sandbox("vm1").Secrets; len(secrets) != 0 {
+		t.Errorf("sandbox secrets = %+v, want none before every value is found", secrets)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,27 +15,56 @@ import (
 	"github.com/swat9013/sbxr/internal/assets"
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/runtime"
-	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
+	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
 
-func runningVM(t *testing.T, fake *sbxstub.FakeVM) vm {
+// runningVM は稼働中の VM app を持つ in-memory の実行基盤を返す。respond は VM 内のコマンドへの応答で、
+// printenv HOME には /home/agent を返す。
+func runningVM(t *testing.T, respond func(runtime.SandboxCommand) ([]byte, error)) (vm, *inmemory.Runtime) {
 	t.Helper()
-	stub := &sbxstub.Stub{Sandboxes: map[string]string{"app": "running"}, VM: fake}
-	v, err := openVM(context.Background(), runtime.NewSbx(stub.Run), "app")
+	rt := inmemory.New()
+	rt.Sandbox("app").Status = runtime.SandboxRunning
+	rt.Respond = func(_ string, command runtime.SandboxCommand) ([]byte, error) {
+		if slices.Equal(command.Args, []string{"printenv", "HOME"}) {
+			return []byte("/home/agent\n"), nil
+		}
+		if respond == nil {
+			return nil, nil
+		}
+		return respond(command)
+	}
+	v, err := openVM(context.Background(), rt, "app")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return v
+	return v, rt
+}
+
+// shellRuns は VM 内で bash -c で走ったコマンド。
+func shellRuns(rt *inmemory.Runtime) []string {
+	var runs []string
+	for _, command := range rt.Commands {
+		if len(command.Args) == 3 && command.Args[0] == "bash" && command.Args[1] == "-c" {
+			runs = append(runs, command.Args[2])
+		}
+	}
+	return runs
 }
 
 func TestInitWarnsAndStillRunsWhenAptDoesNotFinishInTime(t *testing.T) {
 	saved := aptWait
 	t.Cleanup(func() { aptWait = saved })
 	aptWait.budget, aptWait.interval, aptWait.sleep = 3*time.Second, time.Second, func(time.Duration) {}
-	fake := &sbxstub.FakeVM{AptBusyPolls: 100}
+	aptRunning := func(command runtime.SandboxCommand) ([]byte, error) {
+		if slices.Equal(command.Args, []string{"pgrep", "-x", "apt-get"}) {
+			return []byte("123\n"), nil
+		}
+		return nil, nil
+	}
+	v, rt := runningVM(t, aptRunning)
 	var progress bytes.Buffer
 
-	err := runInit(context.Background(), runningVM(t, fake), "/repo", []string{"make"}, &progress)
+	err := runInit(context.Background(), v, "/repo", []string{"make"}, &progress)
 
 	if err != nil {
 		t.Fatalf("runInit() error = %v", err)
@@ -42,8 +72,8 @@ func TestInitWarnsAndStillRunsWhenAptDoesNotFinishInTime(t *testing.T) {
 	if !strings.Contains(progress.String(), "警告") {
 		t.Errorf("progress = %q, want a warning", progress.String())
 	}
-	if len(fake.ShellRuns) != 1 {
-		t.Errorf("shell runs = %v, want init to run after the warning", fake.ShellRuns)
+	if runs := shellRuns(rt); !slices.Equal(runs, []string{"make"}) {
+		t.Errorf("shell runs = %v, want init to run after the warning", runs)
 	}
 }
 

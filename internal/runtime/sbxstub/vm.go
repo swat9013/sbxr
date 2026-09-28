@@ -107,9 +107,11 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 		// sh -c '<$1 へ GET を送り、1 行目に curl の exit code と状態コード、続けて body を出す script>' sh <url>
 		return vm.probe(args[4]), nil
 	case len(args) == 5 && args[0] == "sh" && args[1] == "-c" && args[3] == "sh" && command.Input == nil:
-		// sh -c '<$1 があれば yes、無ければ no を出す script>' sh <path>
-		if _, ok := vm.Files[args[4]]; ok {
-			return []byte("yes\n"), nil
+		// sh -c '<$1 があれば yes、無ければ no を出す script>' sh <path>。書いたファイルの親ディレクトリもある
+		for path := range vm.Files {
+			if path == args[4] || strings.HasPrefix(path, strings.TrimSuffix(args[4], "/")+"/") {
+				return []byte("yes\n"), nil
+			}
 		}
 		return []byte("no\n"), nil
 	case len(args) == 2 && args[0] == "cat" && vm.FailRead:

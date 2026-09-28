@@ -2,8 +2,14 @@ package runtime
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
@@ -108,7 +114,114 @@ func TestSbxReadsAnEmptyOrNullSandboxListAsAbsent(t *testing.T) {
 		status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
 
 		if err != nil || status != SandboxAbsent {
-			t.Errorf("SandboxStatus(%s) = %q, %v, want absent", listing, status, err)
+			t.Errorf("SandboxStatus(%s) = %v, %v, want absent", listing, status, err)
 		}
+	}
+}
+
+// runInsideLocally は sbx exec [-i] <sandbox> -- <args> の <args> を host で実行する runner。
+// VM の中で走る script を、実際の sh で確かめるために使う。
+func runInsideLocally(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error) {
+	i := slices.Index(args, "--")
+	if args[0] != "exec" || i < 0 {
+		return nil, fmt.Errorf("sbx exec ではない: %q", args)
+	}
+	cmd := exec.CommandContext(ctx, args[i+1], args[i+2:]...)
+	cmd.Stdin = stdin
+	return cmd.Output()
+}
+
+func TestSbxWritesAFileMakingItsParentDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nested", "boot.sh")
+
+	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte("echo boot\n"), KeepMode)
+
+	if data, readErr := os.ReadFile(path); err != nil || readErr != nil || string(data) != "echo boot\n" {
+		t.Errorf("WriteSandboxFile = %v, file = %q, %v, want the data written with its parent made", err, data, readErr)
+	}
+}
+
+func TestSbxWritesAFileWithTheGivenMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "boot.sh")
+
+	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte("echo boot\n"), 0o755)
+
+	if info, statErr := os.Stat(path); err != nil || statErr != nil || info.Mode().Perm() != 0o755 {
+		t.Errorf("WriteSandboxFile = %v, stat = %v, want mode 0755", err, statErr)
+	}
+}
+
+func TestSbxWritesAFileWithoutChangingItsModeWhenNoneIsGiven(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	err := NewSbx(runInsideLocally).WriteSandboxFile(context.Background(), "app", path, []byte(`{"model":"opus"}`), KeepMode)
+
+	data, _ := os.ReadFile(path)
+	info, _ := os.Stat(path)
+	if err != nil || string(data) != `{"model":"opus"}` || info.Mode().Perm() != 0o640 {
+		t.Errorf("WriteSandboxFile = %v, file = %q (%v), want the data replaced and the mode kept", err, data, info.Mode().Perm())
+	}
+}
+
+func TestSbxSaysAFileInsideTheVMExists(t *testing.T) {
+	present := filepath.Join(t.TempDir(), "present")
+	if err := os.WriteFile(present, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := NewSbx(runInsideLocally).SandboxFileExists(context.Background(), "app", present)
+
+	if err != nil || !found {
+		t.Errorf("SandboxFileExists = %v, %v, want true", found, err)
+	}
+}
+
+func TestSbxSaysAMissingFileInsideTheVMDoesNotExist(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing")
+
+	found, err := NewSbx(runInsideLocally).SandboxFileExists(context.Background(), "app", missing)
+
+	if err != nil || found {
+		t.Errorf("SandboxFileExists = %v, %v, want false", found, err)
+	}
+}
+
+func TestSbxCannotTellWhetherAFileExistsWhenExecFails(t *testing.T) {
+	run := func(context.Context, io.Reader, ...string) ([]byte, error) {
+		return nil, errors.New("sandbox is not running")
+	}
+
+	_, err := NewSbx(run).SandboxFileExists(context.Background(), "app", "/home/agent/x")
+
+	if err == nil {
+		t.Errorf("SandboxFileExists error = nil, want the exec failure rather than absent")
+	}
+}
+
+func TestSbxReadsTheStatusOfItsSandboxes(t *testing.T) {
+	for status, want := range map[string]SandboxStatus{
+		"running":  SandboxRunning,
+		"stopped":  SandboxStopped,
+		"starting": SandboxRunning, // sbx の他の値は、使用中かもしれないので稼働中と読む (destroy は拒否する側に倒れる)
+	} {
+		t.Run(status, func(t *testing.T) {
+			listing := `{"sandboxes":[{"name":"app","status":"` + status + `"}]}`
+			run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
+
+			got, err := NewSbx(run).SandboxStatus(context.Background(), "app")
+
+			if err != nil || got != want {
+				t.Errorf("SandboxStatus = %v, %v, want %v", got, err, want)
+			}
+		})
+	}
+}
+
+func TestSbxConnectsToTheSandboxOverTheSSHConfigSbxWrites(t *testing.T) {
+	if got := NewSbx(nil).SSHTarget("app"); got != "app.sbx" {
+		t.Errorf("SSHTarget = %q, want app.sbx", got)
 	}
 }

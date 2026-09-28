@@ -79,7 +79,7 @@ func waitKitStartup(ctx context.Context, rt runtime.Runtime, name string) error 
 			return err
 		}
 		var out []byte
-		out, readErr = rt.ExecInSandbox(ctx, name, runtime.SandboxCommand{Args: []string{"cat", kitStartupLog}}) // log は startup の途中まで無い
+		out, readErr = rt.ReadSandboxFile(ctx, name, kitStartupLog) // log は startup の途中まで無い
 		switch startupOutcome(string(out)) {
 		case startupComplete:
 			return nil
@@ -132,7 +132,7 @@ const stopHerdrServer = "pkill -x herdr"
 // "remote server is not ready for saved machines" で失敗する。ADR 0007 の実測)。
 // 同じ宛先の登録が残っていたら (前の VM の解除の失敗など)、この回に作っていない登録には触れずに止める。
 func registerHerdrMachine(ctx context.Context, hosts Hosts, name string, progress io.Writer) error {
-	target := herdr.Target(name)
+	target := hosts.Runtime.SSHTarget(name)
 	recovery := fmt.Sprintf("sbx exec %s -- %s; %s", name, stopHerdrServer, herdr.AddCommand(target, name))
 	machines, err := hosts.Herdr.List(ctx)
 	if err != nil {
@@ -185,7 +185,7 @@ func removeHerdrMachine(ctx context.Context, hosts Hosts, places Places, name st
 	if err != nil || !enabled {
 		return err
 	}
-	machine, found, err := findHerdrMachine(ctx, hosts.Herdr, name)
+	machine, found, err := findHerdrMachine(ctx, hosts.Herdr, hosts.Runtime.SSHTarget(name))
 	if err != nil || !found {
 		return err
 	}
@@ -195,12 +195,12 @@ func removeHerdrMachine(ctx context.Context, hosts Hosts, places Places, name st
 	return nil
 }
 
-func findHerdrMachine(ctx context.Context, client herdr.Client, name string) (herdr.Machine, bool, error) {
+func findHerdrMachine(ctx context.Context, client herdr.Client, target string) (herdr.Machine, bool, error) {
 	machines, err := client.List(ctx)
 	if err != nil {
 		return herdr.Machine{}, false, err
 	}
-	machine, found := herdr.Find(machines, herdr.Target(name))
+	machine, found := herdr.Find(machines, target)
 	return machine, found, nil
 }
 
@@ -218,12 +218,13 @@ func Stop(ctx context.Context, hosts Hosts, places Places, name string, progress
 	if err := requireHerdrOnHost(hosts.Herdr); err != nil {
 		return err
 	}
-	machine, found, err := findHerdrMachine(ctx, hosts.Herdr, name)
+	target := hosts.Runtime.SSHTarget(name)
+	machine, found, err := findHerdrMachine(ctx, hosts.Herdr, target)
 	if err != nil {
 		return fmt.Errorf("herdr machine を無効にできないので止めない: %w", err)
 	}
 	if !found {
-		logf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無いので、そのまま止める)\n", herdr.Target(name))
+		logf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無いので、そのまま止める)\n", target)
 		return hosts.Runtime.StopSandbox(ctx, name)
 	}
 	if err := hosts.Herdr.Disable(ctx, machine.ID); err != nil {

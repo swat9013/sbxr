@@ -1,7 +1,13 @@
-// Package runtime は sandbox VM の実行基盤との境界を置く (ADR 0005)。実装は sbx だけ。
+// Package runtime は sandbox VM の実行基盤との境界を置く (ADR 0005)。本番の実行基盤は sbx だけ。
+// domain の test は in-memory の adapter (runtime/inmemory) を、Sbx adapter と CLI の test は sbx stub を使う。
+// 2 つの adapter は runtime/runtimetest の契約 test で揃える。
 package runtime
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"io/fs"
+)
 
 // Runtime は sbxr が実行基盤に求める操作。
 type Runtime interface {
@@ -28,6 +34,15 @@ type Runtime interface {
 	AllowSandboxEgress(ctx context.Context, sandbox, resource string) error
 	// ExecInSandbox は sandbox VM 内でコマンドを実行し、stdout を返す。0 以外で終われば error。
 	ExecInSandbox(ctx context.Context, sandbox string, command SandboxCommand) ([]byte, error)
+	// ReadSandboxFile は sandbox VM 内の path (絶対 path) の中身を返す。無ければ error。
+	ReadSandboxFile(ctx context.Context, sandbox, path string) ([]byte, error)
+	// WriteSandboxFile は sandbox VM 内の path (絶対 path) に data を書く。親ディレクトリが無ければ作る。
+	// VM の agent が読み書きできる持ち主で置く。mode が KeepMode なら mode を変えない。
+	WriteSandboxFile(ctx context.Context, sandbox, path string, data []byte, mode fs.FileMode) error
+	// SandboxFileExists は sandbox VM 内に path (絶対 path) があるかを返す。確かめられなければ error (「無い」とは区別する)。
+	SandboxFileExists(ctx context.Context, sandbox, path string) (bool, error)
+	// SSHTarget は host から sandbox VM へ ssh で繋ぐ宛先 (herdr machine の登録先)。
+	SSHTarget(sandbox string) string
 }
 
 // SandboxCommand は sandbox VM 内で実行するコマンド。
@@ -40,13 +55,38 @@ type SandboxCommand struct {
 	Input []byte
 }
 
-// SandboxStatus は sandbox VM の状態。実行基盤が返す値をそのまま持ち、sbxr が扱う値だけを定数にする。
-type SandboxStatus string
+// KeepMode は WriteSandboxFile で mode を変えない (既存のファイルの mode を保ち、新しいファイルは既定の mode になる)。
+// 値は 0 なので、mode 0000 で置くことは表せない (sbxr が VM に置くファイルは agent が読むので、0000 は要らない)。
+const KeepMode fs.FileMode = 0
+
+// SandboxStatus は sandbox VM の状態。実行基盤の値をどの状態と読むかは adapter が決める。
+// ゼロ値はどの状態でもない (状態を得られなかったときの値を、VM が無いとも止まっているとも読ませない)。
+type SandboxStatus int
 
 const (
-	SandboxAbsent  SandboxStatus = "absent"
-	SandboxStopped SandboxStatus = "stopped"
+	// SandboxUnknown はどの状態でもない (状態を得られなかった)。ゼロ値。
+	SandboxUnknown SandboxStatus = iota
+	// SandboxAbsent は VM が無い。
+	SandboxAbsent
+	// SandboxStopped は VM が止まっている。
+	SandboxStopped
+	// SandboxRunning は VM が止まっていない (使用中かもしれない)。
+	SandboxRunning
 )
+
+func (s SandboxStatus) String() string {
+	switch s {
+	case SandboxAbsent:
+		return "absent"
+	case SandboxStopped:
+		return "stopped"
+	case SandboxRunning:
+		return "running"
+	case SandboxUnknown:
+		return "unknown"
+	}
+	return fmt.Sprintf("SandboxStatus(%d)", int(s))
+}
 
 // SandboxSecret は sandbox VM に配線する secret。VM には placeholder だけが入り、実値は host 側の proxy が差し込む。
 type SandboxSecret struct {

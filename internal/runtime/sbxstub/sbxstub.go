@@ -8,12 +8,10 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"github.com/swat9013/sbxr/internal/runtime/testenv"
 )
 
 // Rule は sbx policy ls --json が返す rule のうち、sbxr が読む field。
@@ -92,7 +90,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		}
 		return json.Marshal(map[string][]sandbox{"sandboxes": list})
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--auto-approve"}):
-		name, err := envName(args[3])
+		name, err := testenv.Name(args[3])
 		if err != nil {
 			return nil, err
 		}
@@ -104,16 +102,20 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		return nil, nil
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "rm", "--force"}):
 		// 実 sbx と同じく、env 定義が無ければ消せない。sandbox が無くても sandbox スコープの secret は消して成功する
-		name, err := envName(args[3])
+		name, err := testenv.Name(args[3])
 		if err != nil {
 			return nil, err
 		}
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
+		_, existed := s.Sandboxes[name]
 		delete(s.Sandboxes, name)
 		delete(s.SandboxRules, name)
 		delete(s.SandboxSecrets, name)
+		if existed && s.VM != nil { // 撤去した VM の中身は、作り直した VM に残らない (fake VM は 1 つなので、sandbox は 1 つを前提にする)
+			s.VM.Files, s.VM.Modes = nil, nil
+		}
 		return nil, nil
 	case len(args) == 2 && args[0] == "stop":
 		if err := s.recordWrite(args, input); err != nil {
@@ -217,21 +219,6 @@ func (s *Stub) ensureMaps() {
 	if s.SandboxSecrets == nil {
 		s.SandboxSecrets = map[string]int{}
 	}
-}
-
-// envName は env 定義 (<dir>/sbxenv.yaml) の name を読む。
-func envName(dir string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "sbxenv.yaml"))
-	if err != nil {
-		return "", fmt.Errorf("sbxstub: no sbxenv.yaml found at %s: %w", dir, err)
-	}
-	var env struct {
-		Name string `yaml:"name"`
-	}
-	if err := yaml.Unmarshal(data, &env); err != nil || env.Name == "" {
-		return "", fmt.Errorf("sbxstub: %s/sbxenv.yaml の name を読めない", dir)
-	}
-	return env.Name, nil
 }
 
 func (s *Stub) recordWrite(args []string, input string) error {

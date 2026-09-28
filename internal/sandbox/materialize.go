@@ -21,10 +21,6 @@ import (
 // settingsRelPath は VM の agent user の home からの Claude Code の settings.json。
 const settingsRelPath = ".claude/settings.json"
 
-// writeFileScript は stdin を $1 へ書き、$2 があれば mode にする。ディレクトリが無ければ作る。
-// sbx cp ではなく VM 内の shell で書く理由は ADR 0006 (VM の agent から読めない uid・mode で置かれる)。
-const writeFileScript = `set -e; mkdir -p "$(dirname "$1")"; cat > "$1"; if [ -n "$2" ]; then chmod "$2" "$1"; fi`
-
 // vm は 1 つの sandbox VM の中を操作する。
 type vm struct {
 	rt   runtime.Runtime
@@ -40,30 +36,22 @@ func (v vm) path(rel string) string {
 	return v.home + "/" + rel
 }
 
-// existsScript は $1 があれば yes、無ければ no を出す。exec の失敗 (0 以外) と「無い」を区別するため、有無は出力で返す。
-const existsScript = `if [ -e "$1" ]; then echo yes; else echo no; fi`
-
 // exists は VM 内に rel があるかを返す。確かめられなければ error。
 func (v vm) exists(ctx context.Context, rel string) (bool, error) {
-	out, err := v.run(ctx, runtime.SandboxCommand{Args: []string{"sh", "-c", existsScript, "sh", v.path(rel)}})
+	found, err := v.rt.SandboxFileExists(ctx, v.name, v.path(rel))
 	if err != nil {
 		return false, fmt.Errorf("VM の %s の有無を確かめられない: %w", rel, err)
 	}
-	return strings.TrimSpace(string(out)) == "yes", nil
+	return found, nil
 }
 
 func (v vm) readFile(ctx context.Context, rel string) ([]byte, error) {
-	return v.run(ctx, runtime.SandboxCommand{Args: []string{"cat", v.path(rel)}})
+	return v.rt.ReadSandboxFile(ctx, v.name, v.path(rel))
 }
 
-// writeFile は rel に data を書く。mode が 0 なら mode を変えない。
+// writeFile は rel に data を書く。mode が runtime.KeepMode なら mode を変えない。
 func (v vm) writeFile(ctx context.Context, rel string, data []byte, mode fs.FileMode) error {
-	args := []string{"sh", "-c", writeFileScript, "sh", v.path(rel)}
-	if mode != 0 {
-		args = append(args, fmt.Sprintf("%04o", mode.Perm()))
-	}
-	_, err := v.run(ctx, runtime.SandboxCommand{Args: args, Input: data})
-	return err
+	return v.rt.WriteSandboxFile(ctx, v.name, v.path(rel), data, mode)
 }
 
 func openVM(ctx context.Context, rt runtime.Runtime, name string) (vm, error) {
@@ -180,7 +168,7 @@ func materialize(ctx context.Context, v vm, settings map[string]any, decl Declar
 	if err != nil {
 		return err
 	}
-	if err := v.writeFile(ctx, settingsRelPath, append(merged, '\n'), 0); err != nil {
+	if err := v.writeFile(ctx, settingsRelPath, append(merged, '\n'), runtime.KeepMode); err != nil {
 		return fmt.Errorf("settings.json を書けない: %w", err)
 	}
 	if err := installPlugins(ctx, v, decl.Profile); err != nil {
