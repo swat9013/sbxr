@@ -213,6 +213,7 @@ func (s *Sbx) waitStartup(ctx context.Context, sandbox string) error {
 		var out []byte
 		out, readErr = s.ReadSandboxFile(ctx, sandbox, kitStartupLog) // log は startup の途中まで無い
 		switch startupOutcome(string(out)) {
+		case startupRunning: // 終わるまで待ち続ける
 		case startupComplete:
 			return nil
 		case startupFailed:

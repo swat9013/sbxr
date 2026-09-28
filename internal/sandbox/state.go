@@ -104,6 +104,7 @@ func (o observation) outsideMachine(name string) error {
 		return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", name)
 	case stateOtherSource:
 		return fmt.Errorf("sandbox VM %s は別の repo (%s) から作られている", name, o.recordedSource)
+	case stateAbsent, stateIncompleteRunning, stateIncompleteStopped, stateRunning, stateStopped, stateVMGone: // 状態機械の中の状態で呼ぶのは不具合 (下で error)
 	}
 	return fmt.Errorf("sandbox VM %s の状態 %s は状態機械の外ではない (sbxr の不具合)", name, o.state)
 }
