@@ -102,7 +102,7 @@ func TestCheckEgressSkipsTheSideWithoutAProbeTarget(t *testing.T) {
 			v, rt := runningVM(t, answerProbes(tt.global))
 			var progress bytes.Buffer
 
-			err := checkEgress(context.Background(), v, Prepared{GlobalEgress: tt.global}, &progress)
+			err := checkEgress(context.Background(), v, preparation{GlobalEgress: tt.global}, &progress)
 
 			if err != nil {
 				t.Errorf("checkEgress() error = %v, want the remaining side to pass", err)

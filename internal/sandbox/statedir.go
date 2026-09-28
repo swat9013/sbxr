@@ -74,8 +74,8 @@ func (d stateDir) source() (source string, found bool, err error) {
 }
 
 // writeRecord は作成時の記録を書く。作成時の宣言は作成が終わった印なので最後に書く。
-func (d stateDir) writeRecord(record Record) error {
-	if record.RepoEgress == DropRepoEgress {
+func (d stateDir) writeRecord(record creationRecord) error {
+	if record.RepoEgress == dropRepoEgress {
 		if err := d.write(repoEgressDroppedFile, nil); err != nil {
 			return err
 		}
@@ -88,19 +88,19 @@ func (d stateDir) writeRecord(record Record) error {
 }
 
 // record は作成時の記録を読む。作成が終わっていなければ found が false。
-func (d stateDir) record() (record Record, found bool, err error) {
+func (d stateDir) record() (record creationRecord, found bool, err error) {
 	data, found, err := d.read(declarationFile)
 	if err != nil || !found {
-		return Record{}, false, err
+		return creationRecord{}, false, err
 	}
 	if err := yaml.Unmarshal(data, &record.Declaration); err != nil {
-		return Record{}, false, fmt.Errorf("作成時の宣言 %s を読めない: %w", filepath.Join(d.path, declarationFile), err)
+		return creationRecord{}, false, fmt.Errorf("作成時の宣言 %s を読めない: %w", filepath.Join(d.path, declarationFile), err)
 	}
-	record.RepoEgress = KeepRepoEgress
+	record.RepoEgress = keepRepoEgress
 	if dropped, err := d.exists(repoEgressDroppedFile); err != nil {
-		return Record{}, false, err
+		return creationRecord{}, false, err
 	} else if dropped {
-		record.RepoEgress = DropRepoEgress
+		record.RepoEgress = dropRepoEgress
 	}
 	return record, true, nil
 }

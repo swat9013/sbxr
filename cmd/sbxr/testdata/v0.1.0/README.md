@@ -1,6 +1,8 @@
 # v0.1.0 の状態ディレクトリ
 
-`app/` は v0.1.0 の sbxr が作った状態ディレクトリ。新しい sbxr がこれを扱えることを `cmd/sbxr/compat_test.go` が固定する（ADR 0006 の改訂）。
+`app/` は v0.1.0 の sbxr が作った状態ディレクトリ。新しい sbxr がこれを扱えることを `cmd/sbxr/compat_test.go` が固定する（ADR 0006 の改訂）。作成時の宣言が今の宣言の型で読めることは `internal/sandbox/statedir_test.go` が固定する。
+
+`app-half-created/` は、v0.1.0 の作成が VM の中の段で止まった状態ディレクトリ。`app/` から、作成の最後に書く `declaration.yaml` と `repo-egress-dropped` を除いたもの（v0.1.0 は作成時の記録を作成の最後に書くので、途中で止まるとこの 2 つだけが無い）。
 
 - 作った条件: git URL `https://example.com/me/app.git` の repo（repo 宣言は egress `api.example.com:443` を持つ）から、herdr 連携を有効にし、`--yes` で作った。repo の egress を落とした印（`repo-egress-dropped`）を含む
 - 作り方: v0.1.0 の source（`git archive v0.1.0`）を展開し、その `cmd/sbxr` に次の test を足して、`FIXTURE_OUT=<出力先> go test ./cmd/sbxr/ -run TestWriteV010Fixture` で書き出した。v0.1.0 の test harness（sbx stub）の上で動く

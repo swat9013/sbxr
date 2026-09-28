@@ -11,8 +11,8 @@ import (
 )
 
 func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
-	base := func() Declaration {
-		return Declaration{
+	base := func() sandboxDeclaration {
+		return sandboxDeclaration{
 			Profile: config.Profile{Env: map[string]string{"A": "1"}},
 			Init:    []string{"make"},
 			Secrets: []secret.WiredSecret{{Name: "one", Key: "ONE", Hosts: []string{"a.example.com", "b.example.com"}, Env: "ONE"}, {Name: "two", Key: "TWO", Hosts: []string{"c.example.com"}, Env: "TWO"}},
@@ -20,22 +20,22 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name   string
-		change func(*Declaration)
+		change func(*sandboxDeclaration)
 		want   []Difference
 	}{
-		{"nothing changed", func(*Declaration) {}, nil},
-		{"a nested value", func(d *Declaration) { d.Profile.Env = map[string]string{"A": "2"} },
+		{"nothing changed", func(*sandboxDeclaration) {}, nil},
+		{"a nested value", func(d *sandboxDeclaration) { d.Profile.Env = map[string]string{"A": "2"} },
 			[]Difference{{Path: "profile.env.A", Recorded: `"1"`, Current: `"2"`}}},
-		{"a value that was not set", func(d *Declaration) { level := "high"; d.Profile.EffortLevel = &level },
+		{"a value that was not set", func(d *sandboxDeclaration) { level := "high"; d.Profile.EffortLevel = &level },
 			[]Difference{{Path: "profile.effortLevel", Recorded: "(なし)", Current: `"high"`}}},
-		{"a list", func(d *Declaration) { d.Init = []string{"make", "make test"} },
+		{"a list", func(d *sandboxDeclaration) { d.Init = []string{"make", "make test"} },
 			[]Difference{{Path: "init", Recorded: `["make"]`, Current: `["make","make test"]`}}},
-		{"herdr turned on", func(d *Declaration) { d.Herdr = &HerdrPin{Version: "v0.9.0"} },
+		{"herdr turned on", func(d *sandboxDeclaration) { d.Herdr = &herdrPin{Version: "v0.9.0"} },
 			[]Difference{{Path: "herdr", Recorded: "(なし)", Current: `{"version":"v0.9.0"}`}}},
-		{"secrets and hosts in another order", func(d *Declaration) {
+		{"secrets and hosts in another order", func(d *sandboxDeclaration) {
 			d.Secrets = []secret.WiredSecret{{Name: "two", Key: "TWO", Hosts: []string{"c.example.com"}, Env: "TWO"}, {Name: "one", Key: "ONE", Hosts: []string{"b.example.com", "a.example.com"}, Env: "ONE"}}
 		}, nil},
-		{"the vars of a secret", func(d *Declaration) { d.Secrets[0].Vars = map[string]string{"HOST": "a.example.com"} },
+		{"the vars of a secret", func(d *sandboxDeclaration) { d.Secrets[0].Vars = map[string]string{"HOST": "a.example.com"} },
 			[]Difference{{Path: "secrets",
 				Recorded: `[{"env":"ONE","hosts":["a.example.com","b.example.com"],"key":"ONE","name":"one"},{"env":"TWO","hosts":["c.example.com"],"key":"TWO","name":"two"}]`,
 				Current:  `[{"env":"ONE","hosts":["a.example.com","b.example.com"],"key":"ONE","name":"one","vars":{"HOST":"a.example.com"}},{"env":"TWO","hosts":["c.example.com"],"key":"TWO","name":"two"}]`}}},
@@ -44,7 +44,7 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 			current := base()
 			tc.change(&current)
 
-			got, err := Record{Declaration: base()}.Drift(current)
+			got, err := creationRecord{Declaration: base()}.Drift(current)
 
 			if err != nil || !reflect.DeepEqual(got.Differences, tc.want) {
 				t.Errorf("Drift = %v, %v, want %v", got.Differences, err, tc.want)
@@ -54,8 +54,8 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 }
 
 func TestTheDeclarationHoldsOnlyTheKeysBakedIntoTheVM(t *testing.T) {
-	tree, err := declarationTree(Declaration{
-		Herdr:   &HerdrPin{},
+	tree, err := declarationTree(sandboxDeclaration{
+		Herdr:   &herdrPin{},
 		Secrets: []secret.WiredSecret{{Service: "github", Key: "K", Env: "E", Vars: map[string]string{"V": "1"}}},
 	})
 	if err != nil {

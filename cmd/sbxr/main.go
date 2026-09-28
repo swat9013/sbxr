@@ -27,14 +27,10 @@ type dependencies struct {
 	// githubAPI は GitHub API の root URL。
 	githubAPI string
 	prompter  prompter
-	// places は状態ディレクトリ・cache clone・user 設定の置き場を返す。
+	// places は状態ディレクトリと cache clone の置き場を返す。
 	places func() (sandbox.Places, error)
 	clone  sandbox.Cloner
 	herdr  herdr.Client
-}
-
-func (d dependencies) hosts() sandbox.Hosts {
-	return sandbox.Hosts{Runtime: d.runtime, Herdr: d.herdr}
 }
 
 func main() {

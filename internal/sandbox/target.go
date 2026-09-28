@@ -14,8 +14,8 @@ import (
 	"strings"
 )
 
-// Target は <repo> 引数を解決した結果。
-type Target struct {
+// sandboxTarget は <repo> 引数を解決した結果。
+type sandboxTarget struct {
 	// Name は sandbox VM の名前。状態ディレクトリと cache clone の名前にも使う。
 	Name string
 	// Repo は sbx に渡す host 側の repo のディレクトリ (git URL なら cache clone)。
@@ -25,12 +25,12 @@ type Target struct {
 }
 
 // FromGitURL は <repo> が git URL だったかを返す。
-func (t Target) FromGitURL() bool {
+func (t sandboxTarget) FromGitURL() bool {
 	return t.URL != ""
 }
 
 // Source は sandbox VM の出所 (git URL か repo の絶対 path)。同じ名前の別 repo を取り違えないために状態ディレクトリへ記録する。
-func (t Target) Source() string {
+func (t sandboxTarget) Source() string {
 	if t.FromGitURL() {
 		return t.URL
 	}
@@ -49,28 +49,28 @@ func isGitURL(input string) bool {
 	return false
 }
 
-// ResolveTarget は <repo> (path | git URL) を Target にする。clone も path の存在確認もしない
+// resolveTarget は <repo> (path | git URL) を Target にする。clone も path の存在確認もしない
 // (destroy と stop が network に出ず、host の repo を移動・削除した後でも VM を扱えるように)。
 // git URL の Repo は cacheRoot/<name>。
-func ResolveTarget(input, cacheRoot string) (Target, error) {
+func resolveTarget(input, cacheRoot string) (sandboxTarget, error) {
 	if isGitURL(input) {
 		name := strings.TrimSuffix(input, "/")
 		name = name[strings.LastIndexAny(name, "/:")+1:]
 		name = strings.TrimSuffix(name, ".git")
 		if err := validateName(name); err != nil {
-			return Target{}, fmt.Errorf("git URL %s から sandbox VM の名前を決められない: %w", input, err)
+			return sandboxTarget{}, fmt.Errorf("git URL %s から sandbox VM の名前を決められない: %w", input, err)
 		}
-		return Target{Name: name, Repo: filepath.Join(cacheRoot, name), URL: input}, nil
+		return sandboxTarget{Name: name, Repo: filepath.Join(cacheRoot, name), URL: input}, nil
 	}
 	repo, err := filepath.Abs(input)
 	if err != nil {
-		return Target{}, err
+		return sandboxTarget{}, err
 	}
 	name := filepath.Base(repo)
 	if err := validateName(name); err != nil {
-		return Target{}, fmt.Errorf("repo のディレクトリ名 %s を sandbox VM の名前にできない: %w", name, err)
+		return sandboxTarget{}, fmt.Errorf("repo のディレクトリ名 %s を sandbox VM の名前にできない: %w", name, err)
 	}
-	return Target{Name: name, Repo: repo}, nil
+	return sandboxTarget{Name: name, Repo: repo}, nil
 }
 
 func validateName(name string) error {
@@ -117,9 +117,9 @@ func gitURLHost(rawURL string) string {
 	return strings.ToLower(host[strings.LastIndex(host, "@")+1:])
 }
 
-// FreshClone は git URL の Target を dir へ clone し直す。dir に前の clone があれば消してから clone する
+// freshClone は git URL の Target を dir へ clone し直す。dir に前の clone があれば消してから clone する
 // (別の URL の clone や古い clone を使い回さない)。
-func FreshClone(ctx context.Context, clone Cloner, target Target) error {
+func freshClone(ctx context.Context, clone Cloner, target sandboxTarget) error {
 	if err := os.RemoveAll(target.Repo); err != nil {
 		return err
 	}
