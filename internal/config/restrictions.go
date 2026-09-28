@@ -11,7 +11,7 @@ import (
 type repoAccess int
 
 const (
-	// repoCannotWrite は repo が書けない key。
+	// repoCannotWrite は repo が書けない key。その下の key もすべて書けない (下の key は行が無くても分類済み)
 	repoCannotWrite repoAccess = iota
 	// repoWritesKey は repo がこの key だけを書ける。子の key は、それぞれの行が許すときだけ書ける。
 	repoWritesKey
@@ -22,7 +22,7 @@ const (
 // repoScopeTable はスコープ制限表。宣言の型が持つすべての key を分類する (分類の漏れは test が止める)。
 // 表に無い key の既定は「repo は書けない」(key を足したときに fail-closed に倒れる。ADR 0004 の改訂)。
 // 利用者が名前を付ける map の key は "*" で引く ("egress.*.allow")。
-// default と user (信頼済み) は制限を持たない。repo の egress は Merge が sandbox スコープ rule として別に置く。
+// default と user (信頼済み) は制限を持たない。repo の egress は merge が sandbox スコープ rule として別に置く。
 var repoScopeTable = map[string]repoAccess{
 	"version":                repoWritesKey,
 	"profile":                repoWritesKey,
@@ -55,7 +55,9 @@ var repoScopeTable = map[string]repoAccess{
 	"secret_defs": repoCannotWrite,
 	"secrets":     repoWritesSubtree,
 	// untrusted な repo に host の herdr へ machine を登録させない (ADR 0007)
-	"herdr":         repoCannotWrite,
+	"herdr": repoCannotWrite,
+	// 書けない行の下の行は access を変えないが、空値の検査が行を引くので型が読む key には置く (#61)。
+	// secret_defs の下に行を置かないのは、中身を secret.Definition.Validate が確かめ、空の service が placeholder 注入を表すため
 	"herdr.enabled": repoCannotWrite,
 	"herdr.version": repoCannotWrite,
 }

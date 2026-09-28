@@ -123,43 +123,35 @@ func TestWriteValueRejectsAValueThatWouldBreakTheLine(t *testing.T) {
 
 // --- secret 定義 ---
 
-func TestParseDefinitionsReadsServiceAndPlaceholderDefinitions(t *testing.T) {
-	defs, err := ParseDefinitions(map[string]map[string]any{
-		"github": {"service": "github", "key": "GITHUB_TOKEN", "hosts": []any{"github.com"}},
-		"gitlab": {"key": "GITLAB_TOKEN", "hosts": []any{"gitlab.example.com"}, "env": "GITLAB_TOKEN", "vars": map[string]any{"GITLAB_HOST": "gitlab.example.com"}},
-	})
-
-	if err != nil {
-		t.Fatalf("ParseDefinitions() error = %v", err)
-	}
-	want := map[string]Definition{
-		"github": {Service: "github", Key: "GITHUB_TOKEN", Hosts: []string{"github.com"}},
-		"gitlab": {Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}},
-	}
-	if !reflect.DeepEqual(defs, want) {
-		t.Errorf("ParseDefinitions() = %+v, want %+v", defs, want)
+func TestValidateAcceptsServiceAndPlaceholderDefinitions(t *testing.T) {
+	for name, def := range map[string]Definition{
+		"service":     {Service: "github", Key: "GITHUB_TOKEN", Hosts: []string{"github.com"}},
+		"placeholder": {Key: "GITLAB_TOKEN", Hosts: []string{"gitlab.example.com"}, Env: "GITLAB_TOKEN", Vars: map[string]string{"GITLAB_HOST": "gitlab.example.com"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := def.Validate(); err != nil {
+				t.Errorf("Validate() error = %v, want the definition accepted", err)
+			}
+		})
 	}
 }
 
-func TestParseDefinitionsRejectsIncompleteOrAmbiguousDefinitions(t *testing.T) {
+func TestValidateRejectsIncompleteOrAmbiguousDefinitions(t *testing.T) {
 	for name, tc := range map[string]struct {
-		raw     map[string]any
+		def     Definition
 		mention string
 	}{
-		"key が無い":                 {map[string]any{"hosts": []any{"a.example.com"}, "env": "A"}, "key"},
-		"hosts が無い":               {map[string]any{"key": "A", "env": "A"}, "hosts"},
-		"placeholder 注入に env が無い": {map[string]any{"key": "A", "hosts": []any{"a.example.com"}}, "env"},
-		"service と env を両方書く":     {map[string]any{"service": "github", "key": "A", "hosts": []any{"github.com"}, "env": "A"}, "env"},
-		"host に glob":             {map[string]any{"key": "A", "hosts": []any{"*.example.com"}, "env": "A"}, "*.example.com"},
-		"host に port":             {map[string]any{"key": "A", "hosts": []any{"a.example.com:443"}, "env": "A"}, "a.example.com:443"},
-		"未知の field":               {map[string]any{"key": "A", "hosts": []any{"a.example.com"}, "env": "A", "value": "leak"}, "value"},
-		"env が環境変数名でない":           {map[string]any{"key": "A", "hosts": []any{"a.example.com"}, "env": "A-B"}, "A-B"},
-		"key が secret ファイルのキーでない": {map[string]any{"key": "A B", "hosts": []any{"a.example.com"}, "env": "A"}, "A B"},
+		"key が無い":                 {Definition{Hosts: []string{"a.example.com"}, Env: "A"}, "key"},
+		"hosts が無い":               {Definition{Key: "A", Env: "A"}, "hosts"},
+		"placeholder 注入に env が無い": {Definition{Key: "A", Hosts: []string{"a.example.com"}}, "env"},
+		"service と env を両方書く":     {Definition{Service: "github", Key: "A", Hosts: []string{"github.com"}, Env: "A"}, "env"},
+		"host に glob":             {Definition{Key: "A", Hosts: []string{"*.example.com"}, Env: "A"}, "*.example.com"},
+		"host に port":             {Definition{Key: "A", Hosts: []string{"a.example.com:443"}, Env: "A"}, "a.example.com:443"},
+		"env が環境変数名でない":           {Definition{Key: "A", Hosts: []string{"a.example.com"}, Env: "A-B"}, "A-B"},
+		"key が secret ファイルのキーでない": {Definition{Key: "A B", Hosts: []string{"a.example.com"}, Env: "A"}, "A B"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := ParseDefinitions(map[string]map[string]any{"broken": tc.raw})
-
-			assertErrorMentions(t, err, "secret_defs.broken", tc.mention)
+			assertErrorMentions(t, tc.def.Validate(), tc.mention)
 		})
 	}
 }

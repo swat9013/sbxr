@@ -20,7 +20,7 @@ func Load(userPath, repoPath string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	return Merge(defaultDecl, userDecl, repoDecl)
+	return merge(defaultDecl, userDecl, repoDecl)
 }
 
 func parseFileIfExists(scope Scope, path string) (Declaration, error) {
@@ -38,24 +38,14 @@ func parseFileIfExists(scope Scope, path string) (Declaration, error) {
 	return Parse(scope, path, data)
 }
 
-// LoadGlobalEgress は同梱の default スコープと userPath の user 設定から、global rule になる egress 宣言だけを重ねて返す。
-// global rule の収束は repo 宣言と git identity を使わないので、Load と違ってそれらを要求しない。
-func LoadGlobalEgress(userPath string) (map[string]map[string]any, error) {
+// LoadTrusted は同梱の default スコープに userPath の user 設定を重ね、repo 宣言の無い Config を返す。
+// global rule と secret 定義だけを使う操作 (policy sync・secret setup) のため。merge の規則は Load と同じものを通る。
+func LoadTrusted(userPath string) (Config, error) {
 	defaultDecl, userDecl, err := parseTrustedScopes(userPath)
 	if err != nil {
-		return nil, err
+		return Config{}, err
 	}
-	return globalEgress(defaultDecl, userDecl), nil
-}
-
-// LoadSecretDefs は同梱の default スコープと userPath の user 設定から、secret 定義だけを重ねて返す。
-// secret ファイルへの格納は repo 宣言と git identity を使わないので、Load と違ってそれらを要求しない。
-func LoadSecretDefs(userPath string) (map[string]map[string]any, error) {
-	defaultDecl, userDecl, err := parseTrustedScopes(userPath)
-	if err != nil {
-		return nil, err
-	}
-	return additive(additive(nil, defaultDecl.SecretDefs), userDecl.SecretDefs), nil
+	return merge(defaultDecl, userDecl, Declaration{})
 }
 
 // parseTrustedScopes は同梱の default 宣言と userPath の user 設定を読む。

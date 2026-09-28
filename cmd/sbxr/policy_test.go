@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/swat9013/sbxr/internal/assets"
 	"github.com/swat9013/sbxr/internal/config"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
@@ -23,16 +26,22 @@ func runSbxr(t *testing.T, deps dependencies, args ...string) (string, error) {
 	return out.String(), err
 }
 
+// embeddedGroupNames は同梱の default 宣言が持つ egress の group の名前。
+func embeddedGroupNames(t *testing.T) []string {
+	t.Helper()
+	decl, err := config.Parse(config.ScopeDefault, "同梱の default 宣言", assets.DefaultDeclaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.Sorted(maps.Keys(decl.Egress))
+}
+
 // onlyGithubUserConfig は同梱の group を github 以外すべて除外する user 設定を書く。
 func onlyGithubUserConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	embedded, err := config.LoadGlobalEgress(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	content := "version: 1\negress:\n"
-	for name := range embedded {
+	for _, name := range embeddedGroupNames(t) {
 		if name != "github" {
 			content += "  " + name + ":\n    enabled: false\n"
 		}
@@ -81,12 +90,8 @@ func TestPolicySyncPrintsTheChangesMadeBeforeAFailure(t *testing.T) {
 func ownGroupOnlyUserConfig(t *testing.T, allow ...string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	embedded, err := config.LoadGlobalEgress(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	content := "version: 1\negress:\n"
-	for name := range embedded {
+	for _, name := range embeddedGroupNames(t) {
 		content += "  " + name + ":\n    enabled: false\n"
 	}
 	content += "  own:\n    rationale: test\n    allow:\n"

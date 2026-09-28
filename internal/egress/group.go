@@ -2,27 +2,26 @@
 package egress
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"maps"
 	"regexp"
 	"slices"
 	"strconv"
-
-	"go.yaml.in/yaml/v3"
 )
 
-// Group は同じ理由で許可する宛先のまとまり (egress 宣言の要素)。
-type Group struct {
-	Rationale string   `yaml:"rationale"`
+// GroupDeclaration は 1 つのスコープが書いた宛先グループ (egress 宣言の要素)。上の層は既存の group に一部の field だけを
+// 重ねられる (除外の enabled: false など) ので、書いていない field は nil / 空のまま持つ。
+type GroupDeclaration struct {
+	Rationale *string  `yaml:"rationale"`
 	Allow     []string `yaml:"allow"`
 	// Enabled に false を書いた group は除外する。書かなければ有効。
 	Enabled *bool `yaml:"enabled"`
 }
 
-func (g Group) enabled() bool {
-	return g.Enabled == nil || *g.Enabled
+// Group は層を重ね終えた、中身の揃った宛先グループ。
+type Group struct {
+	Allow   []string
+	Enabled bool
 }
 
 // resourcePattern は allow の 1 entry の書式: sbx が受け付ける host pattern (*・**・?・[] の glob) と任意の :port。
@@ -31,53 +30,11 @@ func (g Group) enabled() bool {
 // IPv4 は host と同じ書式として通り、IPv6 と CIDR は扱わない (ADR 0008)。
 var resourcePattern = regexp.MustCompile(`^([a-z0-9*?\[\]!-]+\.)*[a-z0-9-]+\.[a-z0-9-]+(:(\d{1,5}))?$`)
 
-// ParseGroups は config が要素を検査せずに持つ egress 宣言を Group へ読み、検証する。
-func ParseGroups(raw map[string]map[string]any) (map[string]Group, error) {
-	groups := make(map[string]Group, len(raw))
+// Validate は 1 つのスコープが書いた group の書式 (allow の宛先の書式) を検証する。
+// 中身が揃っているかは、層を重ねた後に Complete が確かめる (1 つの層では決まらない)。
+func (d GroupDeclaration) Validate() error {
 	var errs []error
-	for _, name := range slices.Sorted(maps.Keys(raw)) {
-		group, err := parseGroup(raw[name])
-		if err == nil {
-			err = group.validate()
-		}
-		if err != nil {
-			errs = append(errs, fmt.Errorf("egress.%s: %w", name, err))
-			continue
-		}
-		groups[name] = group
-	}
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	return groups, nil
-}
-
-func parseGroup(raw map[string]any) (Group, error) {
-	// 未知の field を error にするため、YAML に戻して KnownFields で読み直す
-	data, err := yaml.Marshal(raw)
-	if err != nil {
-		return Group{}, err
-	}
-	var group Group
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&group); err != nil {
-		return Group{}, err
-	}
-	return group, nil
-}
-
-// validate は除外した group にも rationale と allow を求める。除外は既存の group に enabled: false を重ねて書くので、
-// 中身の無い group は除外したい group の名前の書き違いになる (ADR 0008)。
-func (g Group) validate() error {
-	var errs []error
-	if g.Rationale == "" {
-		errs = append(errs, errors.New("rationale が空 (許可する理由を書く)"))
-	}
-	if len(g.Allow) == 0 {
-		errs = append(errs, errors.New("allow が空"))
-	}
-	for _, resource := range g.Allow {
+	for _, resource := range d.Allow {
 		match := resourcePattern.FindStringSubmatch(resource)
 		switch {
 		case match == nil:
@@ -89,6 +46,41 @@ func (g Group) validate() error {
 	return errors.Join(errs...)
 }
 
+// Overlay は下の層の group に上の層の group を重ねる。allow は下の層の後ろに上の層の要素を重複なく足した和集合、
+// それ以外は上の層が書いた field が勝つ。上の層が宛先だけを足したり、除外の enabled だけを重ねたりできるようにするため。
+func (d GroupDeclaration) Overlay(upper GroupDeclaration) GroupDeclaration {
+	allow := slices.Clone(d.Allow)
+	for _, resource := range upper.Allow {
+		if !slices.Contains(allow, resource) {
+			allow = append(allow, resource)
+		}
+	}
+	overlaid := GroupDeclaration{Rationale: d.Rationale, Allow: allow, Enabled: d.Enabled}
+	if upper.Rationale != nil {
+		overlaid.Rationale = upper.Rationale
+	}
+	if upper.Enabled != nil {
+		overlaid.Enabled = upper.Enabled
+	}
+	return overlaid
+}
+
+// Complete は層を重ねた group に rationale と allow が揃っていることを確かめる。除外した group にも求める。
+// 除外は既存の group に enabled: false を重ねて書くので、中身の無い group は除外したい group の名前の書き違いになる (ADR 0008)。
+func (d GroupDeclaration) Complete() (Group, error) {
+	var errs []error
+	if d.Rationale == nil || *d.Rationale == "" {
+		errs = append(errs, errors.New("rationale が空 (許可する理由を書く)"))
+	}
+	if len(d.Allow) == 0 {
+		errs = append(errs, errors.New("allow が空"))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return Group{}, err
+	}
+	return Group{Allow: d.Allow, Enabled: d.Enabled == nil || *d.Enabled}, nil
+}
+
 func validPort(digits string) bool {
 	port, err := strconv.Atoi(digits)
 	return err == nil && port >= 1 && port <= 65535
@@ -98,7 +90,7 @@ func validPort(digits string) bool {
 func DesiredResources(groups map[string]Group) []string {
 	var resources []string
 	for _, group := range groups {
-		if group.enabled() {
+		if group.Enabled {
 			resources = append(resources, group.Allow...)
 		}
 	}

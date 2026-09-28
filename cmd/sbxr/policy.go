@@ -50,15 +50,11 @@ sandbox スコープ rule と、実行基盤自身が管理する rule には触
 }
 
 func desiredGlobalResources(userConfigPath string) ([]string, error) {
-	declared, err := config.LoadGlobalEgress(userConfigPath)
+	cfg, err := config.LoadTrusted(userConfigPath)
 	if err != nil {
 		return nil, err
 	}
-	groups, err := egress.ParseGroups(declared)
-	if err != nil {
-		return nil, err
-	}
-	return egress.DesiredResources(groups), nil
+	return cfg.GlobalEgress, nil
 }
 
 func checkGlobalRules(cmd *cobra.Command, deps dependencies, desired []string) error {

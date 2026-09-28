@@ -2,21 +2,26 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
+
+	"github.com/swat9013/sbxr/internal/egress"
+	"github.com/swat9013/sbxr/internal/secret"
 )
 
-// Config は 3 スコープを merge した結果。
+// Config は 3 スコープを merge し、検証を終えた結果。
 type Config struct {
 	Profile Profile
-	Git     Identity
-	// GlobalEgress は default と user の egress 宣言。全 sandbox VM に常時適用する global rule になる。
-	GlobalEgress map[string]map[string]any
-	// SandboxEgress は repo の egress 宣言。その sandbox VM にだけ適用する sandbox スコープ rule になる。
-	SandboxEgress map[string]map[string]any
+	// git は重ねた git identity。使う側が GitIdentity で揃っていることを確かめる。
+	git GitDeclaration
+	// GlobalEgress は default と user の egress 宣言の宛先。全 sandbox VM に常時適用する global rule になる。
+	GlobalEgress []string
+	// SandboxEgress は repo の egress 宣言の宛先。その sandbox VM にだけ適用する sandbox スコープ rule になる。
+	SandboxEgress []string
 	Init          []string
 	Boot          []string
-	SecretDefs    map[string]map[string]any
+	SecretDefs    map[string]secret.Definition
 	Secrets       []string
 	Herdr         Herdr
 }
@@ -33,19 +38,36 @@ type Identity struct {
 	Email string
 }
 
-// Merge は default → user → repo の順に宣言を重ねる。
+// GitIdentity は VM 内の commit に使う git identity を返す。どのスコープにも無い key があれば止める。
+// global rule と secret 定義だけを使う操作は git identity を要らないので、merge ではなく使う側が確かめる。
+func (c Config) GitIdentity() (Identity, error) {
+	var errs []error
+	if c.git.Name == nil {
+		errs = append(errs, errors.New("git.name がどのスコープにも無い (user 設定か repo 宣言で宣言する)"))
+	}
+	if c.git.Email == nil {
+		errs = append(errs, errors.New("git.email がどのスコープにも無い (user 設定か repo 宣言で宣言する)"))
+	}
+	if err := errors.Join(errs...); err != nil {
+		return Identity{}, err
+	}
+	return Identity{Name: *c.git.Name, Email: *c.git.Email}, nil
+}
+
+// merge は default → user → repo の順に宣言を重ね、層を重ねた後でしか決まらない検証をする。
+// 宣言は Parse でファイルごとの検証を終えたものだけを受ける (Config が検証済みであるため、非公開にしている)。
 // map 系は additive (同じ key は後の層が勝つ)、scalar は override、list は並べて足し、secrets は和集合にする。
 // 宣言ファイルが無いスコープには zero 値の Declaration を渡す。
-func Merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
+func merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 	var cfg Config
-	var git GitDeclaration
 	var herdr HerdrDeclaration
 	for _, decl := range []Declaration{defaultDecl, userDecl, repoDecl} {
 		herdr = HerdrDeclaration{Enabled: override(herdr.Enabled, decl.Herdr.Enabled), Version: override(herdr.Version, decl.Herdr.Version)}
 		cfg.Profile = cfg.Profile.overlay(decl.Profile)
-		git = GitDeclaration{Name: override(git.Name, decl.Git.Name), Email: override(git.Email, decl.Git.Email)}
+		cfg.git = GitDeclaration{Name: override(cfg.git.Name, decl.Git.Name), Email: override(cfg.git.Email, decl.Git.Email)}
 		cfg.Init = append(cfg.Init, decl.Init...)
 		cfg.Boot = append(cfg.Boot, decl.Boot...)
+		// secret 定義は層ごとに丸ごと置き換える (field ごとには重ねない)。定義はファイルごとの検証で揃っている
 		cfg.SecretDefs = additive(cfg.SecretDefs, decl.SecretDefs)
 		for _, name := range decl.Secrets {
 			if !slices.Contains(cfg.Secrets, name) {
@@ -53,16 +75,11 @@ func Merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 			}
 		}
 	}
-	cfg.GlobalEgress = globalEgress(defaultDecl, userDecl)
-	cfg.SandboxEgress = additiveGroups(nil, repoDecl.Egress)
 
-	var errs []error
-	if git.Name == nil {
-		errs = append(errs, errors.New("git.name がどのスコープにも無い (user 設定か repo 宣言で宣言する)"))
-	}
-	if git.Email == nil {
-		errs = append(errs, errors.New("git.email がどのスコープにも無い (user 設定か repo 宣言で宣言する)"))
-	}
+	var globalErr, sandboxErr error
+	cfg.GlobalEgress, globalErr = validatedEgress(scopedEgress{ScopeDefault, defaultDecl.Egress}, scopedEgress{ScopeUser, userDecl.Egress})
+	cfg.SandboxEgress, sandboxErr = validatedEgress(scopedEgress{ScopeRepo, repoDecl.Egress})
+	errs := []error{globalErr, sandboxErr}
 	if herdr.Enabled != nil && *herdr.Enabled {
 		if herdr.Version == nil {
 			errs = append(errs, errors.New("herdr.version がどのスコープにも無い (herdr を有効にするには版を宣言する)"))
@@ -73,7 +90,6 @@ func Merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, err
 	}
-	cfg.Git = Identity{Name: *git.Name, Email: *git.Email}
 	return cfg, nil
 }
 
@@ -114,47 +130,37 @@ func additive[M ~map[K]V, K comparable, V any](lower, upper M) M {
 	return out
 }
 
-// globalEgress は global rule になる egress 宣言 (default と user) を重ねる。
-func globalEgress(defaultDecl, userDecl Declaration) map[string]map[string]any {
-	return additiveGroups(additiveGroups(nil, defaultDecl.Egress), userDecl.Egress)
+// scopedEgress は 1 つのスコープが書いた egress 宣言。
+type scopedEgress struct {
+	scope  Scope
+	groups map[string]egress.GroupDeclaration
 }
 
-// additiveGroups は宛先グループを名前ごとに重ねる。同じ名前のグループは field ごとに重ね、
-// list (allow) は下の層の後ろに上の層の要素を重複なく足した和集合、それ以外は上の層が勝つ。
-// user が default のグループに宛先を足したり、一部の field (例: 除外の enabled) だけを書き換えたりできるようにするため。
-func additiveGroups(lower, upper map[string]map[string]any) map[string]map[string]any {
-	if lower == nil && upper == nil {
-		return nil
-	}
-	out := make(map[string]map[string]any, len(lower)+len(upper))
-	for name, group := range lower {
-		out[name] = additive(nil, group)
-	}
-	for name, group := range upper {
-		merged := maps.Clone(out[name])
-		if merged == nil {
-			merged = make(map[string]any, len(group))
-		}
-		for field, value := range group {
-			merged[field] = unionIfLists(merged[field], value)
-		}
-		out[name] = merged
-	}
-	return out
-}
-
-// unionIfLists は両方が list なら和集合を、そうでなければ上の層の値を返す。
-func unionIfLists(lower, upper any) any {
-	lowerList, lowerIsList := lower.([]any)
-	upperList, upperIsList := upper.([]any)
-	if !lowerIsList || !upperIsList {
-		return upper
-	}
-	union := slices.Clone(lowerList)
-	for _, item := range upperList {
-		if !slices.Contains(union, item) {
-			union = append(union, item)
+// validatedEgress は egress 宣言の層を宛先グループごとに重ね、中身が揃っていることを確かめて、有効な group の宛先を返す。
+// 中身の欠けた group の error には、その group 名を最初に書いたスコープを付ける (除外する group 名の書き違いを、書いた層で指す)。
+func validatedEgress(layers ...scopedEgress) ([]string, error) {
+	merged := map[string]egress.GroupDeclaration{}
+	origin := map[string]Scope{}
+	for _, layer := range layers {
+		for name, upper := range layer.groups {
+			if _, seen := merged[name]; !seen {
+				origin[name] = layer.scope
+			}
+			merged[name] = merged[name].Overlay(upper)
 		}
 	}
-	return union
+	groups := make(map[string]egress.Group, len(merged))
+	var errs []error
+	for _, name := range slices.Sorted(maps.Keys(merged)) {
+		group, err := merged[name].Complete()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("egress.%s (%s スコープが書いた group): %w", name, origin[name], err))
+			continue
+		}
+		groups[name] = group
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return egress.DesiredResources(groups), nil
 }

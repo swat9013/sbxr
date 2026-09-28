@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/assets"
+	"github.com/swat9013/sbxr/internal/secret"
 )
 
 const testDefault = `
@@ -32,7 +33,9 @@ egress:
     allow: [github.com:443]
 secret_defs:
   github:
-    env: GH_TOKEN
+    service: github
+    key: GITHUB_TOKEN
+    hosts: [github.com]
 secrets: [github]
 `
 
@@ -53,7 +56,7 @@ func mergeYAML(t *testing.T, defaultYAML, userYAML, repoYAML string) (Config, er
 		}
 		decls[i] = decl
 	}
-	return Merge(decls[0], decls[1], decls[2])
+	return merge(decls[0], decls[1], decls[2])
 }
 
 func mustMerge(t *testing.T, defaultYAML, userYAML, repoYAML string) Config {
@@ -63,6 +66,16 @@ func mustMerge(t *testing.T, defaultYAML, userYAML, repoYAML string) Config {
 		t.Fatalf("merge error = %v", err)
 	}
 	return cfg
+}
+
+// identity は cfg の git identity。揃っていなければ test を止める。
+func identity(t *testing.T, cfg Config) Identity {
+	t.Helper()
+	id, err := cfg.GitIdentity()
+	if err != nil {
+		t.Fatalf("GitIdentity() error = %v", err)
+	}
+	return id
 }
 
 func assertErrorMentions(t *testing.T, err error, needle string) {
@@ -98,17 +111,17 @@ func TestRepoCannotOverrideBaseFixedProfileKeys(t *testing.T) {
 }
 
 func TestRepoCannotDeclareSecretDefs(t *testing.T) {
-	_, err := mergeYAML(t, testDefault, "", "version: 1\nsecret_defs:\n  evil:\n    host: evil.example.com\n")
-	assertErrorMentions(t, err, "secret_defs")
+	_, err := mergeYAML(t, testDefault, "", "version: 1\nsecret_defs:\n  evil:\n    key: EVIL\n    hosts: [evil.example.com]\n    env: EVIL\n")
+	assertErrorMentions(t, err, "secret_defs は repo 宣言には書けない")
 }
 
 func TestRepoEgressBecomesSandboxScopeOnly(t *testing.T) {
 	cfg := mustMerge(t, testDefault, "", "version: 1\negress:\n  npm:\n    rationale: npm\n    allow: [registry.npmjs.org:443]\n")
 
-	if _, ok := cfg.SandboxEgress["npm"]; !ok {
-		t.Errorf("SandboxEgress = %v, want it to contain the repo group npm", cfg.SandboxEgress)
+	if !slices.Equal(cfg.SandboxEgress, []string{"registry.npmjs.org:443"}) {
+		t.Errorf("SandboxEgress = %v, want the repo group npm", cfg.SandboxEgress)
 	}
-	if _, ok := cfg.GlobalEgress["npm"]; ok {
+	if slices.Contains(cfg.GlobalEgress, "registry.npmjs.org:443") {
 		t.Errorf("GlobalEgress = %v, want the repo group npm to stay out of global rules", cfg.GlobalEgress)
 	}
 }
@@ -116,10 +129,7 @@ func TestRepoEgressBecomesSandboxScopeOnly(t *testing.T) {
 func TestDefaultAndUserEgressBecomeGlobalRules(t *testing.T) {
 	cfg := mustMerge(t, testDefault, "version: 1\negress:\n  pypi:\n    rationale: PyPI\n    allow: [pypi.org:443]\n", "")
 
-	want := map[string]map[string]any{
-		"github": {"rationale": "GitHub", "allow": []any{"github.com:443"}},
-		"pypi":   {"rationale": "PyPI", "allow": []any{"pypi.org:443"}},
-	}
+	want := []string{"github.com:443", "pypi.org:443"}
 	if !reflect.DeepEqual(cfg.GlobalEgress, want) {
 		t.Errorf("GlobalEgress = %v, want %v", cfg.GlobalEgress, want)
 	}
@@ -137,7 +147,7 @@ func TestUserIsTrustedToDeclareBaseFixedKeys(t *testing.T) {
 }
 
 func TestUserIsTrustedToAddSecretDefsOnTopOfTheDefault(t *testing.T) {
-	cfg := mustMerge(t, testDefault, "version: 1\nsecret_defs:\n  gitlab:\n    env: GITLAB_TOKEN\n", "")
+	cfg := mustMerge(t, testDefault, "version: 1\nsecret_defs:\n  gitlab:\n    key: GITLAB_TOKEN\n    hosts: [gitlab.example.com]\n    env: GITLAB_TOKEN\n", "")
 
 	if got := slices.Sorted(maps.Keys(cfg.SecretDefs)); !reflect.DeepEqual(got, []string{"github", "gitlab"}) {
 		t.Errorf("SecretDefs names = %v, want the default github and the user gitlab", got)
@@ -170,7 +180,7 @@ func TestMergeRules(t *testing.T) {
 		},
 		{
 			name: "宣言ファイルが無ければ default の git identity が残る",
-			got:  func(c Config) any { return c.Git },
+			got:  func(c Config) any { return identity(t, c) },
 			want: Identity{Name: "base-user", Email: "base@example.com"},
 		},
 		{
@@ -211,14 +221,14 @@ func TestMergeRules(t *testing.T) {
 		{
 			name:     "git は key ごとに部分 merge される",
 			userYAML: "version: 1\ngit:\n  name: user-name\n",
-			got:      func(c Config) any { return c.Git },
+			got:      func(c Config) any { return identity(t, c) },
 			want:     Identity{Name: "user-name", Email: "base@example.com"},
 		},
 		{
 			name:     "repo は user の git identity も override できる",
 			userYAML: "version: 1\ngit:\n  name: user-name\n  email: user@example.com\n",
 			repoYAML: "version: 1\ngit:\n  name: work-user\n  email: work@example.co.jp\n",
-			got:      func(c Config) any { return c.Git },
+			got:      func(c Config) any { return identity(t, c) },
 			want:     Identity{Name: "work-user", Email: "work@example.co.jp"},
 		},
 		{
@@ -229,16 +239,16 @@ func TestMergeRules(t *testing.T) {
 			want:     [][]string{{"user-init", "repo-init"}, {"user-boot", "repo-boot"}},
 		},
 		{
-			name:     "同じ名前の egress group は user が書いた field だけを上書きする",
+			name:     "同じ名前の egress group は user が書いた field だけを上書きする (除外の enabled だけを重ねる)",
 			userYAML: "version: 1\negress:\n  github:\n    enabled: false\n",
-			got:      func(c Config) any { return c.GlobalEgress["github"] },
-			want:     map[string]any{"rationale": "GitHub", "allow": []any{"github.com:443"}, "enabled": false},
+			got:      func(c Config) any { return c.GlobalEgress },
+			want:     []string(nil),
 		},
 		{
 			name:     "同じ名前の egress group の allow は和集合になる",
 			userYAML: "version: 1\negress:\n  github:\n    allow: [ghe.example.com:443, github.com:443]\n",
-			got:      func(c Config) any { return c.GlobalEgress["github"]["allow"] },
-			want:     []any{"github.com:443", "ghe.example.com:443"},
+			got:      func(c Config) any { return c.GlobalEgress },
+			want:     []string{"ghe.example.com:443", "github.com:443"},
 		},
 	}
 	for _, tt := range tests {
@@ -286,6 +296,10 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 		{name: "2 つ目の YAML document", repoYAML: "version: 1\n---\ninit: [make setup]\n", needle: "document"},
 		{name: "enabledPlugins の値の書き忘れ", userYAML: "version: 1\nprofile:\n  enabledPlugins:\n    p@mk:\n", needle: "p@mk"},
 		{name: "secret_defs の定義が mapping でない", userYAML: "version: 1\nsecret_defs:\n  gitlab: GITLAB_TOKEN\n", needle: "cannot unmarshal"},
+		{name: "egress の group に未知の field", userYAML: "version: 1\negress:\n  api:\n    rationale: API\n    allow: [api.example.com:443]\n    hosts: [x.example.com]\n", needle: "field hosts not found"},
+		{name: "egress の enabled が bool でない", userYAML: "version: 1\negress:\n  github:\n    enabled: maybe\n", needle: "cannot unmarshal"},
+		{name: "secret 定義に未知の field", userYAML: "version: 1\nsecret_defs:\n  api:\n    key: A\n    hosts: [a.example.com]\n    env: A\n    value: leak\n", needle: "field value not found"},
+		{name: "secret 定義が不完全", userYAML: "version: 1\nsecret_defs:\n  api:\n    key: A\n    env: A\n", needle: "secret_defs.api: hosts が空"},
 		{name: "herdr の値の書き忘れ", userYAML: "version: 1\nherdr:\n  enabled:\n", needle: "herdr.enabled に値が無い"},
 		{name: "herdr の値が空", userYAML: "version: 1\nherdr:\n  version: ''\n", needle: "herdr.version が空"},
 		{name: "egress の group の値の書き忘れ", userYAML: "version: 1\negress:\n  api:\n    rationale:\n    allow: [api.example.com:443]\n", needle: "egress.api.rationale に値が無い"},
@@ -323,20 +337,22 @@ func TestMergeCarriesEveryProfileFieldFromTheUserScope(t *testing.T) {
 	identity := "probe"
 	user := Declaration{Profile: profile, Git: GitDeclaration{Name: &identity, Email: &identity}}
 
-	cfg, err := Merge(Declaration{}, user, Declaration{})
+	cfg, err := merge(Declaration{}, user, Declaration{})
 
 	if err != nil {
-		t.Fatalf("Merge() error = %v", err)
+		t.Fatalf("merge() error = %v", err)
 	}
 	if !reflect.DeepEqual(cfg.Profile, profile) {
-		t.Errorf("Merge().Profile = %+v, want every field of %+v", cfg.Profile, profile)
+		t.Errorf("merge().Profile = %+v, want every field of %+v", cfg.Profile, profile)
 	}
 }
 
 func TestMissingGitIdentityInEveryScopeIsAnError(t *testing.T) {
-	_, err := mergeYAML(t, "version: 1\nprofile:\n  model: opus\n", "", "")
+	cfg := mustMerge(t, "version: 1\nprofile:\n  model: opus\n", "", "")
 
-	assertErrorMentions(t, err, "git.")
+	_, err := cfg.GitIdentity()
+
+	assertErrorMentions(t, err, "git.name がどのスコープにも無い")
 }
 
 // --- 読み込み ---
@@ -353,8 +369,8 @@ func TestLoadReadsUserAndRepoFilesOnTopOfTheEmbeddedDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if cfg.Git != (Identity{Name: "probe-user", Email: "probe@example.com"}) || *cfg.Profile.Model != "sonnet" {
-		t.Errorf("Load() = git %v model %q, want user identity and repo model", cfg.Git, *cfg.Profile.Model)
+	if identity(t, cfg) != (Identity{Name: "probe-user", Email: "probe@example.com"}) || *cfg.Profile.Model != "sonnet" {
+		t.Errorf("Load() = git %v model %q, want user identity and repo model", identity(t, cfg), *cfg.Profile.Model)
 	}
 }
 
@@ -416,8 +432,8 @@ func TestEmbeddedDefaultIsGenericAndCarriesNoPersonalValues(t *testing.T) {
 	if len(cfg.Profile.EnabledPlugins) != 0 {
 		t.Errorf("Profile.EnabledPlugins = %v, want the default scope to leave plugin choice to the user", cfg.Profile.EnabledPlugins)
 	}
-	if cfg.Git != (Identity{Name: "probe-user", Email: "probe@example.com"}) {
-		t.Errorf("Git = %v, want the identity to come from the user scope only", cfg.Git)
+	if identity(t, cfg) != (Identity{Name: "probe-user", Email: "probe@example.com"}) {
+		t.Errorf("Git = %v, want the identity to come from the user scope only", identity(t, cfg))
 	}
 }
 
@@ -428,28 +444,102 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
-func TestLoadGlobalEgressNeedsNoGitIdentity(t *testing.T) {
+func TestLoadTrustedNeedsNoGitIdentity(t *testing.T) {
 	userPath := filepath.Join(t.TempDir(), "config.yaml")
 	writeFile(t, userPath, "version: 1\n")
 
-	_, err := LoadGlobalEgress(userPath)
+	_, err := LoadTrusted(userPath)
 
 	if err != nil {
-		t.Errorf("LoadGlobalEgress() error = %v, want no git identity to be required", err)
+		t.Errorf("LoadTrusted() error = %v, want no git identity to be required", err)
 	}
 }
 
-func TestLoadGlobalEgressStacksTheUserExclusionOnTheDefaultGroup(t *testing.T) {
+func TestLoadTrustedStacksTheUserExclusionOnTheDefaultGroup(t *testing.T) {
 	userPath := filepath.Join(t.TempDir(), "config.yaml")
 	writeFile(t, userPath, "version: 1\negress:\n  github:\n    enabled: false\n")
 
-	egress, err := LoadGlobalEgress(userPath)
+	cfg, err := LoadTrusted(userPath)
 
 	if err != nil {
-		t.Fatalf("LoadGlobalEgress() error = %v", err)
+		t.Fatalf("LoadTrusted() error = %v", err)
 	}
-	if egress["github"]["enabled"] != false || egress["github"]["rationale"] == nil {
-		t.Errorf("egress[github] = %v, want enabled: false on top of the embedded default group", egress["github"])
+	if slices.Contains(cfg.GlobalEgress, "github.com:443") {
+		t.Errorf("GlobalEgress = %v, want the embedded github group excluded by the user", cfg.GlobalEgress)
+	}
+}
+
+func TestEmbeddedDefaultLoadsWithoutAUserConfig(t *testing.T) {
+	if _, err := LoadTrusted(filepath.Join(t.TempDir(), "no-user-config.yaml")); err != nil {
+		t.Errorf("LoadTrusted() error = %v", err)
+	}
+}
+
+func TestEmbeddedDefaultShipsTheKnownEgressGroups(t *testing.T) {
+	decl := embeddedDefault(t)
+
+	want := []string{"cert-validation", "docker-registry", "github", "mise-tools", "ubuntu-apt"}
+	if got := slices.Sorted(maps.Keys(decl.Egress)); !reflect.DeepEqual(got, want) {
+		t.Errorf("default groups = %v, want %v", got, want)
+	}
+}
+
+func TestEmbeddedDefaultShipsTheGitHubSecretDefinitionThatSecretSetupWrites(t *testing.T) {
+	decl := embeddedDefault(t)
+
+	if _, ok := decl.SecretDefs[secret.GitHubName]; !ok {
+		t.Errorf("SecretDefs = %v, want %s", decl.SecretDefs, secret.GitHubName)
+	}
+}
+
+func embeddedDefault(t *testing.T) Declaration {
+	t.Helper()
+	decl, err := Parse(ScopeDefault, "同梱の default 宣言", assets.DefaultDeclaration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decl
+}
+
+func TestAnUpperScopeReplacesASecretDefinitionWhole(t *testing.T) {
+	_, err := mergeYAML(t, testDefault, "version: 1\nsecret_defs:\n  github:\n    key: OTHER_TOKEN\n", "")
+
+	assertErrorMentions(t, err, "secret_defs.github: hosts が空")
+}
+
+func TestUserMayWriteAnEmptyServiceToMeanPlaceholderInjection(t *testing.T) {
+	user := "version: 1\nsecret_defs:\n  api:\n    service: ''\n    key: API_TOKEN\n    hosts: [api.example.com]\n    env: API_TOKEN\n"
+
+	if _, err := mergeYAML(t, testDefault, user, ""); err != nil {
+		t.Errorf("merge error = %v, want an empty service accepted as placeholder injection", err)
+	}
+}
+
+// --- 検証は 2 段: ファイルごとの書式と、merge の後の group の中身 (ADR 0004 の改訂) ---
+
+func TestAnInvalidAllowOfTheRepoDeclarationNamesTheFileAndScope(t *testing.T) {
+	dir := t.TempDir()
+	userPath, repoPath := filepath.Join(dir, "config.yaml"), filepath.Join(dir, "sbxr.yaml")
+	writeFile(t, userPath, "version: 1\n")
+	writeFile(t, repoPath, "version: 1\negress:\n  api:\n    rationale: API\n    allow: [https://api.example.com]\n")
+
+	_, err := Load(userPath, repoPath)
+
+	assertErrorMentions(t, err, repoPath+" (repo スコープ)")
+	assertErrorMentions(t, err, "egress.api: allow の \"https://api.example.com\"")
+}
+
+func TestExcludingAGroupThatDoesNotExistNamesTheScopeThatWroteIt(t *testing.T) {
+	_, err := mergeYAML(t, testDefault, "version: 1\negress:\n  githb:\n    enabled: false\n", "")
+
+	assertErrorMentions(t, err, "egress.githb (user スコープが書いた group): rationale が空")
+}
+
+func TestAGroupCompletedByAnUpperScopeIsValid(t *testing.T) {
+	cfg := mustMerge(t, "version: 1\negress:\n  api:\n    rationale: API\n", "version: 1\negress:\n  api:\n    allow: [api.example.com:443]\n", "")
+
+	if !slices.Equal(cfg.GlobalEgress, []string{"api.example.com:443"}) {
+		t.Errorf("GlobalEgress = %v, want the group completed across the scopes", cfg.GlobalEgress)
 	}
 }
 
@@ -460,14 +550,6 @@ func TestRepoCannotExcludeEgressGroups(t *testing.T) {
 }
 
 // --- スコープ制限の表はすべての深さで引く (ADR 0004 の改訂) ---
-
-func TestRepoCannotWriteBelowAKeyTheTableAllowsAlone(t *testing.T) {
-	repo := "version: 1\negress:\n  api:\n    rationale:\n      note: hidden\n    allow: [api.example.com:443]\n"
-
-	_, err := Parse(ScopeRepo, "repo", []byte(repo))
-
-	assertErrorMentions(t, err, "egress.api.rationale.note は repo 宣言には書けない")
-}
 
 func TestRepoWritesAnythingBelowAKeyTheTableAllowsWithItsSubtree(t *testing.T) {
 	for name, repo := range map[string]string{
@@ -485,7 +567,7 @@ func TestRepoWritesAnythingBelowAKeyTheTableAllowsWithItsSubtree(t *testing.T) {
 func TestRepoCannotHideAKeyBehindAnAlias(t *testing.T) {
 	for name, tt := range map[string]struct{ repo, needle string }{
 		"値を alias にする": {
-			repo:   "version: 1\negress:\n  api:\n    rationale: API\n    allow: [&hidden {enabled: false}]\n  github: *hidden\n",
+			repo:   "version: 1\nprofile:\n  enabledPlugins: &hidden {enabled: true}\negress:\n  github: *hidden\n",
 			needle: "egress.github.enabled は repo 宣言には書けない",
 		},
 		"top-level の key を alias にする": {
@@ -516,14 +598,6 @@ func TestRepoCannotMergeInAKeyTheTableForbids(t *testing.T) {
 			assertErrorMentions(t, err, "<< は repo 宣言には書けない")
 		})
 	}
-}
-
-func TestRepoCannotWriteAKeyWhoseNameHasADot(t *testing.T) {
-	repo := "version: 1\negress:\n  api:\n    rationale: API\n    allow: [api.example.com:443]\n    allow.enabled: false\n"
-
-	_, err := Parse(ScopeRepo, "repo", []byte(repo))
-
-	assertErrorMentions(t, err, "egress.api.allow.enabled は repo 宣言には書けない")
 }
 
 func TestRepoIsToldOnceAboutAKeyItCannotWriteWithoutItsChildren(t *testing.T) {

@@ -25,3 +25,11 @@ egress は sbxr 独自の形式で書き、実行基盤の rule へは adapter �
 - 表の各行は、「この key だけ書ける」か「この下は全部書ける」（例: `profile.enabledPlugins`・`egress.*.allow`）かを明示する。書けない key も表に行を持たせる
 - 宣言の型が持つすべての key が、表の中で「書ける」「書けない」のどちらかに分類されていることを、型から key を数える test で確かめる。型に key を足して表に分類を足し忘れると、test が止める
 - 表に無い key の既定は、これまでどおり「repo は書けない」
+
+宣言の検証を 2 段にし、誤りの出所を error に付ける（#53 で追記）。
+
+- 書式・型・未知の field は、スコープごと・ファイルごとに検証する。egress の group と secret 定義も、config が egress・secret の型で読み、その場で検証する（依存は config → egress・secret の向き。egress と secret は config に依存しない）。error には、そのファイルとスコープを付ける
+- egress の group の中身が揃っているか（ADR 0008 の「除外した group にも rationale と allow を求める」）は、merge の後に検証する。上の層が `enabled: false` だけを重ねる書き方があるので、1 ファイルでは決まらない。error には、その group 名を最初に書いたスコープを付ける
+- merge の規則は 1 か所に置く。global rule と secret 定義だけを使う操作（`sbxr policy sync`・`sbxr secret setup`）も、repo を空の宣言として同じ merge を通す。git identity の要求は merge ではなく、それを使う側が確かめる
+- config は、検証済みの型（global rule の宛先・sandbox スコープ rule の宛先・secret 定義）を返す。利用者は egress と secret の検証を組み直さない
+- `create --yes` で落とす repo の egress も検証し、不正なら止める。落とすかどうかで、plan と create の error を変えない
