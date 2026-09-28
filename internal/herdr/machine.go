@@ -81,20 +81,12 @@ func (r Registry) Register(ctx context.Context, sandbox string, progress io.Writ
 // sbxr が無効にした machine を有効に戻す。登録が無ければ、警告して止めるだけにする。
 // 無効にしたことと戻し方の案内は、返り値を受けた呼び出し側が出す。
 func (r Registry) DisableAndStop(ctx context.Context, sandbox string, progress io.Writer) (enable string, err error) {
-	target := r.VM.SSHTarget(sandbox)
-	machine, found, err := r.find(ctx, target)
+	machine, disabled, err := r.disable(ctx, sandbox, progress)
 	if err != nil {
-		return "", fmt.Errorf("herdr machine を無効にできないので止めない: %w", err)
+		return "", fmt.Errorf("%w。VM は止めない", err)
 	}
-	if !found {
-		logf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無いので、そのまま止める)\n", target)
+	if !disabled {
 		return "", r.VM.StopSandbox(ctx, sandbox)
-	}
-	if !machine.Enabled { // 利用者が無効にしたものは、そのままにする
-		return "", r.VM.StopSandbox(ctx, sandbox)
-	}
-	if err := r.Client.Disable(ctx, machine.ID); err != nil {
-		return "", fmt.Errorf("herdr machine %s を無効にできないので止めない: %w", machine.Target, err)
 	}
 	enable = enableCommand(machine.ID)
 	if err := r.VM.StopSandbox(ctx, sandbox); err != nil {
@@ -105,6 +97,38 @@ func (r Registry) DisableAndStop(ctx context.Context, sandbox string, progress i
 		return "", err
 	}
 	return enable, nil
+}
+
+// Disable は、止まっている sandbox VM の herdr machine を無効にする。VM には触れない
+// (sbxr の外で止められた VM を、herdr が繋ぎ直して起こさないように。decision/0010)。
+// 返り値は有効に戻すコマンド (無効にしなかったら空)。登録が無ければ警告して成功にする。
+func (r Registry) Disable(ctx context.Context, sandbox string, progress io.Writer) (enable string, err error) {
+	machine, disabled, err := r.disable(ctx, sandbox, progress)
+	if err != nil || !disabled {
+		return "", err
+	}
+	return enableCommand(machine.ID), nil
+}
+
+// disable は sandbox VM の有効な herdr machine を無効にする。disabled は sbxr が無効にしたか
+// (登録が無い・利用者が無効にしていたなら false)。
+func (r Registry) disable(ctx context.Context, sandbox string, progress io.Writer) (machine Machine, disabled bool, err error) {
+	target := r.VM.SSHTarget(sandbox)
+	machine, found, err := r.find(ctx, target)
+	if err != nil {
+		return Machine{}, false, fmt.Errorf("herdr machine を無効にできない: %w", err)
+	}
+	if !found {
+		logf(progress, "herdr: 警告 %s の登録が無い (無効にするものが無い)\n", target)
+		return Machine{}, false, nil
+	}
+	if !machine.Enabled { // 利用者が無効にしたものは、そのままにする
+		return machine, false, nil
+	}
+	if err := r.Client.Disable(ctx, machine.ID); err != nil {
+		return Machine{}, false, fmt.Errorf("herdr machine %s を無効にできない: %w", machine.Target, err)
+	}
+	return machine, true, nil
 }
 
 // Remove は sandbox VM の herdr machine を解除する。登録が無ければ何もしない。

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -166,6 +167,53 @@ func TestDisableAndStopLeavesAMachineTheUserDisabledAlone(t *testing.T) {
 
 	if host.Machines[0].Enabled {
 		t.Errorf("machine = %+v, want it left disabled after the stop failure", host.Machines[0])
+	}
+}
+
+func TestDisableDisablesTheMachineWithoutTouchingTheVM(t *testing.T) {
+	rt := inmemory.New()
+	rt.Sandbox("app").Status = runtime.SandboxStopped
+	host := hostWithEnabledMachine(rt)
+
+	enable, err := herdr.Registry{Client: host, VM: failingStop{rt}}.Disable(context.Background(), "app", io.Discard)
+
+	if err != nil || host.Machines[0].Enabled || enable != "herdr machine enable m1" {
+		t.Errorf("Disable() = %q, %v, machine = %+v, want it disabled with how to enable it again", enable, err, host.Machines[0])
+	}
+}
+
+func TestDisableLeavesAMachineTheUserDisabledAlone(t *testing.T) {
+	rt := runningApp()
+	host := hostWithEnabledMachine(rt)
+	host.Machines[0].Enabled = false
+
+	enable, err := herdr.Registry{Client: host, VM: rt}.Disable(context.Background(), "app", io.Discard)
+
+	if err != nil || enable != "" || slices.Contains(host.Calls, "disable m1") {
+		t.Errorf("Disable() = %q, %v, calls = %v, want nothing to enable again", enable, err, host.Calls)
+	}
+}
+
+func TestDisableWithoutARegistrationWarnsAndSucceeds(t *testing.T) {
+	rt := runningApp()
+	var progress strings.Builder
+
+	enable, err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.Disable(context.Background(), "app", &progress)
+
+	if err != nil || enable != "" || !strings.Contains(progress.String(), "警告") {
+		t.Errorf("Disable() = %q, %v, progress = %q, want a warning", enable, err, progress.String())
+	}
+}
+
+func TestDisableFailsWhenTheMachineCannotBeDisabled(t *testing.T) {
+	rt := runningApp()
+	host := hostWithEnabledMachine(rt)
+	host.FailDisable = true
+
+	_, err := herdr.Registry{Client: host, VM: rt}.Disable(context.Background(), "app", io.Discard)
+
+	if err == nil {
+		t.Errorf("Disable() error = nil, want the disable failure")
 	}
 }
 
