@@ -30,12 +30,16 @@ func listDeclarationKeys(typ reflect.Type) (keys, unlistable []string) {
 			switch value.Kind() {
 			case reflect.Struct:
 				list(value, key)
-			case reflect.Map, reflect.Slice:
+			case reflect.Map:
 				switch elem := pointee(value.Elem()); {
-				case value.Kind() == reflect.Map && elem.Kind() == reflect.Struct:
+				case elem.Kind() == reflect.Struct:
 					keys = append(keys, key+".*")
 					list(elem, key+".*")
-				case elem.Kind() == reflect.Struct || elem.Kind() == reflect.Map || elem.Kind() == reflect.Slice:
+				case isCollection(elem):
+					unlistable = append(unlistable, key)
+				}
+			case reflect.Slice:
+				if elem := pointee(value.Elem()); elem.Kind() == reflect.Struct || isCollection(elem) {
 					unlistable = append(unlistable, key)
 				}
 			}
@@ -43,6 +47,11 @@ func listDeclarationKeys(typ reflect.Type) (keys, unlistable []string) {
 	}
 	list(typ, "")
 	return keys, unlistable
+}
+
+// isCollection は型が map か list か。
+func isCollection(typ reflect.Type) bool {
+	return typ.Kind() == reflect.Map || typ.Kind() == reflect.Slice
 }
 
 // pointee は pointer を辿った先の型。

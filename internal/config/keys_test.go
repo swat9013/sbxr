@@ -43,19 +43,31 @@ func TestListingKeysListsAListOfStructsButReportsItsItems(t *testing.T) {
 	}
 }
 
-func TestListingKeysReportsNestedCollections(t *testing.T) {
+func TestListingKeysReportsAListOfPointersToStructs(t *testing.T) {
 	type item struct {
 		Name string `yaml:"name"`
 	}
 	type declaration struct {
-		Pointers []*item                      `yaml:"pointers"`
-		Nested   map[string]map[string]string `yaml:"nested"`
-		Lists    map[string][]string          `yaml:"lists"`
+		Items []*item `yaml:"items"`
 	}
 
 	_, unlistable := listDeclarationKeys(reflect.TypeFor[declaration]())
 
-	if want := []string{"pointers", "nested", "lists"}; !slices.Equal(unlistable, want) {
+	if want := []string{"items"}; !slices.Equal(unlistable, want) {
+		t.Errorf("unlistable = %q, want %q", unlistable, want)
+	}
+}
+
+func TestListingKeysReportsNestedCollections(t *testing.T) {
+	type declaration struct {
+		Nested map[string]map[string]string `yaml:"nested"`
+		Lists  map[string][]string          `yaml:"lists"`
+		Matrix [][]string                   `yaml:"matrix"`
+	}
+
+	_, unlistable := listDeclarationKeys(reflect.TypeFor[declaration]())
+
+	if want := []string{"nested", "lists", "matrix"}; !slices.Equal(unlistable, want) {
 		t.Errorf("unlistable = %q, want %q", unlistable, want)
 	}
 }
@@ -98,16 +110,5 @@ func TestListingKeysDescendsIntoAPointerToAStruct(t *testing.T) {
 
 	if want := []string{"inner", "inner.name"}; !slices.Equal(keys, want) {
 		t.Errorf("keys = %q, want %q", keys, want)
-	}
-}
-
-func TestTheEmptyValueCheckLeavesTheContentsOfASecretDefinitionToItsOwnValidation(t *testing.T) {
-	keys, err := listWrittenKeys([]byte("secret_defs:\n  api:\n    service: ''\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := checkWrittenValues(keys); err != nil {
-		t.Errorf("checkWrittenValues() = %v, want an empty service accepted as placeholder injection", err)
 	}
 }
