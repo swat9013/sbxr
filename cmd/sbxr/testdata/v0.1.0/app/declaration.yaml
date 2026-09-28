@@ -1,0 +1,31 @@
+profile:
+    model: opus
+    effortLevel: medium
+    enabledPlugins: {}
+    language: null
+    outputStyle: null
+    feedbackDrafts: "off"
+    awaySummaryEnabled: false
+    autoMemoryEnabled: false
+    autoDreamEnabled: false
+    promptSuggestionEnabled: false
+    spinnerTipsEnabled: false
+    env:
+        CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: "60"
+        CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "1"
+        CLAUDE_CODE_ENABLE_TODO_TOOLS: "1"
+        DISABLE_ERROR_REPORTING: "1"
+    extraKnownMarketplaces:
+        claude-plugins-official:
+            source:
+                repo: anthropics/claude-plugins-official
+                source: github
+git:
+    name: tester
+    email: tester@example.com
+init: []
+boot: []
+sandbox_egress: []
+secrets: []
+herdr:
+    version: v0.9.0

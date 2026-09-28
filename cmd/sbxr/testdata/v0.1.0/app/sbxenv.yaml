@@ -1,0 +1,11 @@
+schemaVersion: "1"
+agent: claude
+name: app
+workspace:
+    path: /home/me/.cache/sbxr/repos/app
+    clone: true
+kits:
+    - source: ./kits/sbxr-herdr
+      args:
+        version: v0.9.0
+    - source: ./kits/sbxr-boot

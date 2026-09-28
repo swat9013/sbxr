@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -28,20 +27,8 @@ type Places struct {
 	UserConfig string
 }
 
-// StateDir は sandbox VM の状態ディレクトリ。
-func (p Places) StateDir(name string) string {
-	return filepath.Join(p.StateRoot, name)
-}
-
 // RepoDeclarationFile は repo 宣言のファイル名。
 const RepoDeclarationFile = "sbxr.yaml"
-
-// 状態ディレクトリに sbxr が置くファイル。declaration.yaml は作成がすべて済んでから書き、作成が終わった印にする。
-// 実行基盤の定義 (sbx では env 定義と kit) は Runtime が同じディレクトリに書く。
-const (
-	sourceFile      = "source"
-	declarationFile = "declaration.yaml"
-)
 
 // Declaration は作成時に確定した宣言。状態ディレクトリに残し、drift 検出の基準にする。
 type Declaration struct {
@@ -166,6 +153,8 @@ const (
 type Inspection struct {
 	Situation Situation
 	Status    runtime.SandboxStatus
+	// Record は作成時の記録。作成が終わった VM (Ready・Vanished) だけが持つ。
+	Record Record
 	// recordedSource は状態ディレクトリに記録された出所。
 	recordedSource string
 }
@@ -176,8 +165,8 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 	if err != nil {
 		return Inspection{}, err
 	}
-	dir := places.StateDir(target.Name)
-	recorded, found, err := recordedSource(dir)
+	dir := places.stateDirOf(target.Name)
+	recorded, found, err := dir.source()
 	switch {
 	case err != nil:
 		return Inspection{}, err
@@ -188,15 +177,17 @@ func Inspect(ctx context.Context, rt runtime.Runtime, places Places, target Targ
 	case recorded != target.Source():
 		return Inspection{Situation: OtherSource, Status: status, recordedSource: recorded}, nil
 	}
-	if _, err := os.Stat(filepath.Join(dir, declarationFile)); errors.Is(err, fs.ErrNotExist) {
-		return Inspection{Situation: Incomplete, Status: status}, nil
-	} else if err != nil {
+	record, completed, err := dir.record()
+	if err != nil {
 		return Inspection{}, err
 	}
-	if status == runtime.SandboxAbsent {
-		return Inspection{Situation: Vanished, Status: status}, nil
+	if !completed {
+		return Inspection{Situation: Incomplete, Status: status}, nil
 	}
-	return Inspection{Situation: Ready, Status: status}, nil
+	if status == runtime.SandboxAbsent {
+		return Inspection{Situation: Vanished, Status: status, Record: record}, nil
+	}
+	return Inspection{Situation: Ready, Status: status, Record: record}, nil
 }
 
 // RequireManaged は sbxr が作った (作りかけを含む) VM でなければ、理由を error で返す。
@@ -220,32 +211,32 @@ func (i Inspection) NotRunning() bool {
 // Create は作る内容を組み立てて実行基盤に定義と作成を頼み (secret と rule をどの順で置くかは実行基盤が守る。decision/0009)、
 // VM の中を宣言どおりにし (materialize → read-back → init → boot)、VM 内から egress 自己検証を行う。
 // 途中で失敗したら状態ディレクトリと VM を残す (destroy がそれを使って片付ける)。
-// 作成が終わった印 (declaration.yaml) は最後に書く。VM を作れた後の段の失敗は *StageError で返す。
+// 作成が終わった印 (作成時の宣言) は最後に書く。VM を作れた後の段の失敗は *StageError で返す。
 func Create(ctx context.Context, hosts Hosts, places Places, prepared Prepared, values secret.Values, progress io.Writer) error {
 	rt := hosts.Runtime
 	name := prepared.Target.Name
-	stateDir := places.StateDir(name)
+	dir := places.stateDirOf(name)
 	spec, err := sandboxSpec(prepared, values)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(stateDir, 0o700); err != nil {
-		return fmt.Errorf("状態ディレクトリ %s を作れない: %w", stateDir, err)
-	}
-	// 定義を先に、出所を後に書く (出所だけが残ると、destroy が定義の無い状態ディレクトリで詰む。ADR 0006)
-	if err := rt.DefineSandbox(stateDir, spec); err != nil {
+	if err := dir.ensure(); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, sourceFile), []byte(prepared.Target.Source()), 0o600); err != nil {
-		return fmt.Errorf("状態ディレクトリに %s を書けない: %w", sourceFile, err)
+	if err := rt.DefineSandbox(dir.path, spec); err != nil {
+		return err
 	}
-	if err := rt.CreateSandbox(ctx, stateDir, spec); err != nil {
+	herdr := prepared.Declaration.Herdr != nil
+	if err := dir.writeCreation(prepared.Target.Source(), creation{Herdr: &herdr}); err != nil {
+		return err
+	}
+	if err := rt.CreateSandbox(ctx, dir.path, spec); err != nil {
 		return createdStageError(err)
 	}
 	if err := setUpInside(ctx, rt, prepared, progress); err != nil {
 		return err
 	}
-	if err := writeRecord(stateDir, Record{Declaration: prepared.Declaration, RepoEgress: prepared.RepoEgress}); err != nil {
+	if err := dir.writeRecord(Record{Declaration: prepared.Declaration, RepoEgress: prepared.RepoEgress}); err != nil {
 		return err
 	}
 	if prepared.Declaration.Herdr != nil {
@@ -327,21 +318,21 @@ func Destroy(ctx context.Context, hosts Hosts, places Places, target Target, run
 	if !inspection.NotRunning() && running == RefuseRunning {
 		return nil, &RunningError{Status: inspection.Status}
 	}
-	stateDir := places.StateDir(target.Name)
+	dir := places.stateDirOf(target.Name)
 	// herdr machine の解除は VM を消す前に行う。失敗しても撤去は続ける
-	if err := removeHerdrMachine(ctx, hosts, places, target.Name); err != nil {
+	if err := removeHerdrMachine(ctx, hosts, dir, target.Name); err != nil {
 		warnings = append(warnings, err)
 	}
-	if err := rt.RemoveEnvironment(ctx, stateDir); err != nil {
-		return warnings, fmt.Errorf("sandbox VM %s を消せない (状態ディレクトリ %s は残した): %w", target.Name, stateDir, err)
+	if err := rt.RemoveEnvironment(ctx, dir.path); err != nil {
+		return warnings, fmt.Errorf("sandbox VM %s を消せない (状態ディレクトリ %s は残した): %w", target.Name, dir.path, err)
 	}
 	if target.FromGitURL() {
 		if err := DiscardClone(places, target); err != nil {
 			warnings = append(warnings, err)
 		}
 	}
-	if err := os.RemoveAll(stateDir); err != nil {
-		warnings = append(warnings, fmt.Errorf("状態ディレクトリ %s を消せない: %w", stateDir, err))
+	if err := dir.remove(); err != nil {
+		warnings = append(warnings, err)
 	}
 	return warnings, nil
 }
