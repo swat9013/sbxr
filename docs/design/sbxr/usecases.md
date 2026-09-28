@@ -83,7 +83,8 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 5b. build 用 VM の残骸がある: sbxr はそれを撤去してから 5 を続ける
 - 5c. template の作成が失敗した: sbxr は build 用 VM を撤去し、本番の VM を作らずに止まる（何も残さない）
 - 5d. 旧い template を消せない（使っている VM がある等）: sbxr は警告して 6 へ
-- 6a. secret を置けないか、VM を作れない: sbxr は状態ディレクトリを残して止まる（UC4 で片付ける）
+- 6a. 状態ディレクトリに出所を記録する前（実行基盤の定義か作成の最初の記録を書けない）に失敗した: sbxr は書きかけの状態ディレクトリと git URL の cache clone を消し、未作成に戻して止まる（sbx の側にはまだ何も置いていない。decision/0011）
+- 6b. secret を置けないか、VM を作れない: sbxr は状態ディレクトリを残して止まる（UC4 で片付ける）
 - 7a. VM の中の段（sandbox スコープ rule・kit の startup・materialize・init・boot）が失敗した: sbxr は VM を調べられるよう稼働したまま残し、stop → destroy → create の復旧手順を示して止まる
 - 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と body の `Blocked by network policy`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007）
 - 8b. 許可集合に、glob を含まず 443 を通す宛先が無い: sbxr は許可先の確認を省いたことを示し、許可外の確認だけを行う
@@ -112,7 +113,9 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 
 - 2a. VM が無いか、管理外か、別出所: sbxr は止まる
 - 2b. VM 消失: sbxr は destroy を促して止まる
+- 2c. 作成途中の VM が止まっているか無い: sbxr は VM に触れずに「止まっている」と示して終える（herdr machine は登録前なので触れない）
 - 3a. herdr 連携を有効にせずに作った VM: 4 へ進み、5 を行わない
+- 4b. VM が既に止まっている（外部停止の後など）: sbxr は VM に触れずに「止まっている」と示し、3 で無効にしたなら 5 を行う（herdr が VM を起こし直さないよう、無効化は止まっていても行う。decision/0010）
 - 3b. host に herdr が無い: sbxr は VM に触れずに止まる
 - 3c. herdr machine の登録が無い（利用者が手で解除した等）: sbxr は警告して 4 へ進み、5 を行わない
 - 3d. herdr machine を無効にできない: sbxr は VM を止めずに止まる（止めても herdr が起こし直すため）

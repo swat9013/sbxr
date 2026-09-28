@@ -19,7 +19,7 @@ state "VM 消失" as VMGone
 
 ' --- create ---
 Absent --> Running : create [成功] / template を用意・作成時の宣言を書く・herdr machine を登録 (失敗しても稼働中)
-Absent --> Absent : create [記録前に失敗] / cache clone と build 用 VM を片付ける
+Absent --> Absent : create [出所の記録前に失敗] / 書きかけの状態ディレクトリ・cache clone・build 用 VM を片付ける
 Absent --> IncompleteStopped : create [VM 作成前に失敗]
 Absent --> IncompleteRunning : create [VM 作成後に失敗] / VM を調べられるよう残す
 IncompleteStopped --> IncompleteStopped : create / 拒否 (destroy を促す)
@@ -30,10 +30,10 @@ VMGone --> VMGone : create / 拒否 (destroy を促す)
 
 ' --- stop ---
 Absent --> Absent : stop / 拒否 (VM が無い)
-IncompleteStopped --> IncompleteStopped : stop / 止まっている
+IncompleteStopped --> IncompleteStopped : stop / 止まっている (VM に触れない)
 IncompleteRunning --> IncompleteStopped : stop
 Running --> Stopped : stop / herdr machine を無効にしてから止める
-Stopped --> Stopped : stop / 止まっている
+Stopped --> Stopped : stop / herdr machine を無効にし、止まっている (VM に触れない)
 VMGone --> VMGone : stop / 拒否 (destroy を促す)
 
 ' --- destroy ---
