@@ -244,7 +244,7 @@ func startupOutcome(log string) startup {
 	if i := strings.LastIndex(log, "=== dispatcher run"); i >= 0 {
 		log = log[i:]
 	}
-	for _, line := range strings.Split(log, "\n") {
+	for line := range strings.SplitSeq(log, "\n") {
 		dispatcherFail := strings.HasPrefix(line, "fail /etc/durable-startup.d/") && strings.Contains(line, " exit=")
 		if dispatcherFail || strings.HasPrefix(line, herdrKitFailure) {
 			return startupFailed

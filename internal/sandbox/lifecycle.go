@@ -412,8 +412,7 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 		return fmt.Errorf("%w\nsandbox VM %s は調べられるように残した。復旧: sbxr stop %s → sbxr destroy %s → sbxr create %s", err, name, repo, repo, repo)
 	}
 	if err := rt.CreateSandbox(ctx, dir.path, spec); err != nil {
-		var created *runtime.CreatedError
-		if errors.As(err, &created) {
+		if created, ok := errors.AsType[*runtime.CreatedError](err); ok {
 			return leftRunning(createdStageError(created))
 		}
 		return fmt.Errorf("%w\n復旧: sbxr destroy %s で片付けてから sbxr create %s をやり直す", err, repo, repo)
@@ -428,8 +427,7 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 		return nil
 	}
 	if err := l.registry().Register(ctx, name, l.Output); err != nil {
-		var registration *herdr.RegistrationError
-		if errors.As(err, &registration) { // VM は作り終えている
+		if registration, ok := errors.AsType[*herdr.RegistrationError](err); ok { // VM は作り終えている
 			return fmt.Errorf("%w\nsandbox VM %s は作った。復旧: %s", err, name, registration.Recovery)
 		}
 		return err

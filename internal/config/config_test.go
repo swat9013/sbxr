@@ -325,8 +325,7 @@ func TestUserMayLeaveAnEnvValueOfTheProfileEmpty(t *testing.T) {
 func TestMergeCarriesEveryProfileFieldFromTheUserScope(t *testing.T) {
 	var profile Profile
 	v := reflect.ValueOf(&profile).Elem()
-	for i := range v.NumField() {
-		field := v.Field(i)
+	for _, field := range v.Fields() {
 		switch field.Kind() {
 		case reflect.Pointer:
 			field.Set(reflect.New(field.Type().Elem()))
