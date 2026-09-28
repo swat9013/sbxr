@@ -2,7 +2,7 @@
 
 repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) の sandbox VM）にする CLI。
 
-> Status: v0.1.0 を release 済み。語彙は [CONTEXT.md](./CONTEXT.md)、設計判断は [docs/adr/](./docs/adr/) を参照。
+語彙は [CONTEXT.md](./CONTEXT.md)、設計判断は [docs/adr/](./docs/adr/) を参照。
 
 ## できること
 
