@@ -170,6 +170,17 @@ func TestDisableAndStopLeavesAMachineTheUserDisabledAlone(t *testing.T) {
 	}
 }
 
+func TestDisableAndStopWithoutARegistrationWarnsAndStopsTheVM(t *testing.T) {
+	rt := runningApp()
+	var progress strings.Builder
+
+	enable, err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.DisableAndStop(context.Background(), "app", &progress)
+
+	if err != nil || enable != "" || rt.Sandbox("app").Status != runtime.SandboxStopped || !strings.Contains(progress.String(), "そのまま止める") {
+		t.Errorf("DisableAndStop() = %q, %v, progress = %q, want the VM stopped with a warning", enable, err, progress.String())
+	}
+}
+
 func TestDisableDisablesTheMachineWithoutTouchingTheVM(t *testing.T) {
 	rt := inmemory.New()
 	rt.Sandbox("app").Status = runtime.SandboxStopped
