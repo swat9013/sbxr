@@ -88,6 +88,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 - 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)
 - init の重さ（#13）: 重い tool の導入が create のたびに init で走る。→ [decision/0004](decision/0004-template-per-repo-built-in-create.md)・[decision/0005](decision/0005-template-build-inputs-and-refresh.md)
 - egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)
+- VM 内の作業ツリー: copy の置き場が決まっておらず、herdr の pane は VM 内の作業ツリーではなく image の既定の cwd（`/home/agent/workspace`）で始まる。→ [decision/0014](decision/0014-vm-worktree-at-host-path-and-herdr-starts-there.md)
 
 ## 未実測の前提
 
@@ -100,6 +101,8 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 5. mount 方式: env 定義で `workspace.clone: false` にしたとき、host の作業ツリーが VM の agent から読み書きできる uid で見えるか
 6. VM 内から許可外の宛先への通信が proxy で拒否され、curl が失敗として返るか（egress 自己検証の判定）
 7. sbx が global rule の host の大小文字や port の無い pattern（例: `*.example.com`）を正規化して保存するか。書き換えるなら、`sbxr policy sync` はその宛先を毎回消して足し直す（ADR 0008）
+8. copy 方式で、host と同じ path（例: `/Users/<user>/...`）の親ディレクトリを VM 内に agent の所有で作り、そこへ展開できるか（decision/0014）。4 で確かめたのは `/home/agent/workspace/<repo>` だけ
+9. `herdr machine add` が ssh 経由で起動し直す VM 内の herdr server でも、最初の workspace が VM 内の作業ツリーで始まるか（decision/0014）。2026-09-29 の実測では、sbxr の kit が起動した server は登録の前に止められ、`machine add` が起動した server の cwd は `/home/agent/workspace` だった。その cwd の決まり方と、`new_cwd` が最初の workspace に効くかは確かめていない
 
 ### 実測（2026-09-27、sbx v0.45.1、#33）
 

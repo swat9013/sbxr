@@ -111,6 +111,10 @@ _Avoid_: env 注入
 
 ### VM 内の構成
 
+**VM 内の作業ツリー**:
+sandbox VM 内の agent が作業する repo の置き場。投入方式によらず、host 側 repo（git URL なら cache clone）と同じ path にある。利用者が VM に入ったときの作業の起点。
+_Avoid_: workspace（sbx の用語、image の既定 cwd `~/workspace` と紛れる）, repo の root
+
 **agent runtime profile**:
 sandbox VM 内の agent（Claude Code）の設定。宣言の `profile` と、有効にした herdr 連携から作られ、host 側の個人設定は持ち込まない。ただし投入方式が mount のときは、repo 内の ignored な個人設定（`.claude/settings.local.json` など）も VM から見える。
 _Avoid_: dot_claude, host settings
