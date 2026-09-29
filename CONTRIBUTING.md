@@ -12,6 +12,22 @@
   pre-commit install
   ```
 
+## 開発中の sbxr を試す
+
+`scripts/sbxr-dev.sh` は、script がある checkout の sbxr を build し直してから、渡した引数で実行する。リリースを待たずに、手元の変更を実際の repo で試せる。
+
+```sh
+alias sbxr-dev=~/projects/sbxr/scripts/sbxr-dev.sh   # worktree で試すときは、その worktree の script を指す
+sbxr-dev --version                                     # 版に checkout の commit が出る（未 commit の変更があれば +dirty）
+sbxr-dev plan .
+sbxr-dev create .
+```
+
+- **Homebrew 版と区別する**: 素の `sbxr` は Homebrew 版を呼ぶ。build した binary は、その checkout の `dist/sbxr-dev` に置く
+- **状態は Homebrew 版と共有する**: 状態ディレクトリ・user 設定・secret ファイルは Homebrew 版と同じものを読み書きする。sandbox VM の名前は sbx 全体で 1 つしか持てないので、状態だけを分けると VM と食い違う
+- **global rule を書き換える**: `policy sync` は、実 sbx の global rule を Homebrew 版と同じく書き換える
+- **決まった 1 周を回すとき**: 実 sbx での create から destroy までの 1 周は [docs/real-sbx-walkthrough-macos.md](./docs/real-sbx-walkthrough-macos.md) に従う
+
 ## branch・worktree 運用
 
 - 作業は GitHub issue 単位で行う。default branch は `main`
