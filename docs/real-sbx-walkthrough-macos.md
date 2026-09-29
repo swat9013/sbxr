@@ -8,6 +8,30 @@ fixture の repo から sandbox VM を作り、create → boot → stop → star
 
 同じ意味の自動検査は `cmd/sbxr/acceptance_test.go`（sbx stub 上）にある。この手順は、stub では再現できない実 sbx の振る舞いを確かめるためのもの。
 
+## script で 1 周する
+
+0〜7 の手順は `scripts/real-sbx-walkthrough-macos.sh` がまとめて実行する。repo の checkout から次のコマンドで実行する。
+
+```sh
+scripts/real-sbx-walkthrough-macos.sh          # create と destroy の確認関門で要約を読み、y で承認する
+scripts/real-sbx-walkthrough-macos.sh --yes    # 確認関門を省く（fixture はローカル path なので、repo の egress は落ちない）
+```
+
+- 期待する結果を確かめ、項目ごとに `ok:` を出す。外れたら `NG:` を出して止まる
+  - 状態ディレクトリの中身
+  - marker の行数
+  - `sbx ls` の状態
+  - `/var/log/sbx-kit-startup.log` の `boot[1]` の行
+  - 片付け
+- 途中で止まったときは、作業ディレクトリと VM を残す。片付けのコマンドを表示するので、調べ終えてから実行する
+- 次の 2 つは確かめない。出力を読んで判断する
+  - create の要約の中身
+  - egress 自己検証の行
+- 実行の前に、`sbxr-fixture` という VM が無いことと、`~/.config/sbxr/config.yaml` が無いことを確かめる。どちらかがあれば止まる
+- 結果を PR 本文に残すときは、出力を `| tee` で保存する（確認関門は stdin の端末で答えるので、stdout を tee に通してもよい）
+
+script を使わずに 1 手ずつ確かめるときは、以下の手順に従う。
+
 ## 触ってよい範囲
 
 - 作るのは fixture の sandbox VM 1 つだけにする。途中で失敗しても、その VM は destroy して片付ける
