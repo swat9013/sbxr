@@ -41,6 +41,14 @@ func ExecSbx(ctx context.Context, stdin io.Reader, args ...string) ([]byte, erro
 
 var _ Runtime = (*Sbx)(nil)
 
+// SbxAvailable は PATH に sbx があるかを確かめる。
+func SbxAvailable() error {
+	if _, err := exec.LookPath("sbx"); err != nil {
+		return fmt.Errorf("sbx が PATH に無い: %w", err)
+	}
+	return nil
+}
+
 // sbxRule は sbx policy ls --json の rule のうち、収束の対象を決めるのに読む field。
 type sbxRule struct {
 	ID           string   `json:"id"`

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -90,6 +91,9 @@ var herdrVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 // source は error に載せる出所 (ファイル path など)。未知の key は error にする。
 func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 	decl, err := decode(data)
+	if err != nil {
+		err = explainUnknownKeys(err, data)
+	}
 	var keys []writtenKey
 	if err == nil {
 		keys, err = listWrittenKeys(data)
@@ -107,6 +111,7 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 type writtenKey struct {
 	path  []string // top-level から辿った key 名の列 ("egress", "github", "enabled")
 	value *yaml.Node
+	line  int // key を書いた行
 }
 
 // name は error に使う key 名 ("profile.model" のように親の key を前に付ける)。
@@ -133,6 +138,39 @@ func decode(data []byte) (Declaration, error) {
 		return Declaration{}, errors.New("宣言は 1 つの YAML document に書く")
 	}
 	return decl, nil
+}
+
+// unknownFieldPattern は decoder が未知の key に返す文言 ("line 3: field modle not found in type config.Profile")。
+var unknownFieldPattern = regexp.MustCompile(`^line ([0-9]+): field (.+) not found in type \S+$`)
+
+// explainUnknownKeys は decoder の未知の key の error を、key の path と直し方を持つ文言に言い直す。他の error はそのまま残す。
+// decoder の文言は key の名前しか持たず、どの親の下の key か (profile.modle か egress.api.modle か) を読み手が探すことになるため。
+func explainUnknownKeys(err error, data []byte) error {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return err
+	}
+	keys, listErr := listWrittenKeys(data)
+	if listErr != nil {
+		return err
+	}
+	errs := make([]error, 0, len(typeErr.Errors))
+	for _, message := range typeErr.Errors {
+		match := unknownFieldPattern.FindStringSubmatch(message)
+		if match == nil {
+			errs = append(errs, errors.New(message))
+			continue
+		}
+		line, name := match[1], match[2]
+		for _, key := range keys {
+			if strconv.Itoa(key.line) == line && key.path[len(key.path)-1] == name {
+				name = key.name()
+				break
+			}
+		}
+		errs = append(errs, fmt.Errorf("line %s: %s は宣言に無い key (書き違いか、この版の sbxr が読まない key。正しい key 名に直すか消す)", line, name))
+	}
+	return errors.Join(errs...)
 }
 
 // listWrittenKeys は書かれた key を、型へ読み込む前の形ですべての深さまで列挙する (ADR 0004 の改訂)。
@@ -164,6 +202,7 @@ func writtenKeysUnder(node *yaml.Node, path []string, expanding []*yaml.Node) []
 			key := writtenKey{
 				path:  append(slices.Clip(path), resolved(node.Content[i]).Value),
 				value: node.Content[i+1],
+				line:  node.Content[i].Line,
 			}
 			keys = append(keys, key)
 			keys = append(keys, writtenKeysUnder(key.value, key.path, expanding)...)

@@ -482,20 +482,13 @@ func (l Lifecycle) loadDeclarationAndWarn(ctx context.Context, target sandboxTar
 // loadCurrentDeclaration は target の現在の宣言を読む。git URL は一時ディレクトリへ clone して読み、読み終えたら消す
 // (host に何も残さず、作成済みの VM の cache clone にも触れない)。
 func (l Lifecycle) loadCurrentDeclaration(ctx context.Context, target sandboxTarget) (loadedDeclaration, error) {
-	if !target.FromGitURL() {
-		return l.loadDeclarationAndWarn(ctx, target, target.Repo)
-	}
-	tmp, err := os.MkdirTemp("", "sbxr-read-")
-	if err != nil {
-		return loadedDeclaration{}, err
-	}
-	defer func() { _ = os.RemoveAll(tmp) }()
-	readable := target
-	readable.Repo = filepath.Join(tmp, target.Name)
-	if err := freshClone(ctx, l.Clone, readable); err != nil {
-		return loadedDeclaration{}, err
-	}
-	return l.loadDeclarationAndWarn(ctx, target, readable.Repo)
+	var loaded loadedDeclaration
+	err := readRepoDir(ctx, l.Clone, target, func(dir string) error {
+		var err error
+		loaded, err = l.loadDeclarationAndWarn(ctx, target, dir)
+		return err
+	})
+	return loaded, err
 }
 
 // sandboxSpec は確定した宣言と secret の値から、実行基盤に渡す作る内容を組み立てる。

@@ -78,7 +78,7 @@ func merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 
 	var globalErr, sandboxErr error
 	cfg.GlobalEgress, globalErr = validatedEgress(scopedEgress{ScopeDefault, defaultDecl.Egress}, scopedEgress{ScopeUser, userDecl.Egress})
-	cfg.SandboxEgress, sandboxErr = validatedEgress(scopedEgress{ScopeRepo, repoDecl.Egress})
+	cfg.SandboxEgress, sandboxErr = sandboxEgress(repoDecl)
 	errs := []error{globalErr, sandboxErr}
 	if herdr.Enabled != nil && *herdr.Enabled {
 		if herdr.Version == nil {
@@ -134,6 +134,11 @@ func additive[M ~map[K]V, K comparable, V any](lower, upper M) M {
 type scopedEgress struct {
 	scope  Scope
 	groups map[string]egress.GroupDeclaration
+}
+
+// sandboxEgress は repo の egress 宣言を、default と user の egress とは別に重ねて宛先にする (sandbox スコープ rule)。
+func sandboxEgress(repoDecl Declaration) ([]string, error) {
+	return validatedEgress(scopedEgress{ScopeRepo, repoDecl.Egress})
 }
 
 // validatedEgress は egress 宣言の層を宛先グループごとに重ね、中身が揃っていることを確かめて、有効な group の宛先を返す。

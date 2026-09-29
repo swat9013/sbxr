@@ -83,8 +83,8 @@ type loadedDeclaration struct {
 // loadDeclaration は repoDir の repo 宣言を user 設定と default に重ねて読む。repoDir は target.Repo か、
 // git URL を plan のために読む一時 clone (要約に出す path は target.Repo のまま)。
 func loadDeclaration(ctx context.Context, userConfig string, target sandboxTarget, repoDir string) (loadedDeclaration, error) {
-	if info, err := os.Stat(repoDir); err != nil || !info.IsDir() {
-		return loadedDeclaration{}, fmt.Errorf("repo のディレクトリ %s が無い", repoDir)
+	if err := requireRepoDir(repoDir); err != nil {
+		return loadedDeclaration{}, err
 	}
 	host, warning := originHost(ctx, repoDir)
 	cfg, err := config.Load(userConfig, filepath.Join(repoDir, repoDeclarationFile))
@@ -100,6 +100,48 @@ func loadDeclaration(ctx context.Context, userConfig string, target sandboxTarge
 		loaded.warnings = append(loaded.warnings, warning)
 	}
 	return loaded, nil
+}
+
+func requireRepoDir(dir string) error {
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return fmt.Errorf("repo のディレクトリ %s が無い", dir)
+	}
+	return nil
+}
+
+// ReadRepoDeclaration は <repo> (path | git URL) の repo 宣言の path を read に渡す。宣言ファイルが無くても path を渡す。
+// git URL は一時ディレクトリへ clone して渡し、read の後で消す (plan と同じく、host に何も残さない)。
+func ReadRepoDeclaration(ctx context.Context, clone Cloner, repo string, read func(path string) error) error {
+	// 一時 clone の置き場は readRepoDir が決めるので、cache clone の置き場は渡さない
+	target, err := resolveTarget(repo, "")
+	if err != nil {
+		return err
+	}
+	return readRepoDir(ctx, clone, target, func(dir string) error {
+		if err := requireRepoDir(dir); err != nil {
+			return err
+		}
+		return read(filepath.Join(dir, repoDeclarationFile))
+	})
+}
+
+// readRepoDir は target の host 側のディレクトリを read に渡す。git URL は一時ディレクトリへ clone して渡し、read の後で消す
+// (host に何も残さず、作成済みの VM の cache clone にも触れない)。
+func readRepoDir(ctx context.Context, clone Cloner, target sandboxTarget, read func(dir string) error) error {
+	if !target.FromGitURL() {
+		return read(target.Repo)
+	}
+	tmp, err := os.MkdirTemp("", "sbxr-read-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	readable := target
+	readable.Repo = filepath.Join(tmp, target.Name)
+	if err := freshClone(ctx, clone, readable); err != nil {
+		return err
+	}
+	return read(readable.Repo)
 }
 
 // prepare は repo の egress を repoEgress で扱って、作る内容を確定する。
