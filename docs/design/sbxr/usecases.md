@@ -291,7 +291,6 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 ### Extensions
 
 - 1a. user 設定だけを頼まれた: agent は 3 と 5 を行って終える（user 設定があれば、3a に従って直す）
-- 2a. user 設定があり、repo 宣言を頼まれた: agent は 3 を飛ばして 4 へ
 - 3a. / 4a. 既存のファイルがある: agent は既存の内容を読み、差分を利用者に見せて承認を得てから書く。承認されなければ書かない
 - 4b. repo が git URL: agent は書かない（生成先はローカル path の repo だけ）
 - 5a. 人手の要る fail（secret の値、global rule の収束、sbx・herdr の導入）: agent は利用者に実行するコマンドを示し、利用者が実行してから 5 をやり直す
