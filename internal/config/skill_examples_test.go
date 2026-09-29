@@ -29,6 +29,9 @@ func skillExamples(t *testing.T) map[string][]string {
 			block = append(block, line)
 		}
 	}
+	if inBlock {
+		t.Fatalf("SKILL.md has a yaml example that is not closed under ## %s", heading)
+	}
 	return examples
 }
 

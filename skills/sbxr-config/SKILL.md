@@ -18,10 +18,11 @@ sbxr は repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI
 
 どの手順で書くときも、書き込む先にファイルがあれば、先に読み、書き換える差分を人に見せ、承認を得てから書く。承認されなければ書かない。
 
-次のコマンドは人が実行する。agent はコマンドを示して、人が実行し終えるのを待つ。
+次の操作は人が行う。agent は行うことを示して、人が終えるのを待つ。
 
-- `sbxr secret setup ...`: token を端末で読む。token は agent を通さない
+- secret の値を書くこと: `sbxr secret setup ...` と、secret ファイル (`~/.config/sbxr/secrets.env`) に値の行を書くこと。token は agent を通さない
 - `sbxr policy sync`: 全 sandbox VM の egress (global rule) を変える
+- user 設定の egress を書き換えること (同梱の group を外す `enabled: false` を含む): 全 sandbox VM の許可が変わる
 - sbx と herdr の導入、`sbxr create`
 
 ## 手順
@@ -30,8 +31,8 @@ sbxr は repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI
 2. **user 設定を書く** (頼まれたとき、または手順 1 で無かったとき)。「user 設定」の節の項目を人に 1 つずつ聞いて埋める。
 3. **repo 宣言を書く** (頼まれたとき)。「repo 宣言」の節の規則で、repo の中身から推測して書く。生成先は手元のディレクトリにある repo だけ (git URL の repo には書かない)。
 4. **doctor が通るまで直す。** `sbxr doctor <repo>` (user 設定だけなら `sbxr doctor`) を実行し、fail の項目の直し方に従って直して、再実行する。
-   - 人が実行するコマンド (「書き込みの規則」) が直し方なら、人に示し、人が実行してから doctor を再実行する
-   - 同じ fail が直した後にも 2 回続いたら、そこで止める。残った fail、書き換えたファイル、人が次にやることを示す
+   - 直し方が人の行う操作 (「書き込みの規則」) なら、人に示し、人が終えてから doctor を再実行する
+   - 同じ fail が直した後にも 2 回続くか、doctor を 5 回実行しても 0 で終わらなければ、そこで止める。残った fail、書き換えたファイル、人が次にやることを示す。止まったのは未完了で、人が直したら手順 4 からやり直す
    - 完了条件: doctor が 0 で終わる
 5. **作られる内容を人に確かめてもらう。** `sbxr plan <repo>` の出力を見せる。推測の誤り (init の中身、egress の宛先) は、人がここと `sbxr create` の確認関門で止める。
 
@@ -44,7 +45,7 @@ sbxr は repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI
 - herdr 連携を使うか (`herdr.enabled`)
 - VM 内の Claude Code の個人設定 (`profile.language` など。repo 宣言では書けない)
 
-egress は default スコープの同梱 group に任せ、user 設定には書かない — user 設定の egress は全 sandbox VM の許可になる。同梱の group を外したいと人が言ったら、その group に `enabled: false` を書く方法を示し、人が自分で書く。
+egress は default スコープの同梱 group に任せ、user 設定には書かない — user 設定の egress は全 sandbox VM の許可になる (書き換えは人が行う。「書き込みの規則」)。
 
 ```yaml
 version: 1
