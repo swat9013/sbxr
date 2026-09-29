@@ -65,7 +65,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 6. sbxr が sandbox スコープの secret を置いてから template で sandbox VM を作り、repo を投入方式で渡し、作った後に sandbox スコープ rule を足す
 7. sbxr が VM の中を宣言どおりにする（materialize → init → boot）
 8. sbxr が VM 内から egress 自己検証を行う
-9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録する
+9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）
 
 ### Extensions
 
@@ -93,6 +93,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 8c. 許可外の候補（`example.com`・`example.net`・`example.org`）がすべて許可されている: sbxr は許可外の確認を省いたことを示し、許可先の確認だけを行う
 - 9a. herdr machine の登録に失敗した: VM は作成済みとして残り、sbxr は登録し直す手順を示して非 0 で終える
 - 9b. 同じ `<名前>.sbx` の登録が既にある: sbxr はその登録に触れずに止まり、解除してから登録し直す手順を示す
+- 9c. 最初の workspace を VM 内の作業ツリーで開き直せない: VM と herdr machine の登録は残り、sbxr は VM 内で開き直す手順を示して非 0 で終える
 
 ## UC3 sandbox VM を止める
 

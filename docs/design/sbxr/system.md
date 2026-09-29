@@ -27,8 +27,8 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 | repo 宣言 | 外 | ファイル（port にしない） | 入 | untrusted な宣言 |
 | secret ファイル | 外 | ファイル（port にしない） | 入 / 出（secret setup） | secret の値 |
 | host 側 repo（path のとき） | 外 | host の git・ファイル（port にしない） | 入 / mount では VM が直接書く | origin の host、copy で持ち込むもの、mount の対象、cache 層の inputs |
-| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未回収の検査・egress 自己検証・copy の持ち込み）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
-| VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009） |
+| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未回収の検査・egress 自己検証・copy の持ち込み・herdr の最初の workspace の開き直し）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
+| VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版、VM 内の作業ツリー）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009） |
 | host の herdr | 外 | herdr CLI（port にしない） | 出 | herdr machine の登録・無効化・有効化・解除 |
 | git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan・drift・doctor の一時 clone |
 | GitHub API | 外 | HTTPS（port にしない） | 出 | secret setup github の token の能力の probe |
@@ -88,7 +88,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 - 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)
 - init の重さ（#13）: 重い tool の導入が create のたびに init で走る。→ [decision/0004](decision/0004-template-per-repo-built-in-create.md)・[decision/0005](decision/0005-template-build-inputs-and-refresh.md)
 - egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)
-- VM 内の作業ツリー: copy の置き場が決まっておらず、herdr の pane は VM 内の作業ツリーではなく image の既定の cwd（`/home/agent/workspace`）で始まる。→ [decision/0014](decision/0014-vm-worktree-at-host-path-and-herdr-starts-there.md)
+- VM 内の作業ツリー: copy の置き場が決まっておらず、herdr の pane は VM 内の作業ツリーではなく image の既定の cwd（`/home/agent/workspace`）で始まる。→ [decision/0014](decision/0014-vm-worktree-at-host-path-and-herdr-starts-there.md)・[decision/0015](decision/0015-herdr-first-workspace-reopened-after-registration.md)
 
 ## 未実測の前提
 
@@ -102,7 +102,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 6. VM 内から許可外の宛先への通信が proxy で拒否され、curl が失敗として返るか（egress 自己検証の判定）
 7. sbx が global rule の host の大小文字や port の無い pattern（例: `*.example.com`）を正規化して保存するか。書き換えるなら、`sbxr policy sync` はその宛先を毎回消して足し直す（ADR 0008）
 8. copy 方式で、host と同じ path（例: `/Users/<user>/...`）の親ディレクトリを VM 内に agent の所有で作り、そこへ展開できるか（decision/0014）。4 で確かめたのは `/home/agent/workspace/<repo>` だけ
-9. `herdr machine add` が ssh 経由で起動し直す VM 内の herdr server でも、最初の workspace が VM 内の作業ツリーで始まるか（decision/0014）。2026-09-29 の実測では、sbxr の kit が起動した server は登録の前に止められ、`machine add` が起動した server の cwd は `/home/agent/workspace` だった。その cwd の決まり方と、`new_cwd` が最初の workspace に効くかは確かめていない
+9. `herdr machine add` が ssh 経由で起動し直す VM 内の herdr server でも、最初の workspace が VM 内の作業ツリーで始まるか（decision/0014）。2026-09-29 の実測では、sbxr の kit が起動した server は登録の前に止められ、`machine add` が起動した server の cwd は `/home/agent/workspace` だった。その cwd の決まり方と、`new_cwd` が最初の workspace に効くかは確かめていない。→ 成り立たない（下の実測。#85）
 
 ### 実測（2026-09-27、sbx v0.45.1、#33）
 
@@ -138,3 +138,17 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
    - `curl -f` は許可外で exit 22、許可先の `https://github.com` で exit 0 を返す。ただし、宛先が 4xx を返すと誤判定する
    - `--noproxy '*'` では、許可外は exit 6（名前解決の失敗）、許可先は 200 だった。`http://example.com` も 403 で拒否された
    - decision/0006 の核（VM 内から実際の通信で 1 往復ずつ確かめる）は成り立つ。「届く」「届かない」の判定は、#39 で proxy の拒否応答（403 と body の `Blocked by network policy`）に置き換えた → [decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)
+
+### 実測（2026-09-29、sbx v0.46.0、host の herdr 0.9.1 / VM の herdr v0.9.0、#85）
+
+9 を確かめた。成り立たない。clone 方式の probe の VM を `sbxr create` で作り、VM 内で `herdr` の CLI と `/proc/<pid>/cwd`・`/proc/<pid>/environ` を見た。
+
+9. **成り立たない** → [decision/0015](decision/0015-herdr-first-workspace-reopened-after-registration.md)
+   - 手順: VM に `~/.config/herdr/config.toml`（`[terminal] new_cwd = "<作業ツリー>"`）を置き、create と同じく server を止めて session を消してから、host で `herdr machine add` し直した
+   - `machine add` が起動した server の cwd は `/home/agent/workspace` で、server の log は `created startup workspace cwd=/home/agent/workspace` だった。最初の workspace は server の cwd で始まり、`new_cwd` は効かない
+   - `new_cwd` は、`--cwd` なしの `herdr tab create`・`herdr workspace create`・`herdr pane split` に効いた（応答の `cwd` が作業ツリー）
+   - 登録の後に `herdr workspace create --cwd <作業ツリー> --focus` → `herdr workspace close w1` とすると、残る workspace は作業ツリーの 1 件になる。その pane は `/bin/bash` で、`claude` が PATH で見つかり、sbx の proxy を持つ
+   - 保存された session があると、server は起動時の workspace を作らずに session を復元する（`restored session already has workspaces; ignoring startup cwd`）。`herdr server` の正常な停止は session を消す（`session cleared`）ので、create の経路では復元は起きない
+   - 作業ツリーは、create の初回 boot の kit の startup の時点で既にある
+   - kit が起動した server（`/usr/local/bin/herdr`、`SHELL=/bin/sh`、PATH に `~/.local/bin` が無い）には、動いたままだと `machine add` できない（ADR 0007 の実測を再現した）。`~/.local/bin/herdr server` で起動した server なら、動いたままでも登録できた
+   - 起動し直した VM では、kit の server が VM 内の作業ツリーを cwd にして起動し、保存された pane も作業ツリーのまま復元された。ただし復元された pane の shell は `/bin/sh` だった（kit の環境を継ぐ）
