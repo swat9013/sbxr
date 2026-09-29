@@ -14,6 +14,9 @@
   - sbx が無い: global rule を skip する
   - secret ファイルが読めない: secret の値を skip する
 - 検査の対象は、create が同じ入力で止まる条件に揃える。`<repo>` を渡したときの secret の値は、merge 後に配線される secret のものを見る（repo 宣言が足した要求も含む）
+  - repo の egress は plan と同じく保つ扱いで判定する（git URL を `--yes` で作るときに落とす扱いは見ない）
+  - 例外として、注入先 host が egress で許可されていないので配線されない secret は、create は外して進むが、`<repo>` を渡した診断は fail にする。要求した secret が VM で使えないのは、要求か egress の書き違いの兆候だから
+  - `<repo>` を省いた診断では、global rule だけで配線されない secret を skip にする。repo の egress で許可されれば配線されるので、repo を渡さないと決まらない
 - host の管理状態・sandbox VM・global rule のどれも変えない。VM の状態（drift など）は見ない
 - 出力はテキストだけにする
 

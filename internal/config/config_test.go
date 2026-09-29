@@ -299,6 +299,7 @@ func TestInvalidDeclarationsAreRejected(t *testing.T) {
 		{name: "egress の group に未知の field", userYAML: "version: 1\negress:\n  api:\n    rationale: API\n    allow: [api.example.com:443]\n    hosts: [x.example.com]\n", needle: "egress.api.hosts は宣言に無い key"},
 		{name: "top-level に未知の key", userYAML: "version: 1\nprofiles:\n  model: sonnet\n", needle: "profiles は宣言に無い key"},
 		{name: "profile の下に未知の key (書き違い)", repoYAML: "version: 1\nprofile:\n  modle: sonnet\n", needle: "profile.modle は宣言に無い key"},
+		{name: "alias で 2 つの group に同じ未知の key", userYAML: "version: 1\negress:\n  a: &g\n    rationale: x\n    allow: [a.example.com:443]\n    hosts: [y]\n  b: *g\n", needle: "egress.b.hosts は宣言に無い key"},
 		{name: "egress の enabled が bool でない", userYAML: "version: 1\negress:\n  github:\n    enabled: maybe\n", needle: "cannot unmarshal"},
 		{name: "secret 定義に未知の field", userYAML: "version: 1\nsecret_defs:\n  api:\n    key: A\n    hosts: [a.example.com]\n    env: A\n    value: leak\n", needle: "secret_defs.api.value は宣言に無い key"},
 		{name: "secret 定義が不完全", userYAML: "version: 1\nsecret_defs:\n  api:\n    key: A\n    env: A\n", needle: "secret_defs.api: hosts が空"},

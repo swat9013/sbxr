@@ -93,7 +93,7 @@ type Doctor struct {
 // Diagnose は環境と user スコープを検査し、git identity と secret を user 設定だけで判定する。
 func (d Doctor) Diagnose(ctx context.Context) Report {
 	facts := d.readHostAndUser()
-	effective := checkedConfig{config: facts.trusted}
+	effective := checkedConfig{config: facts.trusted, unwired: unwiredMayWireInRepo}
 	if facts.userErr != nil {
 		effective.err = errUserInvalid
 	}
@@ -109,7 +109,7 @@ func (d Doctor) Diagnose(ctx context.Context) Report {
 func (d Doctor) DiagnoseRepo(ctx context.Context, repo string) Report {
 	facts := d.readHostAndUser()
 	repoSection, repoFile, repoErr := d.repoScope(ctx, repo)
-	var effective checkedConfig
+	effective := checkedConfig{unwired: unwiredFails}
 	switch {
 	case facts.userErr != nil:
 		effective.err = errUserInvalid
@@ -118,11 +118,11 @@ func (d Doctor) DiagnoseRepo(ctx context.Context, repo string) Report {
 	default:
 		cfg, err := facts.user.With(repoFile)
 		if err != nil {
-			// user 設定も repo 宣言もそれぞれ通ったのに重ねられない。どの項目にも出ていない誤りなので fail で見せる
-			repoSection.Items = append(repoSection.Items, failure("merge", err, "上に挙げた誤りを user 設定か repo 宣言で直す"))
-			effective.err = errMergeInvalid
+			// merge の検証は、user 設定 (Trusted) と repo の egress (SandboxEgress) の項目がすでに通している。
+			// ここに来るのは merge に検証を足して項目を足し忘れたときなので、黙って ok にせず fail で見せる
+			repoSection.Items = append(repoSection.Items, failure("merge", err, "user 設定か repo 宣言で上の誤りを直す"))
 		}
-		effective.config = cfg
+		effective.config, effective.err = cfg, err
 	}
 	return Report{Sections: []Section{
 		d.environment(facts),
@@ -133,9 +133,8 @@ func (d Doctor) DiagnoseRepo(ctx context.Context, repo string) Report {
 }
 
 var (
-	errUserInvalid  = errors.New("user 設定が通らないので確かめていない")
-	errRepoInvalid  = errors.New("repo 宣言が通らないので確かめていない")
-	errMergeInvalid = errors.New("宣言を重ねられないので確かめていない")
+	errUserInvalid = errors.New("user 設定が通らないので確かめていない")
+	errRepoInvalid = errors.New("repo 宣言が通らないので確かめていない")
 )
 
 // hostAndUser は、環境と user スコープの検査の入力。どの項目も、ここにある結果だけを見て状態を決める。
@@ -161,9 +160,20 @@ func (d Doctor) readHostAndUser() hostAndUser {
 
 // checkedConfig は git identity と secret の判定に使う、merge 後の宣言。err があれば判定しない (理由を skip に出す)。
 type checkedConfig struct {
-	config config.Config
-	err    error
+	config  config.Config
+	err     error
+	unwired unwiredSecret
 }
+
+// unwiredSecret は、注入先 host が egress で許可されていないので配線されない secret をどう判定するか。
+type unwiredSecret int
+
+const (
+	// unwiredMayWireInRepo は repo 宣言を重ねていない判定。repo の egress で許可されれば配線されるので skip にする。
+	unwiredMayWireInRepo unwiredSecret = iota + 1
+	// unwiredFails は repo 宣言まで重ねた判定。create はこの secret を配線せずに進むが、要求と egress の食い違いなので fail にする。
+	unwiredFails
+)
 
 func (d Doctor) environment(facts hostAndUser) Section {
 	section := Section{Title: "環境"}
@@ -178,18 +188,15 @@ func (d Doctor) environment(facts hostAndUser) Section {
 
 func (d Doctor) secretFileItem(facts hostAndUser) Item {
 	const name = "secret ファイル"
-	info, err := os.Stat(d.SecretFile)
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return ok(name, d.SecretFile+" は無い (値が要る secret があれば、その項目が fail になる)")
 	case facts.secretErr == nil:
-		return ok(name, d.SecretFile+" は mode 0600 で読める")
-	case err != nil:
-		return failure(name, facts.secretErr, d.SecretFile+" を読めるようにする (置き場のディレクトリの権限を確かめる)")
-	case info.Mode().Perm() != 0o600:
+		return ok(name, fmt.Sprintf("%s を読める (key %d 個。ファイルが無ければ 0 個)", d.SecretFile, len(facts.secretValues)))
+	case errors.Is(facts.secretErr, secret.ErrPermissiveMode):
 		return failure(name, facts.secretErr, "chmod 600 "+d.SecretFile)
+	case errors.Is(facts.secretErr, secret.ErrMalformedLine):
+		return failure(name, facts.secretErr, d.SecretFile+" の上に挙げた行を KEY=VALUE の形に直す (# で始まる行と空行は読まない)")
 	}
-	return failure(name, facts.secretErr, d.SecretFile+" の各行を KEY=VALUE の形に直す (# で始まる行と空行は読まない)")
+	return failure(name, facts.secretErr, d.SecretFile+" を自分の user で読めるようにする (持ち主と置き場のディレクトリの権限を確かめる)")
 }
 
 func (d Doctor) herdrItem(facts hostAndUser) Item {
@@ -200,7 +207,7 @@ func (d Doctor) herdrItem(facts hostAndUser) Item {
 	case !facts.trusted.Herdr.Enabled:
 		return skip(name, "herdr 連携は無効")
 	}
-	if err := d.Herdr.Available(); err != nil {
+	if err := herdr.RequireOnHost(d.Herdr); err != nil {
 		return failure(name, err, "herdr を入れて PATH に置くか、user 設定の herdr.enabled を false にする")
 	}
 	return ok(name, "herdr 連携が有効で、host に herdr がある")
@@ -258,16 +265,18 @@ func (d Doctor) repoScope(ctx context.Context, repo string) (Section, config.Rep
 	section := Section{Title: "repo スコープ"}
 	var repoFile config.RepoFile
 	var parseErr error
-	declPath := ""
+	declared := false
 	readErr := sandbox.ReadRepoDeclaration(ctx, d.Clone, repo, func(path string) error {
-		declPath = path
+		// git URL の一時 clone は読み終えると消えるので、ファイルの有無はここで確かめる
+		_, statErr := os.Lstat(path)
+		declared = !errors.Is(statErr, fs.ErrNotExist)
 		repoFile, parseErr = config.ReadRepoFile(path)
 		return nil
 	})
 	switch {
 	case readErr != nil:
 		section.Items = append(section.Items,
-			failure("repo 宣言", readErr, "<repo> に repo のディレクトリの path か、clone できる git URL を渡す"),
+			failure("repo 宣言", readErr, "上の理由を直す (repo のディレクトリ名は sandbox VM の名前になるので英数字と . _ - で書く。git URL は clone できるものを渡す)"),
 			skip("repo の egress", "repo 宣言を読めないので確かめていない"))
 		return section, config.RepoFile{}, errRepoInvalid
 	case parseErr != nil:
@@ -276,7 +285,7 @@ func (d Doctor) repoScope(ctx context.Context, repo string) (Section, config.Rep
 			skip("repo の egress", "repo 宣言が通らないので確かめていない"))
 		return section, config.RepoFile{}, errRepoInvalid
 	}
-	section.Items = append(section.Items, ok("repo 宣言", repoDeclarationDetail(repo, declPath)))
+	section.Items = append(section.Items, ok("repo 宣言", repoDeclarationDetail(repo, declared)))
 	resources, err := repoFile.SandboxEgress()
 	if err != nil {
 		section.Items = append(section.Items, failure("repo の egress", err, "repo 宣言の egress の各 group に rationale と allow を書く"))
@@ -287,8 +296,8 @@ func (d Doctor) repoScope(ctx context.Context, repo string) (Section, config.Rep
 }
 
 // repoDeclarationDetail は ok の repo 宣言の説明。git URL の一時 clone の path は読み終えると消えるので出さない。
-func repoDeclarationDetail(repo, declPath string) string {
-	if _, err := os.Lstat(declPath); errors.Is(err, fs.ErrNotExist) {
+func repoDeclarationDetail(repo string, declared bool) string {
+	if !declared {
 		return repo + " に sbxr.yaml は無い (repo 宣言の無い repo として扱う)"
 	}
 	return repo + " の sbxr.yaml は書式・型・key・スコープ制限の検証を通る"
@@ -307,12 +316,13 @@ func (d Doctor) merged(title string, effective checkedConfig, facts hostAndUser)
 	} else {
 		section.Items = append(section.Items, ok("git identity", fmt.Sprintf("%s <%s>", identity.Name, identity.Email)))
 	}
-	section.Items = append(section.Items, d.secretItems(cfg, facts)...)
+	section.Items = append(section.Items, d.secretItems(effective, facts)...)
 	return section
 }
 
 // secretItems は要求された secret ごとに、create と同じ規則で配線されるか、配線されるなら値が secret ファイルにあるかを検査する。
-func (d Doctor) secretItems(cfg config.Config, facts hostAndUser) []Item {
+func (d Doctor) secretItems(effective checkedConfig, facts hostAndUser) []Item {
+	cfg := effective.config
 	if len(cfg.Secrets) == 0 {
 		return []Item{ok("secret", "要求された secret は無い")}
 	}
@@ -320,7 +330,7 @@ func (d Doctor) secretItems(cfg config.Config, facts hostAndUser) []Item {
 	var items []Item
 	var defined []string
 	for _, name := range cfg.Secrets {
-		items = append(items, d.secretItem(name, cfg.SecretDefs, allowed, facts))
+		items = append(items, d.secretItem(name, effective.unwired, cfg.SecretDefs, allowed, facts))
 		if _, ok := cfg.SecretDefs[name]; ok {
 			defined = append(defined, name)
 		}
@@ -334,11 +344,15 @@ func (d Doctor) secretItems(cfg config.Config, facts hostAndUser) []Item {
 	return items
 }
 
-func (d Doctor) secretItem(name string, defs map[string]secret.Definition, allowed []string, facts hostAndUser) Item {
+func (d Doctor) secretItem(name string, unwired unwiredSecret, defs map[string]secret.Definition, allowed []string, facts hostAndUser) Item {
 	item := "secret " + name
 	plan, err := secret.PlanWiring([]string{name}, defs, allowed)
 	if err != nil {
 		return failure(item, err, "user 設定の secret_defs に "+name+" を定義するか、secrets から外す")
+	}
+	if len(plan.Skipped) > 0 && unwired == unwiredMayWireInRepo {
+		return skip(item, fmt.Sprintf("注入先 host %s は global rule では許可されていない。repo の egress で許可されれば配線されるので、sbxr doctor <repo> で確かめる",
+			strings.Join(plan.Skipped[0].DeniedHosts, ", ")))
 	}
 	if len(plan.Skipped) > 0 {
 		hosts := plan.Skipped[0].DeniedHosts

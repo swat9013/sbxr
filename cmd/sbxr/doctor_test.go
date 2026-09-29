@@ -187,6 +187,20 @@ func TestDoctorFailsASecretWhoseHostTheEgressDoesNotAllow(t *testing.T) {
 	}
 }
 
+func TestDoctorWithoutARepoSkipsASecretThatOnlyARepoEgressCouldWire(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+`secrets: [api]
+secret_defs:
+  api:
+    key: API_TOKEN
+    hosts: [api.example.com]
+    env: API_TOKEN
+`)
+
+	out, _ := lc.run(t, "doctor")
+
+	assertDoctorItem(t, out, "skip", "secret api")
+}
+
 func TestDoctorReadsTheRepoDeclarationOfAGitURLFromATemporaryClone(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
 	lc.clonedRepoDecl = "version: 1\negress:\n  api:\n    allow: [api.example.com:443]\n"
@@ -194,6 +208,9 @@ func TestDoctorReadsTheRepoDeclarationOfAGitURLFromATemporaryClone(t *testing.T)
 	out, _ := lc.run(t, "doctor", "https://example.com/me/app.git")
 
 	assertDoctorItem(t, out, "ok", "repo 宣言")
+	if line := doctorItem(out, "repo 宣言"); strings.Contains(line, "は無い") {
+		t.Errorf("doctor item %q, want the cloned sbxr.yaml reported as read", line)
+	}
 	assertDoctorItem(t, out, "fail", "repo の egress")
 	if len(lc.clones) != 1 {
 		t.Errorf("clones = %q, want the git URL cloned once", lc.clones)

@@ -155,6 +155,7 @@ func explainUnknownKeys(err error, data []byte) error {
 		return err
 	}
 	errs := make([]error, 0, len(typeErr.Errors))
+	named := make([]bool, len(keys)) // alias で同じ行の key が複数の path に現れるので、1 つの error に 1 つの key を当てる
 	for _, message := range typeErr.Errors {
 		match := unknownFieldPattern.FindStringSubmatch(message)
 		if match == nil {
@@ -162,9 +163,9 @@ func explainUnknownKeys(err error, data []byte) error {
 			continue
 		}
 		line, name := match[1], match[2]
-		for _, key := range keys {
-			if strconv.Itoa(key.line) == line && key.path[len(key.path)-1] == name {
-				name = key.name()
+		for i, key := range keys {
+			if !named[i] && strconv.Itoa(key.line) == line && key.path[len(key.path)-1] == name {
+				name, named[i] = key.name(), true
 				break
 			}
 		}
