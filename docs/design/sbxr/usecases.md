@@ -262,7 +262,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 2a. sbx が無い: sbxr は sbx の項目を fail にし、3 の global rule を skip にして続ける
 - 2b. secret ファイルが読めない（mode が 0600 でない、書式が違う）: sbxr は fail にし、5 の値の検査を skip にして続ける
 - 3a. user 設定が通らない: sbxr は fail にし、user 設定に依る項目（herdr・global rule・git identity・secret の配線と値）を skip にして 4 へ
-- 4a. repo 宣言が通らない（clone できない・ディレクトリが無いを含む）: sbxr は fail にし、merge 後の項目を skip にして 6 へ
+- 4a. repo 宣言が通らない（clone できない・ディレクトリが無いを含む）: sbxr は fail にし、merge 後の git identity を skip にする。secret は 1a と同じく user 設定だけで判定して 6 へ
 - 5a. 要求された secret の注入先 host が egress で許可されていない: sbxr は fail にし、host を許可するか要求から外すよう示す（repo を省いたときは、repo の egress で許可されうるので skip にする）
 - 5b. 要求された secret の値が無い: sbxr は fail にし、値を書くコマンド（`sbxr secret setup ...`）を示す
 - 6a. fail がある: sbxr は全項目を示してから非 0 で終える

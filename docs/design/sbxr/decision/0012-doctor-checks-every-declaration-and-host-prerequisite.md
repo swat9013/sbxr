@@ -10,13 +10,14 @@
 - 検査項目はそれぞれ ok・fail・skip のどれかになる。fail には直し方を 1 行付け、fail が 1 つでもあれば非 0 で終える
 - スコープごとに独立して検証し、前段の失敗で後段を飛ばさない。skip にするのは、検査に要る入力が他の項目の失敗で得られないときだけにする
   - user 設定が通らない: herdr・global rule・git identity・secret の配線と値を skip する。repo 宣言のファイル単位の検証（書式・型・未知の key・スコープ制限）と、repo の egress の group の検証は続ける
-  - repo 宣言が通らない: merge 後の git identity と secret の配線と値を skip する
+  - repo 宣言が通らない: merge 後の git identity を skip する。secret は、repo を省いたときと同じく user 設定だけで判定する（user 設定の要求の値は repo に依らない。repo が足す要求と配線は repo が通るまで決まらない）
   - sbx が無い: global rule を skip する
   - secret ファイルが読めない: secret の値を skip する
 - 検査の対象は、create が同じ入力で止まる条件に揃える。`<repo>` を渡したときの secret の値は、merge 後に配線される secret のものを見る（repo 宣言が足した要求も含む）
   - repo の egress は plan と同じく保つ扱いで判定する（git URL を `--yes` で作るときに落とす扱いは見ない）
   - 例外として、注入先 host が egress で許可されていないので配線されない secret は、create は外して進むが、`<repo>` を渡した診断は fail にする。要求した secret が VM で使えないのは、要求か egress の書き違いの兆候だから
   - `<repo>` を省いた診断では、global rule だけで配線されない secret を skip にする。repo の egress で許可されれば配線されるので、repo を渡さないと決まらない
+- 1 つのファイルの中でも、型の誤り・未知の key・スコープ制限の誤りをまとめて示す。型の誤りと未知の key は、decoder の文言を key の path と直し方を持つ文言に言い直す
 - host の管理状態・sandbox VM・global rule のどれも変えない。VM の状態（drift など）は見ない
 - 出力はテキストだけにする
 
