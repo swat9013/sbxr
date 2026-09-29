@@ -11,7 +11,7 @@ args:
     description: 導入する herdr の release tag (herdrdev/herdr)
   worktree:
     required: true
-    description: VM 内の作業ツリーの path。herdr の pane をここから始める (decision/0014)。単一引用符と制御文字は含まない (sbxr が確かめる)
+    description: VM 内の作業ツリーの path。herdr の pane をここから始める (decision/0014)。単一引用符・制御文字・UTF-8 でない byte は含まない (sbxr が確かめる)
 
 setup:
   # 各段は失敗しても 0 で終わり、"sbxr-herdr: fail <段>" を log に残す (理由は ADR 0007)。create 時は sbxr がこの行を失敗として読む。
@@ -59,7 +59,8 @@ setup:
         - bash
         - -c
         - |
-          cd '${{ kit.args.worktree }}' 2>/dev/null
+          # 作業ツリーが無ければ既定の cwd で起動する (herdr は使えるようにする。無いことは前の段が fail 行で残す)
+          cd '${{ kit.args.worktree }}'
           exec herdr server
       background: true
     - description: Claude Code の integration を入れる (server が動いてから)

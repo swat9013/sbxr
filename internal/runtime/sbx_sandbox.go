@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 
@@ -78,10 +79,11 @@ func kits(spec SandboxSpec) []embeddedKit {
 }
 
 // herdrWorktreeOK は、herdr の kit が VM 内の作業ツリーの path を運べるかを確かめる。kit は path を bash の
-// 単一引用符の中へ差し込むので、単一引用符と制御文字を含む path は運べない。
+// 単一引用符の中へ差し込み、TOML の文字列 (UTF-8 に限る) として書くので、単一引用符・制御文字・UTF-8 でない byte を
+// 含む path は運べない。
 func herdrWorktreeOK(path string) error {
-	if strings.ContainsFunc(path, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) {
-		return fmt.Errorf("herdr 連携は、単一引用符か制御文字を含む path の repo (%q) を扱えない。repo を別の path に置くか、user 設定で herdr.enabled: false にする", path)
+	if !utf8.ValidString(path) || strings.ContainsFunc(path, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) {
+		return fmt.Errorf("herdr 連携は、単一引用符・制御文字・UTF-8 でない byte を含む path の repo (%q) を扱えない。repo を別の path に置くか、user 設定で herdr.enabled: false にする", path)
 	}
 	return nil
 }

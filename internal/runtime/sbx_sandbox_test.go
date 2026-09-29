@@ -114,7 +114,7 @@ func TestTheEnvDefinitionCarriesTheHerdrKitWithItsVersionAndTheWorktreeOnlyWhenH
 
 // herdr の kit は VM 内の作業ツリーの path を bash の単一引用符の中へ差し込む。
 func TestDefineSandboxRefusesAWorktreeThatTheHerdrKitCannotCarry(t *testing.T) {
-	for _, repo := range []string{"/src/it's", "/src/a\nb"} {
+	for _, repo := range []string{"/src/it's", "/src/a\nb", "/src/caf\xe9"} {
 		dir := t.TempDir()
 
 		err := NewSbx((&sbxstub.Stub{}).Run).DefineSandbox(dir, SandboxSpec{Name: "app", Repo: repo, Herdr: &HerdrInstall{Version: "v0.9.0"}})

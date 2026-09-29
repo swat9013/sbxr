@@ -23,9 +23,11 @@ type Server struct {
 	Workspaces []Workspace
 	// IgnoreCwd が true なら workspace create の --cwd を受け付けたふりをして StartupCwd で始める。
 	IgnoreCwd bool
-	// FailCreate・FailClose は workspace create・close を失敗させる。
-	FailCreate, FailClose bool
-	created               int
+	// FailCreate は workspace create を失敗させる。
+	FailCreate bool
+	// FailClose はこの id の workspace close を失敗させる。
+	FailClose []string
+	created   int
 }
 
 // NewServer は herdr machine add が起動した直後の server: 起動時の workspace w1 が StartupCwd にある。
@@ -64,7 +66,7 @@ func (s *Server) Answer(args []string) (out []byte, handled bool, err error) {
 		}})
 		return out, true, err
 	case len(args) == 4 && slices.Equal(args[:3], []string{"herdr", "workspace", "close"}):
-		if s.FailClose {
+		if slices.Contains(s.FailClose, args[3]) {
 			return nil, true, fmt.Errorf("exit status 1")
 		}
 		i := slices.IndexFunc(s.Workspaces, func(w Workspace) bool { return w.ID == args[3] })

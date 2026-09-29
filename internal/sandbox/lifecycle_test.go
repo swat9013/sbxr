@@ -697,7 +697,7 @@ func TestCreateKeepsTheVMAndShowsHowToStartHerdrAtTheWorktreeWhenItFails(t *test
 
 	_, err := w.create(repo, unattended())
 
-	if err == nil || !strings.Contains(err.Error(), "herdr workspace create --cwd "+repo) {
+	if err == nil || !strings.Contains(err.Error(), "herdr workspace create --cwd '"+repo+"'") {
 		t.Errorf("Create() error = %v, want how to start herdr at the worktree by hand", err)
 	}
 	if got := w.stateOf(repo); got != stateRunning || len(w.herdr.Machines) != 1 {
