@@ -92,18 +92,19 @@ var herdrVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 // source は error に載せる出所 (ファイル path など)。未知の key は error にする。
 func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 	decl, decodeErr := decode(data)
-	keys, listErr := listWrittenKeys(data)
+	root, parseErr := parseNode(data)
 	var err error
 	switch {
-	case listErr != nil:
+	case parseErr != nil:
 		// YAML として読めなければ key を列挙できないので、読めない理由だけを返す
-		err = cmp.Or(decodeErr, listErr)
+		err = cmp.Or(decodeErr, parseErr)
 	case decodeErr != nil:
-		// 型の誤りと未知の key があっても、同じファイルの値の書き忘れとスコープ制限の誤りをまとめて示す (sbxr doctor)。
+		// 型の誤りと未知の key があっても、同じファイルの値の書き忘れとスコープ制限の誤りをまとめて返す (1 回で直せるように)。
 		// 型へ読めていないので、読んだ値の検証 (validate) はしない
-		known, explained := explainDecodeError(decodeErr, data, keys)
+		known, explained := explainDecodeError(decodeErr, root, writtenKeysOf(root))
 		err = errors.Join(explained, checkWrittenValues(known), checkScopeRestrictions(scope, known))
 	default:
+		keys := writtenKeysOf(root)
 		err = errors.Join(checkWrittenValues(keys), decl.validate(), checkScopeRestrictions(scope, keys))
 	}
 	if err != nil {
@@ -155,13 +156,9 @@ var (
 // explainDecodeError は decoder の未知の key と型の誤りを、key の path と直し方を持つ文言に言い直す。他の error はそのまま残す。
 // decoder の文言は key の名前か行しか持たず、どの key の誤りか (profile.modle か egress.api.modle か) を読み手が探すことになるため。
 // known は keys から未知の key とその下の key を除いたもの (未知の key を、スコープ制限の誤りとしても重ねて報告しないため)。
-func explainDecodeError(err error, data []byte, keys []writtenKey) (known []writtenKey, explained error) {
+func explainDecodeError(err error, root *yaml.Node, keys []writtenKey) (known []writtenKey, explained error) {
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
-		return keys, err
-	}
-	var root yaml.Node
-	if yaml.Unmarshal(data, &root) != nil { // keys を列挙できたので読める
 		return keys, err
 	}
 	errs := make([]error, 0, len(typeErr.Errors))
@@ -182,7 +179,7 @@ func explainDecodeError(err error, data []byte, keys []writtenKey) (known []writ
 		if match := typeMismatchPattern.FindStringSubmatch(message); match != nil {
 			line, _ := strconv.Atoi(match[1])
 			name := fmt.Sprintf("line %d の値", line)
-			if path, found := pathOfValue(&root, line, match[2]); found {
+			if path, found := pathOfValue(root, line, match[2]); found {
 				name = strings.Join(path, ".")
 				mismatchedPaths = append(mismatchedPaths, path)
 			}
@@ -278,11 +275,25 @@ func writtenForm(tag, value string) string {
 // listWrittenKeys は書かれた key を、型へ読み込む前の形ですべての深さまで列挙する (ADR 0004 の改訂)。
 // 型へ読み込んだ後では、null を書いた key と書いていない key を区別できないため YAML node から数える。
 func listWrittenKeys(data []byte) ([]writtenKey, error) {
+	root, err := parseNode(data)
+	if err != nil {
+		return nil, err
+	}
+	return writtenKeysOf(root), nil
+}
+
+// parseNode は宣言を型へ読み込む前の YAML node にする。
+func parseNode(data []byte) (*yaml.Node, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
 	}
-	return writtenKeysUnder(documentBody(&root), nil, nil), nil
+	return &root, nil
+}
+
+// writtenKeysOf は root の下に書かれた key を列挙する。
+func writtenKeysOf(root *yaml.Node) []writtenKey {
+	return writtenKeysUnder(documentBody(root), nil, nil)
 }
 
 func documentBody(root *yaml.Node) *yaml.Node {

@@ -233,6 +233,15 @@ func TestDoctorChecksTheUserSecretValuesEvenWhenTheRepoDeclarationFails(t *testi
 	assertDoctorItem(t, out, "fail", "secret github")
 }
 
+func TestDoctorShowsTheRepoSecretRequestsAsUncheckedWhenTheRepoEgressFails(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", "version: 1\negress:\n  api:\n    allow: [api.example.com:443]\n")
+
+	out, _ := lc.run(t, "doctor", repo)
+
+	assertDoctorItem(t, out, "skip", "repo 宣言の secret 要求")
+}
+
 func TestDoctorFailsWhenHerdrIsEnabledButMissingOnTheHost(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig+"herdr:\n  enabled: true\n")
 	lc.herdr.Missing = true

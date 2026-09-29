@@ -90,9 +90,10 @@ type Doctor struct {
 
 // skip の理由。検査に要る入力を、他の項目の失敗で得られなかった。
 const (
-	reasonUserInvalid  = "user 設定が通らないので確かめていない"
-	reasonRepoInvalid  = "repo 宣言が通らないので確かめていない"
-	reasonMergeInvalid = "宣言を重ねられないので確かめていない"
+	reasonUserInvalid      = "user 設定が通らないので確かめていない"
+	reasonRepoInvalid      = "repo 宣言が通らないので確かめていない"
+	reasonRepoScopeInvalid = "repo スコープの項目が通らないので確かめていない"
+	reasonMergeInvalid     = "宣言を重ねられないので確かめていない"
 )
 
 // Diagnose は環境と user スコープを検査し、git identity と secret を user 設定だけで判定する。
@@ -102,10 +103,9 @@ func (d Doctor) Diagnose(ctx context.Context) Report {
 		return d.report(ctx, facts, skippedMerge("merge 後 (default と user 設定)", reasonUserInvalid))
 	}
 	return d.report(ctx, facts, d.mergedSection(facts, judgement{
-		title:    "merge 後 (default と user 設定)",
-		config:   facts.trusted,
-		unwired:  unwiredMayWireInRepo,
-		identity: identityFromUser,
+		title:  "merge 後 (default と user 設定)",
+		config: facts.trusted,
+		scope:  withoutRepo,
 	}))
 }
 
@@ -121,10 +121,9 @@ func (d Doctor) DiagnoseRepo(ctx context.Context, repo string) Report {
 	case !repoOK:
 		// user 設定の secret 要求の値は repo に依らないので、repo を省いたときと同じく user 設定だけで判定する
 		return d.report(ctx, facts, repoSection, d.mergedSection(facts, judgement{
-			title:    "merge 後 (default と user 設定。repo 宣言は通らないので重ねていない)",
-			config:   facts.trusted,
-			unwired:  unwiredMayWireInRepo,
-			identity: identityNeedsRepo,
+			title:  "merge 後 (default と user 設定。repo スコープの項目が通らないので repo 宣言は重ねていない)",
+			config: facts.trusted,
+			scope:  repoFailed,
 		}))
 	}
 	cfg, err := facts.user.With(repoFile)
@@ -135,10 +134,9 @@ func (d Doctor) DiagnoseRepo(ctx context.Context, repo string) Report {
 		return d.report(ctx, facts, repoSection, skippedMerge(title, reasonMergeInvalid))
 	}
 	return d.report(ctx, facts, repoSection, d.mergedSection(facts, judgement{
-		title:    title,
-		config:   cfg,
-		unwired:  unwiredFails,
-		identity: identityFromUserOrRepo,
+		title:  title,
+		config: cfg,
+		scope:  withRepo,
 	}))
 }
 
@@ -274,34 +272,26 @@ func (d Doctor) repoScope(ctx context.Context, repo string) (section Section, re
 	return section, repoFile, true
 }
 
-// judgement は、merge 後の節で git identity と secret をどの宣言でどう判定するか。
+// judgement は、merge 後の節で git identity と secret をどの宣言で判定するか。
 type judgement struct {
-	title    string
-	config   config.Config
-	unwired  unwiredSecret
-	identity identitySource
+	title  string
+	config config.Config
+	scope  judgementScope
 }
 
-// unwiredSecret は、注入先 host が egress で許可されていないので配線されない secret をどう判定するか。
-type unwiredSecret int
+// judgementScope は、merge 後の節が repo 宣言をどこまで重ねて判定するか。git identity と、注入先 host が egress で
+// 許可されていないので配線されない secret の扱いがこれで決まる。
+type judgementScope int
 
 const (
-	// unwiredMayWireInRepo は repo 宣言を重ねていない判定。repo の egress で許可されれば配線されるので skip にする。
-	unwiredMayWireInRepo unwiredSecret = iota + 1
-	// unwiredFails は repo 宣言まで重ねた判定。create はこの secret を配線せずに進むが、要求と egress の食い違いなので fail にする。
-	unwiredFails
-)
-
-// identitySource は git identity を、どの宣言から判定するか。
-type identitySource int
-
-const (
-	// identityFromUser は user 設定だけで判定する (repo を渡していない)。
-	identityFromUser identitySource = iota + 1
-	// identityFromUserOrRepo は repo 宣言まで重ねて判定する。
-	identityFromUserOrRepo
-	// identityNeedsRepo は repo を渡したが repo 宣言が通らないので判定しない (repo 宣言が git identity を持ちうる)。
-	identityNeedsRepo
+	// withoutRepo は repo を渡していない。git identity は user 設定だけで判定する。
+	// 配線されない secret は repo の egress で許可されれば配線されるので skip にする。
+	withoutRepo judgementScope = iota + 1
+	// repoFailed は repo を渡したが repo スコープの項目が通らないので、user 設定だけで判定する。
+	// git identity は repo 宣言が持ちうるので判定しない。配線されない secret と repo 宣言が足す secret 要求は skip にする。
+	repoFailed
+	// withRepo は repo 宣言まで重ねた。create は配線されない secret を外して進むが、要求と egress の食い違いなので fail にする。
+	withRepo
 )
 
 // skippedMerge は merge 後の宣言を得られないときの節。
@@ -317,12 +307,12 @@ func (d Doctor) mergedSection(facts hostAndUser, j judgement) Section {
 func (d Doctor) identityItem(j judgement) Item {
 	const name = "git identity"
 	fix := "user 設定 (" + d.UserConfig + ") に git.name と git.email を書く"
-	switch j.identity {
-	case identityNeedsRepo:
-		return skip(name, reasonRepoInvalid)
-	case identityFromUserOrRepo:
+	switch j.scope {
+	case repoFailed:
+		return skip(name, reasonRepoScopeInvalid)
+	case withRepo:
 		fix = "user 設定 (" + d.UserConfig + ") か repo 宣言 (sbxr.yaml) に git.name と git.email を書く"
-	case identityFromUser:
+	case withoutRepo:
 	}
 	identity, err := j.config.GitIdentity()
 	if err != nil {
@@ -334,14 +324,17 @@ func (d Doctor) identityItem(j judgement) Item {
 // secretItems は要求された secret ごとに、create と同じ規則で配線されるか、配線されるなら値が secret ファイルにあるかを検査する。
 func (d Doctor) secretItems(j judgement, facts hostAndUser) []Item {
 	cfg := j.config
+	var items []Item
+	if j.scope == repoFailed {
+		items = append(items, skip("repo 宣言の secret 要求", reasonRepoScopeInvalid))
+	}
 	if len(cfg.Secrets) == 0 {
-		return []Item{ok("secret", "要求された secret は無い")}
+		return append(items, ok("secret", "要求された secret は無い"))
 	}
 	allowed := append(slices.Clone(cfg.GlobalEgress), cfg.SandboxEgress...)
-	var items []Item
 	var defined []string
 	for _, name := range cfg.Secrets {
-		items = append(items, d.secretItem(name, j.unwired, cfg.SecretDefs, allowed, facts))
+		items = append(items, d.secretItem(name, j.scope, cfg.SecretDefs, allowed, facts))
 		if _, ok := cfg.SecretDefs[name]; ok {
 			defined = append(defined, name)
 		}
@@ -356,7 +349,7 @@ func (d Doctor) secretItems(j judgement, facts hostAndUser) []Item {
 	return items
 }
 
-func (d Doctor) secretItem(name string, unwired unwiredSecret, defs map[string]secret.Definition, allowed []string, facts hostAndUser) Item {
+func (d Doctor) secretItem(name string, scope judgementScope, defs map[string]secret.Definition, allowed []string, facts hostAndUser) Item {
 	item := "secret " + name
 	plan, err := secret.PlanWiring([]string{name}, defs, allowed)
 	if err != nil {
@@ -364,8 +357,12 @@ func (d Doctor) secretItem(name string, unwired unwiredSecret, defs map[string]s
 	}
 	if len(plan.Skipped) > 0 {
 		hosts := strings.Join(plan.Skipped[0].DeniedHosts, ", ")
-		if unwired == unwiredMayWireInRepo {
+		switch scope {
+		case withoutRepo:
 			return skip(item, "注入先 host "+hosts+" は global rule では許可されていない。repo の egress で許可されれば配線されるので、sbxr doctor <repo> で確かめる")
+		case repoFailed:
+			return skip(item, "注入先 host "+hosts+" は global rule では許可されていない。repo の egress で許可されるかは、"+reasonRepoScopeInvalid)
+		case withRepo:
 		}
 		return failure(item, "注入先 host "+hosts+" が egress で許可されていないので配線されない",
 			"egress の group の allow で "+hosts+" への HTTPS を許可するか、secrets から "+name+" を外す")
