@@ -63,25 +63,6 @@ func (d Definition) Validate() error {
 	return errors.Join(errs...)
 }
 
-// SetupCommand は secret 定義 name の値を secret ファイルへ書く sbxr のコマンドを返す。
-// 書けるコマンドが無い定義 (github 以外の sbx 組み込み service、注入先 host から key が 1 つに決まらない placeholder 注入) は ok が false。
-func SetupCommand(name string, defs map[string]Definition) (command string, ok bool) {
-	if name == GitHubName {
-		return "sbxr secret setup github", true
-	}
-	def := defs[name]
-	if !def.InjectsPlaceholder() {
-		return "", false
-	}
-	for _, host := range def.Hosts {
-		// setup custom は host から key を引くので、その key がこの定義のものに決まる host だけを案内する
-		if key, err := PlaceholderKeyForHost(defs, host); err == nil && key == def.Key {
-			return "sbxr secret setup custom --host " + host, true
-		}
-	}
-	return "", false
-}
-
 // PlaceholderKeyForHost は host へ placeholder 注入する secret 定義の key を返す。候補が 1 つに決まらなければ止める。
 func PlaceholderKeyForHost(defs map[string]Definition, host string) (string, error) {
 	keys := map[string][]string{} // key → それを使う定義の名前

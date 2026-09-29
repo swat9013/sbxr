@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,7 +67,8 @@ func TestDoctorReportsUserAndRepoErrorsInOneRun(t *testing.T) {
 }
 
 func TestDoctorSkipsTheGlobalRuleCheckWhenSbxIsMissingAndChecksTheRest(t *testing.T) {
-	lc := newLifecycle(t, lifecycleUserConfig)
+	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\nherdr:\n  enabled: true\n")
+	writeSecretFile(t, lc, "GITHUB_TOKEN=ghp_x\n", 0o600)
 	lc.deps.sbxAvailable = func() error { return errors.New("sbx が PATH に無い") }
 	lc.deps.runtime = runtime.NewSbx(func(_ context.Context, _ io.Reader, args ...string) ([]byte, error) {
 		t.Errorf("sbx %q was run, want no sbx call when sbx is missing", args)
@@ -81,7 +83,7 @@ func TestDoctorSkipsTheGlobalRuleCheckWhenSbxIsMissingAndChecksTheRest(t *testin
 	}
 	assertDoctorItem(t, out, "fail", "sbx")
 	assertDoctorItem(t, out, "skip", "global rule")
-	for _, name := range []string{"user 設定", "repo 宣言", "repo の egress", "git identity"} {
+	for _, name := range []string{"secret ファイル", "herdr", "user 設定", "repo 宣言", "repo の egress", "git identity", "secret github"} {
 		assertDoctorItem(t, out, "ok", name)
 	}
 }
@@ -217,5 +219,95 @@ func TestDoctorReadsTheRepoDeclarationOfAGitURLFromATemporaryClone(t *testing.T)
 	}
 	if exists(lc.places.CacheRoot) {
 		t.Errorf("cache root %s exists, want doctor to leave no cache clone", lc.places.CacheRoot)
+	}
+}
+
+func TestDoctorChecksTheUserSecretValuesEvenWhenTheRepoDeclarationFails(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+"secrets: [github]\n")
+	repo := localRepo(t, "app", "version: 1\ninit: make\n")
+
+	out, _ := lc.run(t, "doctor", repo)
+
+	assertDoctorItem(t, out, "fail", "repo 宣言")
+	assertDoctorItem(t, out, "skip", "git identity")
+	assertDoctorItem(t, out, "fail", "secret github")
+}
+
+func TestDoctorFailsWhenHerdrIsEnabledButMissingOnTheHost(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+"herdr:\n  enabled: true\n")
+	lc.herdr.Missing = true
+
+	out, _ := lc.run(t, "doctor")
+
+	assertDoctorItem(t, out, "fail", "herdr")
+}
+
+func TestDoctorFailsWhenNoScopeDeclaresTheGitIdentity(t *testing.T) {
+	lc := newLifecycle(t, "version: 1\n")
+	repo := localRepo(t, "app", "version: 1\n")
+
+	out, _ := lc.run(t, "doctor", repo)
+
+	assertDoctorItem(t, out, "fail", "git identity")
+	if !strings.Contains(out, "repo 宣言 (sbxr.yaml) に git.name") {
+		t.Errorf("output = %q, want the repo declaration offered as a place for the git identity", out)
+	}
+}
+
+func TestDoctorFailsASecretFileLineThatIsNotKeyEqualsValue(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	writeSecretFile(t, lc, "GITHUB_TOKEN\n", 0o600)
+
+	out, _ := lc.run(t, "doctor")
+
+	assertDoctorItem(t, out, "fail", "secret ファイル")
+	if !strings.Contains(out, "KEY=VALUE の形に直す") {
+		t.Errorf("output = %q, want the line format shown as the fix", out)
+	}
+}
+
+func TestDoctorFailsARepoThatIsNotADirectory(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+
+	out, _ := lc.run(t, "doctor", filepath.Join(t.TempDir(), "missing"))
+
+	assertDoctorItem(t, out, "fail", "repo 宣言")
+	assertDoctorItem(t, out, "skip", "repo の egress")
+}
+
+func TestDoctorFailsSecretsWhoseVarsDisagree(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+`secrets: [a, b]
+secret_defs:
+  a:
+    key: A_TOKEN
+    hosts: [github.com]
+    env: A_TOKEN
+    vars: {REGION: east}
+  b:
+    key: B_TOKEN
+    hosts: [github.com]
+    env: B_TOKEN
+    vars: {REGION: west}
+`)
+
+	out, _ := lc.run(t, "doctor")
+
+	assertDoctorItem(t, out, "fail", "secret の vars")
+}
+
+func TestDoctorTellsToWriteTheSecretFileWhenNoSetupCommandWritesTheKey(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig+`secrets: [other]
+secret_defs:
+  other:
+    service: other
+    key: OTHER_TOKEN
+    hosts: [github.com]
+`)
+
+	out, _ := lc.run(t, "doctor")
+
+	assertDoctorItem(t, out, "fail", "secret other")
+	if !strings.Contains(out, "OTHER_TOKEN=<値> の行を書く") {
+		t.Errorf("output = %q, want writing the secret file shown as the fix", out)
 	}
 }

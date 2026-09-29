@@ -109,20 +109,37 @@ func requireRepoDir(dir string) error {
 	return nil
 }
 
-// ReadRepoDeclaration は <repo> (path | git URL) の repo 宣言の path を read に渡す。宣言ファイルが無くても path を渡す。
-// git URL は一時ディレクトリへ clone して渡し、read の後で消す (plan と同じく、host に何も残さない)。
-func ReadRepoDeclaration(ctx context.Context, clone Cloner, repo string, read func(path string) error) error {
+// RepoUnreadableError は <repo> から repo 宣言を読むところまで進めなかった error (名前にできない・ディレクトリが無い・clone できない)。
+// repo 宣言の検証に通らない error と、直し方が違う。
+type RepoUnreadableError struct {
+	Err error
+}
+
+func (e *RepoUnreadableError) Error() string { return e.Err.Error() }
+func (e *RepoUnreadableError) Unwrap() error { return e.Err }
+
+// ReadRepoDeclaration は <repo> (path | git URL) の repo 宣言を、ファイルごとの検証を通して読む。宣言ファイルが無ければ宣言の無い repo 宣言。
+// git URL は一時ディレクトリへ clone して読み、読み終えたら消す (plan と同じく、host に何も残さない)。
+// repo 宣言を読むところまで進めなければ *RepoUnreadableError。
+func ReadRepoDeclaration(ctx context.Context, clone Cloner, repo string) (config.RepoFile, error) {
 	// 一時 clone の置き場は readRepoDir が決めるので、cache clone の置き場は渡さない
 	target, err := resolveTarget(repo, "")
 	if err != nil {
-		return err
+		return config.RepoFile{}, &RepoUnreadableError{Err: err}
 	}
-	return readRepoDir(ctx, clone, target, func(dir string) error {
+	var repoFile config.RepoFile
+	var parseErr error
+	err = readRepoDir(ctx, clone, target, func(dir string) error {
 		if err := requireRepoDir(dir); err != nil {
 			return err
 		}
-		return read(filepath.Join(dir, repoDeclarationFile))
+		repoFile, parseErr = config.ReadRepoFile(filepath.Join(dir, repoDeclarationFile))
+		return nil
 	})
+	if err != nil {
+		return config.RepoFile{}, &RepoUnreadableError{Err: err}
+	}
+	return repoFile, parseErr
 }
 
 // readRepoDir は target の host 側のディレクトリを read に渡す。git URL は一時ディレクトリへ clone して渡し、read の後で消す
