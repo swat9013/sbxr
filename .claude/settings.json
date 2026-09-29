@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./.claude/skills/release/scripts/preflight.sh)"
+    ],
+    "ask": [
+      "Bash(git push origin v*)",
+      "Bash(git push origin refs/tags/*)",
+      "Bash(git push --tags*)",
+      "Bash(git push origin --tags*)"
+    ],
+    "deny": [
+      "Bash(git push * :refs/tags/*)",
+      "Bash(git push origin :v*)",
+      "Bash(git push origin --delete v*)",
+      "Bash(git push origin --delete refs/tags/*)",
+      "Bash(git push origin -d v*)",
+      "Bash(git push origin -d refs/tags/*)",
+      "Bash(gh release delete*)"
+    ]
+  }
+}

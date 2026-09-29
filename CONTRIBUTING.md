@@ -35,6 +35,17 @@
 - commit message は Conventional Commits 形式で、subject は日本語で書く（例: `docs(adr): 0006 の前提が未実測の推論であることを明記する`）。Dependabot の commit（`chore(deps)`・`ci(deps)`）は例外で、生成された英語の subject のままにする
 - 設計判断を変える変更は、該当する ADR の追記・新規 ADR とあわせて出す
 
+## リリース
+
+- `origin/main` の HEAD に `v*` tag を打って push する。打つのは、その commit の CI が success のときだけ。tag は既存の tag と同じ lightweight tag にする
+- 版番号は、前の tag からの commit の type で決める
+  - `feat` がある: minor を上げる
+  - `fix`・`perf` がある: patch を上げる
+  - breaking の印（subject の `!` か footer の `BREAKING CHANGE:`）がある: 0.x の間に major をどう扱うかは未決なので、その都度決める
+  - 利用者から見える変更が無い（docs・refactor・test・chore・ci だけ）: 出すかどうかをその都度決める
+- push した tag は公開済みとして扱い、消したり打ち直したりしない。release workflow が途中で失敗すると、GitHub Release や cask が途中まで出ていることがある
+- Claude で出すときは `release` skill（`.claude/skills/release/`）を使う
+
 ## issue の範囲
 
 - 旧実装（dotfiles の `sbx-repo.sh` ほか）は動作の参考にとどめ、持ち込むのは処理の意味だけにする（ADR 0001）。旧名・旧 path・旧宣言の形は持ち込まない。移植する処理は issue に関数単位で書かれたものに限る
