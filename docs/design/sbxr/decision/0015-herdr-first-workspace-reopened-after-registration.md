@@ -19,6 +19,9 @@
   - `new_cwd`: `--cwd` なしで作る pane・tab・workspace に効く
   - server の起動: 起動し直した VM で、保存された session が無いときの最初の workspace に効く
 - kit が書く `~/.config/herdr/config.toml` は sbxr が持つ。起動ごとに書き直す
+- kit は、VM 内の作業ツリーが無いか入れないとき、`config.toml` を書けないときに `sbxr-herdr: fail` 行を残す。create はこの行を VM の中の段の失敗として止まる（ADR 0007 の他の段と同じ扱い）。起動し直した VM では log に残るだけで、server は既定の cwd で起動する
+- kit は VM 内の作業ツリーの path を bash の単一引用符の中へ差し込み、TOML の文字列として書く。このため、単一引用符・制御文字・UTF-8 でない byte を含む path の repo は、herdr 連携を有効にした create で env 定義を書く前に拒む（出所を記録する前なので、[decision/0011](0011-create-failure-before-source-returns-to-absent.md) のとおり未作成に戻る）
+- 最初の pane が作業ツリーで始まったかは、`workspace create` の応答の `cwd` と作業ツリーの path を文字列で比べて確かめる。実測では、応答の `cwd` は渡した path と同じだった。symlink を含む path で herdr が正規化した値を返すかは確かめていない
 
 ## 根拠
 

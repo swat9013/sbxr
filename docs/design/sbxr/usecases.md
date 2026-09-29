@@ -85,7 +85,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 5b. build 用 VM の残骸がある: sbxr はそれを撤去してから 5 を続ける
 - 5c. template の作成が失敗した: sbxr は build 用 VM を撤去し、本番の VM を作らずに止まる（何も残さない）
 - 5d. 旧い template を消せない（使っている VM がある等）: sbxr は警告して 6 へ
-- 6a. 状態ディレクトリに出所を記録する前（実行基盤の定義か作成の最初の記録を書けない）に失敗した: sbxr は書きかけの状態ディレクトリと git URL の cache clone を消し、未作成に戻して止まる（sbx の側にはまだ何も置いていない。decision/0011）
+- 6a. 状態ディレクトリに出所を記録する前（実行基盤の定義か作成の最初の記録を書けない。herdr 連携を有効にして、kit へ渡せない path の repo を作ろうとした場合を含む。decision/0015）に失敗した: sbxr は書きかけの状態ディレクトリと git URL の cache clone を消し、未作成に戻して止まる（sbx の側にはまだ何も置いていない。decision/0011）
 - 6b. secret を置けないか、VM を作れない: sbxr は状態ディレクトリを残して止まる（UC4 で片付ける）
 - 7a. VM の中の段（sandbox スコープ rule・kit の startup・materialize・init・boot）が失敗した: sbxr は VM を調べられるよう稼働したまま残し、stop → destroy → create の復旧手順を示して止まる
 - 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と body の `Blocked by network policy`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007）
