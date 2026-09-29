@@ -9,6 +9,9 @@ args:
   version:
     required: true
     description: 導入する herdr の release tag (herdrdev/herdr)
+  worktree:
+    required: true
+    description: VM 内の作業ツリーの path。herdr の pane をここから始める (decision/0014)。単一引用符と制御文字は含まない (sbxr が確かめる)
 
 setup:
   # 各段は失敗しても 0 で終わり、"sbxr-herdr: fail <段>" を log に残す (理由は ADR 0007)。create 時は sbxr がこの行を失敗として読む。
@@ -33,10 +36,31 @@ setup:
           ); then
             echo "sbxr-herdr: fail install $want"
           fi
-    - description: herdr server を起動する
+    - description: herdr の pane・tab・workspace を --cwd なしで作ったときの起点を VM 内の作業ツリーにする (server が起動時に読む)
       command:
-        - herdr
-        - server
+        - bash
+        - -c
+        - |
+          # この file は sbxr が持つ。起動ごとに書き直す
+          wt='${{ kit.args.worktree }}'
+          # 作業ツリーは VM の起動時の startup より前に置かれる (clone 方式の create の初回 boot で実測)
+          [ -d "$wt" ] || echo "sbxr-herdr: fail worktree ($wt が無い)"
+          esc=${wt//\\/\\\\}
+          esc=${esc//\"/\\\"}
+          if ! (
+            set -euo pipefail
+            mkdir -p "$HOME/.config/herdr"
+            printf '[terminal]\nnew_cwd = "%s"\n' "$esc" > "$HOME/.config/herdr/config.toml"
+          ); then
+            echo "sbxr-herdr: fail config"
+          fi
+    - description: herdr server を VM 内の作業ツリーから起動する (起動時の workspace がそこで始まる)
+      command:
+        - bash
+        - -c
+        - |
+          cd '${{ kit.args.worktree }}' 2>/dev/null
+          exec herdr server
       background: true
     - description: Claude Code の integration を入れる (server が動いてから)
       command:

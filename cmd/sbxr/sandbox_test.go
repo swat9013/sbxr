@@ -179,6 +179,18 @@ func TestCreateOfAChangedSandboxShowsTheDriftAndExitsNonZero(t *testing.T) {
 	}
 }
 
+// herdr の pane を VM 内の作業ツリー (host 側 repo と同じ path) から始める (decision/0014・decision/0015)。
+func TestCreateWithHerdrStartsItsPanesAtTheWorktreeOfTheVM(t *testing.T) {
+	lc := herdrLifecycle(t)
+	repo := localRepo(t, "app", "")
+
+	lc.mustRun(t, "create", repo, "--yes")
+
+	if server := lc.stub.VM.HerdrServer; server == nil || len(server.Workspaces) != 1 || server.Workspaces[0].Cwd != repo {
+		t.Errorf("herdr server in the VM = %+v, want only one workspace at %s", server, repo)
+	}
+}
+
 // --- 確認関門 (--yes と端末) ---
 
 func TestCreateWithoutATerminalOrYesStopsBeforeCreating(t *testing.T) {

@@ -40,7 +40,7 @@ func TestTheHerdrKitReportsEachFailureWithTheLineSbxrReads(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, stage := range []string{"install", "server", "integration"} {
+	for _, stage := range []string{"install", "worktree", "config", "server", "integration"} {
 		if !strings.Contains(string(spec), `echo "`+herdrKitFailure+stage) {
 			t.Errorf("herdr kit has no %q line for the %s stage", herdrKitFailure+stage, stage)
 		}
@@ -88,7 +88,7 @@ func TestAFailedSecretIsNamedWithTheSecretsAlreadyPlaced(t *testing.T) {
 	}
 }
 
-func TestTheEnvDefinitionCarriesTheHerdrKitWithItsVersionOnlyWhenHerdrIsInstalled(t *testing.T) {
+func TestTheEnvDefinitionCarriesTheHerdrKitWithItsVersionAndTheWorktreeOnlyWhenHerdrIsInstalled(t *testing.T) {
 	for name, install := range map[string]*HerdrInstall{"installed": {Version: "v0.9.0"}, "not installed": nil} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -102,13 +102,32 @@ func TestTheEnvDefinitionCarriesTheHerdrKitWithItsVersionOnlyWhenHerdrIsInstalle
 				t.Fatal(err)
 			}
 			i := slices.IndexFunc(env.Kits, func(kit envKit) bool { return kit.Source == "./kits/"+herdrKit })
-			if (install == nil) != (i < 0) || (install != nil && env.Kits[i].Args["version"] != install.Version) {
-				t.Errorf("env kits = %+v, want the herdr kit only when installed, with its version", env.Kits)
+			if (install == nil) != (i < 0) || (install != nil && (env.Kits[i].Args["version"] != install.Version || env.Kits[i].Args["worktree"] != "/src/app")) {
+				t.Errorf("env kits = %+v, want the herdr kit only when installed, with its version and the worktree", env.Kits)
 			}
 			if _, err := fs.Stat(os.DirFS(dir), kitsDir+"/"+herdrKit+"/spec.yaml"); (install == nil) != (err != nil) {
 				t.Errorf("herdr kit in the state dir: %v, want it only when installed", err)
 			}
 		})
+	}
+}
+
+// herdr の kit は VM 内の作業ツリーの path を bash の単一引用符の中へ差し込む。
+func TestDefineSandboxRefusesAWorktreeThatTheHerdrKitCannotCarry(t *testing.T) {
+	for _, repo := range []string{"/src/it's", "/src/a\nb"} {
+		dir := t.TempDir()
+
+		err := NewSbx((&sbxstub.Stub{}).Run).DefineSandbox(dir, SandboxSpec{Name: "app", Repo: repo, Herdr: &HerdrInstall{Version: "v0.9.0"}})
+
+		if _, found, _ := readEnvDefinition(dir); err == nil || found {
+			t.Errorf("DefineSandbox(%q) = %v, definition written = %v, want it refused before writing", repo, err, found)
+		}
+	}
+}
+
+func TestDefineSandboxAcceptsAnyWorktreeWithoutHerdr(t *testing.T) {
+	if err := NewSbx((&sbxstub.Stub{}).Run).DefineSandbox(t.TempDir(), SandboxSpec{Name: "app", Repo: "/src/it's"}); err != nil {
+		t.Errorf("DefineSandbox() = %v, want no check of the worktree without herdr", err)
 	}
 }
 

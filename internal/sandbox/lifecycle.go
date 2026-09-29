@@ -402,7 +402,8 @@ func (l Lifecycle) build(ctx context.Context, prepared preparation, values secre
 	return true, l.createRecorded(ctx, prepared, spec)
 }
 
-// createRecorded は出所を記録した後の段: VM を作り、中を宣言どおりにし、作成時の宣言を書いて herdr machine を登録する。
+// createRecorded は出所を記録した後の段: VM を作り、中を宣言どおりにし、作成時の宣言を書いて herdr machine を登録し、
+// herdr の最初の workspace を VM 内の作業ツリーから始め直す。
 func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spec runtime.SandboxSpec) error {
 	rt := l.Runtime
 	name, repo := prepared.Target.Name, prepared.Target.Input
@@ -429,6 +430,13 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 	if err := l.registry().Register(ctx, name, l.Output); err != nil {
 		if registration, ok := errors.AsType[*herdr.RegistrationError](err); ok { // VM は作り終えている
 			return fmt.Errorf("%w\nsandbox VM %s は作った。復旧: %s", err, name, registration.Recovery)
+		}
+		return err
+	}
+	// VM 内の作業ツリーは host の repo (git URL なら cache clone) と同じ path にある (decision/0014)
+	if err := l.registry().StartAtWorktree(ctx, name, prepared.Target.Repo); err != nil {
+		if start, ok := errors.AsType[*herdr.WorktreeStartError](err); ok {
+			return fmt.Errorf("%w\nsandbox VM %s は作り、herdr machine も登録した。復旧: %s", err, name, start.Recovery)
 		}
 		return err
 	}
