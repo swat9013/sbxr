@@ -687,7 +687,8 @@ func TestCreateShowsHowToStartHerdrAtTheWorktreeWhenItFails(t *testing.T) {
 
 	_, err := w.create(repo, unattended())
 
-	if err == nil || !strings.Contains(err.Error(), "herdr workspace create --cwd "+repo) {
+	// 引用の形は internal/herdr の test が見る
+	if err == nil || !strings.Contains(err.Error(), "復旧: VM app の中で herdr workspace create --cwd") {
 		t.Errorf("Create() error = %v, want how to start herdr at the worktree by hand", err)
 	}
 }

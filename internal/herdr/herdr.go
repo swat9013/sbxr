@@ -52,7 +52,6 @@ func disableArgs(id string) []string { return []string{"machine", "disable", id}
 func removeArgs(id string) []string  { return []string{"machine", "remove", id} }
 
 // VM 内の herdr server の workspace を扱う引数 (decision/0015)。VM 内の herdr CLI で実行する。
-
 func workspaceListArgs() []string { return []string{"workspace", "list"} }
 func workspaceCreateArgs(cwd string) []string {
 	return []string{"workspace", "create", "--cwd", cwd, "--focus"}

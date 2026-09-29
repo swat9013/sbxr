@@ -23,8 +23,12 @@ type Server struct {
 	Workspaces []Workspace
 	// IgnoreCwd が true なら workspace create の --cwd を受け付けたふりをして StartupCwd で始める。
 	IgnoreCwd bool
+	// FailList は workspace list を失敗させる。
+	FailList bool
 	// FailCreate は workspace create を失敗させる。
 	FailCreate bool
+	// GarbleCreate は workspace create を成功させ、読めない出力を返す。
+	GarbleCreate bool
 	// FailClose はこの id の workspace close を失敗させる。
 	FailClose []string
 	created   int
@@ -39,6 +43,9 @@ func NewServer() *Server {
 func (s *Server) Answer(args []string) (out []byte, handled bool, err error) {
 	switch {
 	case slices.Equal(args, []string{"herdr", "workspace", "list"}):
+		if s.FailList {
+			return nil, true, fmt.Errorf("exit status 1")
+		}
 		type listed struct {
 			ID string `json:"workspace_id"`
 		}
@@ -59,6 +66,9 @@ func (s *Server) Answer(args []string) (out []byte, handled bool, err error) {
 		s.created++
 		w := Workspace{ID: fmt.Sprintf("w%d", s.created), Cwd: cwd}
 		s.Workspaces = append(s.Workspaces, w)
+		if s.GarbleCreate {
+			return []byte("not json"), true, nil
+		}
 		out, err = json.Marshal(map[string]any{"id": "cli:workspace:create", "result": map[string]any{
 			"type":      "workspace_created",
 			"workspace": map[string]any{"workspace_id": w.ID},

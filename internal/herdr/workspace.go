@@ -33,13 +33,14 @@ func StartAtWorktree(ctx context.Context, vm VM, sandbox, worktree string) error
 	create := workspaceCreateArgs(worktree)
 	before, err := workspaces(ctx, vm, sandbox)
 	if err != nil {
-		return &WorktreeStartError{Err: err, Recovery: fmt.Sprintf("VM %s の中で %s を実行し、%s に出る他の workspace を %s で閉じる",
-			sandbox, command(create), command(workspaceListArgs()), command(workspaceCloseArgs("<id>")))}
+		return &WorktreeStartError{Err: err, Recovery: fmt.Sprintf("VM %s の中で %s を実行し、それが通ったら、%s に出る他の workspace を id ごとに %s <id> で閉じる",
+			sandbox, command(create), command(workspaceListArgs()), command(workspaceCloseArgs("")[:2]))}
 	}
-	closeBefore := closeCommands(before)
+	// 手で開き直すコマンド。開けたときだけ閉じる (&&) ので、貼り付けて失敗しても workspace は 0 件にならない
+	reopen := strings.Join(append([]string{command(create)}, closeCommands(before)...), " && ")
 	out, err := runInVM(ctx, vm, sandbox, create)
 	if err != nil {
-		return &WorktreeStartError{Err: err, Recovery: fmt.Sprintf("VM %s の中で %s", sandbox, strings.Join(append([]string{command(create)}, closeBefore...), "; "))}
+		return &WorktreeStartError{Err: err, Recovery: fmt.Sprintf("VM %s の中で %s を実行する", sandbox, reopen)}
 	}
 	var created struct {
 		Result struct {
@@ -55,8 +56,8 @@ func StartAtWorktree(ctx context.Context, vm VM, sandbox, worktree string) error
 		// workspace は開けている見込みが高いので、開き直させる前に一覧で確かめさせる
 		return &WorktreeStartError{
 			Err: fmt.Errorf("herdr workspace create の出力 %q を読めない: %w", out, err),
-			Recovery: fmt.Sprintf("VM %s の中で %s を実行し、作業ツリーの workspace が無ければ %s、あれば %s",
-				sandbox, command(workspaceListArgs()), command(create), strings.Join(closeBefore, "; ")),
+			Recovery: fmt.Sprintf("VM %s の中で %s を実行し、作業ツリーの workspace が無ければ %s、あれば %s を実行する",
+				sandbox, command(workspaceListArgs()), reopen, strings.Join(closeCommands(before), " && ")),
 		}
 	}
 	// 版の違いで --cwd が効かなくても herdr は成功で返しうるので、始まった場所を確かめる (path は文字列で比べる)。
@@ -64,8 +65,8 @@ func StartAtWorktree(ctx context.Context, vm VM, sandbox, worktree string) error
 	if got := created.Result.RootPane.Cwd; got != worktree {
 		return &WorktreeStartError{
 			Err: fmt.Errorf("%s の pane が %q で始まった", command(create), got),
-			Recovery: fmt.Sprintf("VM %s の herdr の版が --cwd を扱えるかを確かめ、開いた workspace を %s で閉じる",
-				sandbox, command(workspaceCloseArgs(created.Result.Workspace.ID))),
+			Recovery: fmt.Sprintf("VM %s の中で、開いた workspace を %s で閉じ、herdr を --cwd を扱える版にしてから %s を実行する",
+				sandbox, command(workspaceCloseArgs(created.Result.Workspace.ID)), reopen),
 		}
 	}
 	// 1 つ閉じられなくても残りは閉じ、閉じられなかったものをまとめて示す
@@ -78,7 +79,7 @@ func StartAtWorktree(ctx context.Context, vm VM, sandbox, worktree string) error
 		}
 	}
 	if len(unclosed) > 0 {
-		return &WorktreeStartError{Err: closeErr, Recovery: fmt.Sprintf("VM %s の中で %s", sandbox, strings.Join(closeCommands(unclosed), "; "))}
+		return &WorktreeStartError{Err: closeErr, Recovery: fmt.Sprintf("VM %s の中で %s を実行する", sandbox, strings.Join(closeCommands(unclosed), " && "))}
 	}
 	return nil
 }

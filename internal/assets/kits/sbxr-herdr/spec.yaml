@@ -59,7 +59,8 @@ setup:
         - bash
         - -c
         - |
-          # 作業ツリーに入れなくても既定の cwd で起動する (herdr は使えるようにし、入れなかったことは fail 行で残す)
+          # 作業ツリーに入れなくても既定の cwd で起動する (herdr は使えるようにし、入れなかったことは fail 行で残す)。
+          # この段は background なので、create を止めるのは前の段の fail worktree 行。この行は起動し直した VM の log 用
           cd '${{ kit.args.worktree }}' || echo "sbxr-herdr: fail worktree (server を既定の cwd で起動する)"
           exec herdr server
       background: true
