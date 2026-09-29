@@ -106,6 +106,25 @@ go install github.com/swat9013/sbxr/cmd/sbxr@latest
 
 `sbxr --version` で入った版を確かめられる。
 
+## AI に設定を書かせる（skill `sbxr-config`）
+
+repo 宣言と user 設定は、host の AI coding agent に書かせられる。この repo の [`skills/sbxr-config/SKILL.md`](skills/sbxr-config/SKILL.md) を、Agent Skills の skill として user スコープに入れる。
+
+```sh
+gh skill install swat9013/sbxr sbxr-config --agent claude-code --scope user
+```
+
+`--agent` は使う agent に合わせる（`gh skill install --help` に一覧がある）。`npx skills add` でも入れられる。更新は `gh skill update`。
+
+使い方は、agent に「この repo の sbxr の設定を作って」のように頼む。
+
+- user 設定が無ければ、agent が先に git identity・使う secret・herdr を使うかなどを聞いて user 設定を作る
+- repo 宣言は、repo の中身（lockfile・Makefile・CI 設定など）から推測して書く。egress は最小にし、group ごとに理由を書く
+- 既存のファイルは、差分を見せて承認を得てから書き換える
+- 書いた後は `sbxr doctor` が通るまで直す。secret の値（`sbxr secret setup`）と global rule（`sbxr policy sync`）は、agent が示すコマンドを自分で実行する
+
+sbxr 自身は設定を生成しない（agent を呼ばない）。作られる内容は `sbxr plan` と `sbxr create` の確認関門で確かめる。
+
 ## License
 
 [MIT](./LICENSE)
