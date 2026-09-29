@@ -13,13 +13,13 @@
   - 開く前からあった workspace（server が起動時に作ったもの）を閉じる
 - 開く順と閉じる順はこのとおりにする。workspace が 0 件になる間を作らない
 - 開いた workspace の最初の pane が VM 内の作業ツリーで始まったことを、`workspace create` の応答で確かめる。違えば create を失敗にする
-- この段で失敗しても VM と herdr machine の登録は残す。手で開き直すコマンドを示して、非 0 で終える
+- この段で失敗しても VM と herdr machine の登録は残す。手で開き直すコマンドを示して、非 0 で終える。示すコマンドは、開けたときだけ閉じる形（`&&`）にする。この失敗は herdr machine の登録の失敗とは別の error として扱う（済んだことが違い、復旧は VM 内の workspace の操作だけになる）
 - 登録の前に kit の server を止める手順（[ADR 0007](../../../adr/0007-herdr-as-opt-in-dedicated-key.md)）は変えない
 - decision/0014 が kit に求めた 2 つ（`new_cwd` の設定と、server を VM 内の作業ツリーから起動すること）は、そのまま kit が行う
   - `new_cwd`: `--cwd` なしで作る pane・tab・workspace に効く
   - server の起動: 起動し直した VM で、保存された session が無いときの最初の workspace に効く
 - kit が書く `~/.config/herdr/config.toml` は sbxr が持つ。起動ごとに書き直す
-- kit は、VM 内の作業ツリーが無いか入れないとき、`config.toml` を書けないときに `sbxr-herdr: fail` 行を残す。create はこの行を VM の中の段の失敗として止まる（ADR 0007 の他の段と同じ扱い）。起動し直した VM では log に残るだけで、server は既定の cwd で起動する
+- kit は、VM 内の作業ツリーが無いか入れないとき、`config.toml` を書けないときに `sbxr-herdr: fail` 行を残す。create はこの行を VM の中の段の失敗として止まる（ADR 0007 の他の段と同じ扱い）。create を止めるのは、server を起動する前の段の行。server を起動する段は background なので、作業ツリーに入れなかったときの行は起動し直した VM の log に残るだけで、server は既定の cwd で起動する
 - kit は VM 内の作業ツリーの path を bash の単一引用符の中へ差し込み、TOML の文字列として書く。このため、単一引用符・制御文字・UTF-8 でない byte を含む path の repo は、herdr 連携を有効にした create で env 定義を書く前に拒む（出所を記録する前なので、[decision/0011](0011-create-failure-before-source-returns-to-absent.md) のとおり未作成に戻る）
 - 最初の pane が作業ツリーで始まったかは、`workspace create` の応答の `cwd` と作業ツリーの path を文字列で比べて確かめる。実測では、応答の `cwd` は渡した path と同じだった。symlink を含む path で herdr が正規化した値を返すかは確かめていない
 
