@@ -277,24 +277,25 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - Level: user-goal
 - Trigger: 利用者が、repo 宣言か user 設定を手で書かずに sbxr を始めたい
 - 事前条件: host の agent に skill `sbxr-config` が入っている
-- 成功保証: 書いた設定が UC8 の診断を通る。既存のファイルは、利用者が差分を承認したときだけ書き換わっている。sbxr 自身は設定を生成していない（agent を呼ばない）
+- 成功保証: 書いた設定が UC8 の診断を通る。既存のファイルは、利用者が差分を承認したときだけ書き換わっている
 
 ### Main Success Scenario
 
 1. 利用者が、host の agent に repo 宣言か user 設定を作るよう頼む
 2. agent が、user 設定があるかを確かめる
-3. agent が、利用者に聞いて user 設定を書く（git identity・使う secret・herdr を使うか・base 固定の profile）
+3. agent が、user 設定が無ければ、利用者に聞いて書く（git identity・使う secret・herdr を使うか・base 固定の profile）
 4. agent が、repo の中身（lockfile・Makefile・CI 設定など）から推測して repo 宣言を書く（egress は最小にし、group ごとに理由を書く）
 5. agent が、sbxr に診断を求め（UC8）、fail の直し方に従って直す
 6. 診断が通り、利用者が UC1 で作られる内容を確かめる
 
 ### Extensions
 
-- 1a. user 設定だけを頼まれた: agent は 3 と 5 を行って終える
-- 2a. user 設定が無いまま repo 宣言を頼まれた: agent は先に 3 を行う
+- 1a. user 設定だけを頼まれた: agent は 3 と 5 を行って終える（user 設定があれば、3a に従って直す）
+- 2a. user 設定があり、repo 宣言を頼まれた: agent は 3 を飛ばして 4 へ
 - 3a. / 4a. 既存のファイルがある: agent は既存の内容を読み、差分を利用者に見せて承認を得てから書く。承認されなければ書かない
 - 4b. repo が git URL: agent は書かない（生成先はローカル path の repo だけ）
 - 5a. 人手の要る fail（secret の値、global rule の収束、sbx・herdr の導入）: agent は利用者に実行するコマンドを示し、利用者が実行してから 5 をやり直す
-- 5b. 推測が誤っていたが診断は通った: UC2 の確認関門で利用者が止める
+- 5b. 直しても同じ fail が続く: agent は止まり、残った fail・書き換えたファイル・利用者が次にやることを示す
+- 5c. 推測が誤っていたが診断は通った: UC2 の確認関門で利用者が止める
 
 却下: sbxr が agent を呼んで設定を生成する（`sbxr init` など）。理由: 汎用 CLI が agent を subprocess で呼ぶのは標準的でなく、どの agent をどの権限で呼ぶかを CLI が決めることになる（decision/0013）。

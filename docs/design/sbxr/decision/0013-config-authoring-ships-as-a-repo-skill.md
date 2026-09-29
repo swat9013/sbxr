@@ -7,7 +7,10 @@
 ## 決定
 
 - repo 宣言（`sbxr.yaml`）と user 設定（`~/.config/sbxr/config.yaml`）を AI に書かせる手順は、Agent Skills の skill 1 つ（`skills/sbxr-config/SKILL.md`）として repo に置く。利用者は `gh skill install swat9013/sbxr sbxr-config --agent claude-code --scope user` などで入れる
-- sbxr 自身は設定を生成しない（agent を呼ばない）。host の agent が skill の手順に従って書き、`sbxr doctor [<repo>]` で検査して直す。sbxr と skill が接するのは doctor の出力だけ
+- sbxr 自身は設定を生成しない（agent を呼ばない）。host の agent が skill の手順に従って書き、`sbxr doctor [<repo>]` で検査して直す
+- sbxr と skill が接するのは、sbxr のコマンドの出力だけにする。skill が頼る形は次の 2 つで、sbxr の側でこれを変えるときは skill も直す
+  - doctor: 項目ごとの状態（ok・fail・skip）と、fail の直し方、終了コード
+  - plan: 作られる内容のうち `global_egress`（全 sandbox VM に効く宛先。repo 宣言に書かない宛先の判定に使う）
 - skill の中で、repo 宣言と user 設定を別々に作る
   - repo 宣言: repo の中身（lockfile・Makefile・CI 設定など）から推測して書く。egress は最小にし、group ごとに rationale を書く。生成先はローカル path の repo だけ。推測の誤りは create の確認関門で止まる
   - user 設定: 人に聞いて埋める。egress は書かせず、default スコープの同梱 group に任せる（user の egress は全 sandbox VM の許可になる）
