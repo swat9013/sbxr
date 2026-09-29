@@ -16,7 +16,7 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 
 却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（2 回目以降の boot の失敗は VM の log に残るだけ）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
 
-アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認関門の根拠）。VM 内の agent は sbxr と接しない。
+アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認関門の根拠）。VM 内の agent は sbxr と接しない。host の agent が skill `sbxr-config` で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは doctor の出力だけである。skill は repo に置くが、sbxr の binary には含めず、境界の外に置く（decision/0013）。
 
 ## 相手 × 経由 × 方向
 
