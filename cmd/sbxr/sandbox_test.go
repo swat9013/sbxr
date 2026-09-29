@@ -56,6 +56,7 @@ func newLifecycle(t *testing.T, userConfig string) *lifecycle {
 		prompter:       lc.prompter,
 		places:         func() (sandbox.Places, error) { return lc.places, nil },
 		herdr:          lc.herdr,
+		sbxAvailable:   func() error { return nil },
 		clone: func(_ context.Context, url, dir string) error {
 			lc.clones = append(lc.clones, url)
 			if err := os.MkdirAll(dir, 0o700); err != nil {

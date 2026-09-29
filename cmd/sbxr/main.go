@@ -31,6 +31,8 @@ type dependencies struct {
 	places func() (sandbox.Places, error)
 	clone  sandbox.Cloner
 	herdr  herdr.Client
+	// sbxAvailable は host に sbx があるかを確かめる。無ければ error。
+	sbxAvailable func() error
 }
 
 func main() {
@@ -44,6 +46,7 @@ func main() {
 		places:         defaultPlaces,
 		clone:          sandbox.ExecClone,
 		herdr:          herdr.CLI{},
+		sbxAvailable:   runtime.SbxAvailable,
 	}
 	if err := newRootCmd(resolveVersion(version, info), deps).Execute(); err != nil {
 		os.Exit(1)
@@ -56,7 +59,7 @@ func newRootCmd(version string, deps dependencies) *cobra.Command {
 		Short:   "repo を宣言 1 枚で AI coding agent 用の sandbox VM にする",
 		Version: version,
 	}
-	root.AddCommand(newPlanCmd(deps), newCreateCmd(deps), newDestroyCmd(deps), newStopCmd(deps), newPolicyCmd(deps), newSecretCmd(deps))
+	root.AddCommand(newPlanCmd(deps), newCreateCmd(deps), newDestroyCmd(deps), newStopCmd(deps), newPolicyCmd(deps), newSecretCmd(deps), newDoctorCmd(deps))
 	return root
 }
 

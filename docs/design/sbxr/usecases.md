@@ -18,6 +18,7 @@
 | UC5 | 全 VM 共通の egress 許可を宣言に揃える | `sbxr policy sync` |
 | UC6 | secret の値を登録する | `sbxr secret setup` |
 | UC7 | 宣言の変更を反映する | plan → stop → destroy → create |
+| UC8 | 設定と host の前提を診断する | `sbxr doctor` |
 
 sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行うので、ユースケースにしない。
 
@@ -235,3 +236,35 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 5a. cache 層か inputs の内容が変わった: UC2 の 5 で新しい template を作り、旧いものを消す
 
 却下: 作り直しを 1 コマンドにする（`sbxr recreate`）。理由: destroy を自動では実行しない方針（README の drift 節）を保ち、未回収をどう扱うかの判断を利用者の手に残す。
+
+## UC8 設定と host の前提を診断する
+
+- Primary Actor: 利用者（AI に設定を書かせるときは、host の agent が利用者の代わりに実行する）
+- Scope: sbxr
+- Level: user-goal
+- Trigger: 利用者が、user 設定か repo 宣言を書いたか変えた後に、create へ進める状態かを知りたい
+- 事前条件: なし（sbx が無くても、sbx に依る項目を skip して他を検査する）
+- 成功保証: host の管理状態・sandbox VM・global rule のどれも変わっていない。全項目の結果（ok・fail・skip）が 1 回で示され、fail には直し方が付いている
+
+### Main Success Scenario
+
+1. 利用者が、repo を指定して（省いてもよい）診断を求める
+2. sbxr が環境を検査する（sbx が PATH にある、secret ファイルの mode が 0600 で読める、herdr 連携が有効なら host に herdr がある）
+3. sbxr が user 設定を検査する（書式・型・未知の key、global rule が宣言と揃っている）
+4. sbxr が repo 宣言を検査する（書式・型・未知の key・スコープ制限、repo の egress の group が揃っている）
+5. sbxr が merge 後の git identity と、要求された secret が配線されること・その値が secret ファイルにあることを検査する
+6. sbxr が全項目の結果を示し、fail が無ければ 0 で終える
+
+### Extensions
+
+- 1a. repo を省いた: sbxr は 4 を行わず、5 を user 設定だけで判定する
+- 1b. git URL: sbxr は一時ディレクトリへ clone して repo 宣言を読み、読み終えたら消す（UC1 と同じ）
+- 2a. sbx が無い: sbxr は sbx の項目を fail にし、3 の global rule を skip にして続ける
+- 2b. secret ファイルが読めない（mode が 0600 でない、書式が違う）: sbxr は fail にし、5 の値の検査を skip にして続ける
+- 3a. user 設定が通らない: sbxr は fail にし、user 設定に依る項目（herdr・global rule・git identity・secret の配線と値）を skip にして 4 へ
+- 4a. repo 宣言が通らない（clone できない・ディレクトリが無いを含む）: sbxr は fail にし、merge 後の git identity を skip にする。secret は 1a と同じく user 設定だけで判定して 6 へ
+- 5a. 要求された secret の注入先 host が egress で許可されていない: sbxr は fail にし、host を許可するか要求から外すよう示す（repo を省いたときは、repo の egress で許可されうるので skip にする）
+- 5b. 要求された secret の値が無い: sbxr は fail にし、値を書くコマンド（`sbxr secret setup ...`）を示す
+- 6a. fail がある: sbxr は全項目を示してから非 0 で終える
+
+却下: plan に全件検査のモードを足す。理由: plan は最初の誤りで止まる要約で、drift のために VM の状態も読む（decision/0012）。

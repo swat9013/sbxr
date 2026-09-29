@@ -2,12 +2,14 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -89,12 +91,20 @@ var herdrVersionPattern = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 // Parse は 1 つのスコープの宣言を読み、値とスコープ制限を検証する。
 // source は error に載せる出所 (ファイル path など)。未知の key は error にする。
 func Parse(scope Scope, source string, data []byte) (Declaration, error) {
-	decl, err := decode(data)
-	var keys []writtenKey
-	if err == nil {
-		keys, err = listWrittenKeys(data)
-	}
-	if err == nil {
+	decl, decodeErr := decode(data)
+	root, parseErr := parseNode(data)
+	var err error
+	switch {
+	case parseErr != nil:
+		// YAML として読めなければ key を列挙できないので、読めない理由だけを返す
+		err = cmp.Or(decodeErr, parseErr)
+	case decodeErr != nil:
+		// 型の誤りと未知の key があっても、同じファイルの値の書き忘れとスコープ制限の誤りをまとめて返す (1 回で直せるように)。
+		// 型へ読めていないので、読んだ値の検証 (validate) はしない
+		known, explained := explainDecodeError(decodeErr, root, writtenKeysOf(root))
+		err = errors.Join(explained, checkWrittenValues(known), checkScopeRestrictions(scope, known))
+	default:
+		keys := writtenKeysOf(root)
 		err = errors.Join(checkWrittenValues(keys), decl.validate(), checkScopeRestrictions(scope, keys))
 	}
 	if err != nil {
@@ -107,6 +117,7 @@ func Parse(scope Scope, source string, data []byte) (Declaration, error) {
 type writtenKey struct {
 	path  []string // top-level から辿った key 名の列 ("egress", "github", "enabled")
 	value *yaml.Node
+	line  int // key を書いた行
 }
 
 // name は error に使う key 名 ("profile.model" のように親の key を前に付ける)。
@@ -135,14 +146,154 @@ func decode(data []byte) (Declaration, error) {
 	return decl, nil
 }
 
+// decoder の error の 1 行の文言。未知の key は "line 3: field modle not found in type config.Profile"、
+// 型の誤りは "line 4: cannot unmarshal !!str `maybe` into bool" の形。
+var (
+	unknownFieldPattern = regexp.MustCompile(`^line ([0-9]+): field (.+) not found in type \S+$`)
+	typeMismatchPattern = regexp.MustCompile("^line ([0-9]+): cannot unmarshal (!![a-z]+)(?: `(.*)`)? into (.+)$")
+)
+
+// explainDecodeError は decoder の未知の key と型の誤りを、key の path と直し方を持つ文言に言い直す。他の error はそのまま残す。
+// decoder の文言は key の名前か行しか持たず、どの key の誤りか (profile.modle か egress.api.modle か) を読み手が探すことになるため。
+// known は keys から未知の key とその下の key を除いたもの (未知の key を、スコープ制限の誤りとしても重ねて報告しないため)。
+func explainDecodeError(err error, root *yaml.Node, keys []writtenKey) (known []writtenKey, explained error) {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return keys, err
+	}
+	errs := make([]error, 0, len(typeErr.Errors))
+	var unknownPaths, mismatchedPaths [][]string
+	unknown := make([]bool, len(keys)) // alias で同じ行の key が複数の path に現れるので、1 つの error に 1 つの key を当てる
+	for _, message := range typeErr.Errors {
+		if match := unknownFieldPattern.FindStringSubmatch(message); match != nil {
+			line, name := match[1], match[2]
+			for i, key := range keys {
+				if !unknown[i] && strconv.Itoa(key.line) == line && key.path[len(key.path)-1] == name {
+					name, unknown[i] = key.name(), true
+					break
+				}
+			}
+			errs = append(errs, fmt.Errorf("line %s: %s は宣言に無い key (書き違いか、この版の sbxr が読まない key。正しい key 名に直すか消す)", line, name))
+			continue
+		}
+		if match := typeMismatchPattern.FindStringSubmatch(message); match != nil {
+			line, _ := strconv.Atoi(match[1])
+			name := fmt.Sprintf("line %d の値", line)
+			if path, found := pathOfValue(root, line, match[2]); found {
+				name = strings.Join(path, ".")
+				mismatchedPaths = append(mismatchedPaths, path)
+			}
+			errs = append(errs, fmt.Errorf("line %d: %s は %s で書く (読んだ値: %s)", line, name, expectedForm(match[4]), writtenForm(match[2], match[3])))
+			continue
+		}
+		errs = append(errs, errors.New(message))
+	}
+	for i, key := range keys {
+		if unknown[i] {
+			unknownPaths = append(unknownPaths, key.path)
+		}
+	}
+	for _, key := range keys {
+		isUnknown := slices.ContainsFunc(unknownPaths, func(path []string) bool { return slices.Equal(key.path, path) || key.isBelow(path) })
+		// 型の合わない値の下の key は、型が読まない key なので、スコープ制限の誤りとして重ねて報告しない
+		if !isUnknown && !slices.ContainsFunc(mismatchedPaths, key.isBelow) {
+			known = append(known, key)
+		}
+	}
+	return known, errors.Join(errs...)
+}
+
+// pathOfValue は、line に書いた tag の値を持つ key の path を返す。list の要素は list の key の path にする。
+// block mapping の値は、中の最初の key と同じ行を持つので、親の key の値とも取り違えうる。候補のうち、key と同じ行に
+// 書いた値 (scalar・flow の値) を優先し、無ければ最も浅い候補を採る。alias の先は辿らない (参照先の定義で見つかる)。
+func pathOfValue(root *yaml.Node, line int, tag string) ([]string, bool) {
+	type candidate struct {
+		path    []string
+		keyLine int
+	}
+	var candidates []candidate
+	var walk func(node *yaml.Node, path []string, keyLine int)
+	walk = func(node *yaml.Node, path []string, keyLine int) {
+		if node.Kind != yaml.AliasNode && node.Line == line && node.Tag == tag {
+			candidates = append(candidates, candidate{path: path, keyLine: keyLine})
+		}
+		switch node.Kind {
+		case yaml.DocumentNode, yaml.SequenceNode:
+			for _, child := range node.Content {
+				walk(child, path, keyLine)
+			}
+		case yaml.MappingNode:
+			for i := 0; i+1 < len(node.Content); i += 2 {
+				walk(node.Content[i+1], append(slices.Clip(path), resolved(node.Content[i]).Value), node.Content[i].Line)
+			}
+		}
+	}
+	walk(root, nil, 0)
+	if len(candidates) == 0 {
+		return nil, false
+	}
+	for _, c := range candidates {
+		if c.keyLine == line {
+			return c.path, true
+		}
+	}
+	return candidates[0].path, true
+}
+
+// expectedForm は decoder が読もうとした Go の型を、宣言に書く形の言葉にする。
+func expectedForm(goType string) string {
+	switch {
+	case goType == "bool":
+		return "true か false"
+	case goType == "string":
+		return "文字列"
+	case goType == "int":
+		return "整数"
+	case goType == "[]string":
+		return "文字列の list"
+	case strings.HasPrefix(goType, "map["), strings.Contains(goType, "."):
+		return "mapping (key: 値)"
+	}
+	return goType
+}
+
+// writtenForm は decoder が読んだ値を、書いた形の言葉にする。
+func writtenForm(tag, value string) string {
+	switch {
+	case tag == "!!str":
+		return strconv.Quote(value)
+	case value != "":
+		return value
+	case tag == "!!seq":
+		return "list"
+	case tag == "!!map":
+		return "mapping"
+	}
+	return tag
+}
+
 // listWrittenKeys は書かれた key を、型へ読み込む前の形ですべての深さまで列挙する (ADR 0004 の改訂)。
 // 型へ読み込んだ後では、null を書いた key と書いていない key を区別できないため YAML node から数える。
 func listWrittenKeys(data []byte) ([]writtenKey, error) {
+	root, err := parseNode(data)
+	if err != nil {
+		return nil, err
+	}
+	return writtenKeysOf(root), nil
+}
+
+// parseNode は宣言を型へ読み込む前の YAML node にする。
+func parseNode(data []byte) (*yaml.Node, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, err
 	}
-	return writtenKeysUnder(documentBody(&root), nil, nil), nil
+	return &root, nil
+}
+
+// writtenKeysOf は root の下に書かれた key を列挙する。
+func writtenKeysOf(root *yaml.Node) []writtenKey {
+	return writtenKeysUnder(documentBody(root), nil, nil)
 }
 
 func documentBody(root *yaml.Node) *yaml.Node {
@@ -164,6 +315,7 @@ func writtenKeysUnder(node *yaml.Node, path []string, expanding []*yaml.Node) []
 			key := writtenKey{
 				path:  append(slices.Clip(path), resolved(node.Content[i]).Value),
 				value: node.Content[i+1],
+				line:  node.Content[i].Line,
 			}
 			keys = append(keys, key)
 			keys = append(keys, writtenKeysUnder(key.value, key.path, expanding)...)

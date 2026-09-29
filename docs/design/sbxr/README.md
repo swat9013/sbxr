@@ -18,7 +18,7 @@ sbxr（repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI�
 | file | 中身（正本として扱う構造） |
 |---|---|
 | [system.md](system.md) | 境界、相手ごとの接続と port、状態機械の概要、未実測の前提 |
-| [usecases.md](usecases.md) | ユースケース（UC1〜UC7）の Main Success Scenario と Extensions |
+| [usecases.md](usecases.md) | ユースケース（UC1〜UC8）の Main Success Scenario と Extensions |
 | [domain.puml](domain.puml) / domain.svg | entity・集約の範囲・多重度・ID 参照・不変条件 |
 | [statechart.puml](statechart.puml) / statechart.svg | sandbox VM の状態機械（状態・イベント・guard・uncovered 宣言） |
 | [decision/](decision/) | この設計で決めたことの根拠と却下肢（1 決定 1 file、不変） |

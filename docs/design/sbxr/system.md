@@ -6,7 +6,7 @@ sbxr の境界と、境界の外の相手との接続を表で書く。語は [C
 
 境界の内に置くのは次の 3 つ。
 
-- sbxr の CLI（plan / create / stop / destroy / policy sync / secret setup）
+- sbxr の CLI（plan / create / stop / destroy / policy sync / secret setup / doctor）
 - 同梱の資材: default スコープの宣言と、kit `sbxr-boot`・`sbxr-herdr`
 - host 側の管理状態: 状態ディレクトリ（sandbox VM と build 用 VM のもの）、cache clone、template の記録（出所ごとに、出所・cache 層の hash・作成日時。状態ディレクトリとは別の置き場に置き、destroy の後も残す）
 
@@ -30,7 +30,7 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 | sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未回収の検査・egress 自己検証・copy の持ち込み）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
 | VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009） |
 | host の herdr | 外 | herdr CLI（port にしない） | 出 | herdr machine の登録・無効化・有効化・解除 |
-| git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan と drift の一時 clone |
+| git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan・drift・doctor の一時 clone |
 | GitHub API | 外 | HTTPS（port にしない） | 出 | secret setup github の token の能力の probe |
 | origin | 外 | VM 内の git（Runtime の exec 経由） | VM 発 | 未回収の検査のための fetch。VM からの push は agent と利用者が行い、sbxr は関与しない。VM に ssh 鍵は無く token は HTTPS にだけ注入されるので、materialize が origin の host の ssh 形を https に書き換える。fetch と push には、origin の host の egress 許可と secret の配線が要る |
 | egress の probe 先 | 外 | VM 内の curl（Runtime の exec 経由） | VM 発 | egress 自己検証の 1 往復ずつ |
@@ -76,7 +76,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
 - herdr machine の登録・無効化・解除と、destroy の一時起動は、遷移の action として書く
-- plan・policy sync・secret setup は VM の状態を変えないので、イベントに含めない
+- plan・policy sync・secret setup・doctor は VM の状態を変えないので、イベントに含めない
 
 却下: VM と herdr machine の 2 枚の状態機械。理由: herdr machine の状態は VM の遷移の action として変わるだけで、独立したイベントを持たない（herdr の再接続は VM の外部起動として現れる）。2 枚にすると、同期を note でしか縛れない。
 

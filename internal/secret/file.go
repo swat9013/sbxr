@@ -10,6 +10,13 @@ import (
 	"strings"
 )
 
+var (
+	// ErrPermissiveMode は secret ファイルの mode が 0600 でないこと。
+	ErrPermissiveMode = errors.New("mode が 0600 でない")
+	// ErrMalformedLine は secret ファイルに KEY=VALUE の形でない行があること。
+	ErrMalformedLine = errors.New("KEY=VALUE の形でない")
+)
+
 // Values は secret ファイルの key と値。
 type Values map[string]string
 
@@ -33,7 +40,7 @@ func readSecretFile(path string) ([]string, Values, error) {
 		return nil, nil, fmt.Errorf("secret ファイル %s を読めない: %w", path, err)
 	}
 	if perm := info.Mode().Perm(); perm != 0o600 {
-		return nil, nil, fmt.Errorf("secret ファイル %s の mode が %04o (0600 にする: chmod 600 %s)", path, perm, path)
+		return nil, nil, fmt.Errorf("secret ファイル %s の %w (%04o。0600 にする: chmod 600 %s)", path, ErrPermissiveMode, perm, path)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -65,7 +72,7 @@ func parseLine(line string) (key, value string, ok bool, err error) {
 	}
 	key, value, found := strings.Cut(trimmed, "=")
 	if !found || !keyPattern.MatchString(key) {
-		return "", "", false, errors.New("KEY=VALUE の形でない (値は表示しない)")
+		return "", "", false, fmt.Errorf("%w (値は表示しない)", ErrMalformedLine)
 	}
 	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
 		value = value[1 : len(value)-1]

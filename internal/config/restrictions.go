@@ -93,7 +93,7 @@ func checkScopeRestrictions(scope Scope, keys []writtenKey) error {
 			continue
 		}
 		if !repoCanWrite(declarationKeyOf(key.path)) {
-			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない", key.name()))
+			errs = append(errs, fmt.Errorf("%s は repo 宣言には書けない (untrusted な repo 宣言に許していない key。repo 宣言から消すか、user 設定へ移す)", key.name()))
 			rejected = append(rejected, key.path)
 		}
 	}

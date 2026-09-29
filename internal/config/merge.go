@@ -78,7 +78,7 @@ func merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 
 	var globalErr, sandboxErr error
 	cfg.GlobalEgress, globalErr = validatedEgress(scopedEgress{ScopeDefault, defaultDecl.Egress}, scopedEgress{ScopeUser, userDecl.Egress})
-	cfg.SandboxEgress, sandboxErr = validatedEgress(scopedEgress{ScopeRepo, repoDecl.Egress})
+	cfg.SandboxEgress, sandboxErr = RepoFile{decl: repoDecl}.SandboxEgress()
 	errs := []error{globalErr, sandboxErr}
 	if herdr.Enabled != nil && *herdr.Enabled {
 		if herdr.Version == nil {
