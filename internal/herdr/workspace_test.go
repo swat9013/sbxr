@@ -3,17 +3,20 @@ package herdr_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/herdr"
-	"github.com/swat9013/sbxr/internal/herdr/herdrtest"
 	"github.com/swat9013/sbxr/internal/herdr/servertest"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 )
 
-const worktree = "/Users/u/src/app"
+// worktree は空白を含む VM 内の作業ツリー (復旧手順で 1 つの引数として示されるかを見る)。
+const worktree = "/Users/u/My Projects/app"
+
+const quotedWorktree = "'" + worktree + "'"
 
 // appWithServer は稼働中の sandbox VM app と、その中で herdr machine add が起動した herdr server。
 func appWithServer() (*inmemory.Runtime, *servertest.Server) {
@@ -26,10 +29,14 @@ func appWithServer() (*inmemory.Runtime, *servertest.Server) {
 	return rt, server
 }
 
+func startAppAtWorktree(rt *inmemory.Runtime) error {
+	return herdr.StartAtWorktree(context.Background(), rt, "app", worktree)
+}
+
 func TestStartAtWorktreeLeavesOnlyAWorkspaceThatStartsAtTheWorktree(t *testing.T) {
 	rt, server := appWithServer()
 
-	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.StartAtWorktree(context.Background(), "app", worktree)
+	err := startAppAtWorktree(rt)
 
 	if err != nil || len(server.Workspaces) != 1 || server.Workspaces[0].Cwd != worktree {
 		t.Errorf("StartAtWorktree() = %v, workspaces = %v, want only one at %s", err, server.Workspaces, worktree)
@@ -39,42 +46,50 @@ func TestStartAtWorktreeLeavesOnlyAWorkspaceThatStartsAtTheWorktree(t *testing.T
 func TestStartAtWorktreeOpensTheWorktreeWorkspaceBeforeClosingTheStartupOne(t *testing.T) {
 	rt, _ := appWithServer()
 
-	_ = herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.StartAtWorktree(context.Background(), "app", worktree)
+	_ = startAppAtWorktree(rt)
 
-	var herdrCommands []string
-	for _, command := range rt.Commands {
-		herdrCommands = append(herdrCommands, strings.Join(command.Args, " "))
+	subcommand := func(name string) int {
+		return slices.IndexFunc(rt.Commands, func(c inmemory.Command) bool {
+			return len(c.Args) >= 3 && slices.Equal(c.Args[:3], []string{"herdr", "workspace", name})
+		})
 	}
-	want := "herdr workspace list, herdr workspace create --cwd " + worktree + " --focus, herdr workspace close w1"
-	if strings.Join(herdrCommands, ", ") != want {
-		t.Errorf("herdr commands in the VM = %v, want the workspace opened before the startup one is closed", herdrCommands)
+	if created, closed := subcommand("create"), subcommand("close"); created < 0 || closed < created {
+		t.Errorf("VM commands = %v, want the workspace opened before the startup one is closed", rt.Commands)
 	}
 }
 
-func TestStartAtWorktreeFailsWhenHerdrStartsThePaneElsewhere(t *testing.T) {
+func TestStartAtWorktreeKeepsTheStartupWorkspaceWhenHerdrStartsThePaneElsewhere(t *testing.T) {
 	rt, server := appWithServer()
 	server.IgnoreCwd = true
 
-	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.StartAtWorktree(context.Background(), "app", worktree)
+	err := startAppAtWorktree(rt)
 
-	var start *herdr.WorktreeStartError
-	if !errors.As(err, &start) || !strings.Contains(err.Error(), servertest.StartupCwd) || len(server.Workspaces) != 2 {
+	if err == nil || !strings.Contains(err.Error(), servertest.StartupCwd) || len(server.Workspaces) != 2 {
 		t.Errorf("StartAtWorktree() = %v, workspaces = %v, want the wrong cwd named and the startup workspace kept", err, server.Workspaces)
-	}
-	if start != nil && !strings.Contains(start.Recovery, "herdr workspace close w2") {
-		t.Errorf("recovery = %q, want how to close the workspace that started elsewhere", start.Recovery)
 	}
 }
 
-func TestStartAtWorktreeShowsHowToOpenTheWorkspaceByHandWhenItCannotBeCreated(t *testing.T) {
+func TestStartAtWorktreeShowsHowToCloseTheWorkspaceThatStartedElsewhere(t *testing.T) {
+	rt, server := appWithServer()
+	server.IgnoreCwd = true
+
+	err := startAppAtWorktree(rt)
+
+	var start *herdr.WorktreeStartError
+	if !errors.As(err, &start) || !strings.Contains(start.Recovery, "herdr workspace close w2") {
+		t.Errorf("StartAtWorktree() = %v, want how to close the workspace that started elsewhere", err)
+	}
+}
+
+func TestStartAtWorktreeShowsHowToOpenAndCloseByHandWhenTheWorkspaceCannotBeOpened(t *testing.T) {
 	rt, server := appWithServer()
 	server.FailCreate = true
 
-	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.StartAtWorktree(context.Background(), "app", worktree)
+	err := startAppAtWorktree(rt)
 
 	var start *herdr.WorktreeStartError
-	if !errors.As(err, &start) || !strings.Contains(start.Recovery, "herdr workspace create --cwd '"+worktree+"' --focus") {
-		t.Errorf("StartAtWorktree() = %v, want how to open the workspace by hand", err)
+	if !errors.As(err, &start) || !strings.Contains(start.Recovery, "herdr workspace create --cwd "+quotedWorktree+" --focus; herdr workspace close w1") {
+		t.Errorf("StartAtWorktree() = %v, want how to open the workspace and close the startup one by hand", err)
 	}
 }
 
@@ -83,13 +98,10 @@ func TestStartAtWorktreeClosesTheRestAndShowsHowToCloseTheOnesItCouldNot(t *test
 	server.Workspaces = append(server.Workspaces, servertest.Workspace{ID: "w9", Cwd: servertest.StartupCwd})
 	server.FailClose = []string{"w1"}
 
-	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.StartAtWorktree(context.Background(), "app", worktree)
+	err := startAppAtWorktree(rt)
 
 	var start *herdr.WorktreeStartError
-	if !errors.As(err, &start) || !strings.Contains(start.Recovery, "herdr workspace close w1") || strings.Contains(start.Recovery, "w9") {
-		t.Errorf("StartAtWorktree() = %v, want how to close only w1 by hand", err)
-	}
-	if len(server.Workspaces) != 2 || server.Workspaces[0].ID != "w1" {
-		t.Errorf("workspaces = %v, want w9 closed and only w1 left beside the worktree one", server.Workspaces)
+	if !errors.As(err, &start) || start.Recovery != "VM app の中で herdr workspace close w1" || len(server.Workspaces) != 2 {
+		t.Errorf("StartAtWorktree() = %v, workspaces = %v, want w9 closed and how to close only w1 by hand", err, server.Workspaces)
 	}
 }

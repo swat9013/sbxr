@@ -69,8 +69,7 @@ func (k embeddedKit) source() string { return "./" + kitsDir + "/" + k.name }
 func kits(spec SandboxSpec) []embeddedKit {
 	var list []embeddedKit
 	if spec.Herdr != nil {
-		// VM 内の作業ツリーは host の repo と同じ path にある (decision/0014)
-		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": spec.Herdr.Version, "worktree": spec.Repo}})
+		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": spec.Herdr.Version, "worktree": spec.Worktree()}})
 	}
 	if spec.ReplayBoot {
 		list = append(list, embeddedKit{name: bootKit})
@@ -91,7 +90,7 @@ func herdrWorktreeOK(path string) error {
 // DefineSandbox は状態ディレクトリ (sbxr が作ったもの) に env 定義と埋め込みの kit を書く。
 func (s *Sbx) DefineSandbox(stateDir string, spec SandboxSpec) error {
 	if spec.Herdr != nil {
-		if err := herdrWorktreeOK(spec.Repo); err != nil {
+		if err := herdrWorktreeOK(spec.Worktree()); err != nil {
 			return err
 		}
 	}

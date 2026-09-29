@@ -112,6 +112,21 @@ func TestTheEnvDefinitionCarriesTheHerdrKitWithItsVersionAndTheWorktreeOnlyWhenH
 	}
 }
 
+// herdrWorktreeOK が拒む文字は、kit が作業ツリーの path を bash の単一引用符の中へ差し込むことから決まる。
+// kit が別の形で差し込み始めたら、検査も見直す。
+func TestTheHerdrKitCarriesTheWorktreeOnlyInsideSingleQuotes(t *testing.T) {
+	spec, err := fs.ReadFile(assets.Kits(), herdrKit+"/spec.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	all, quoted := strings.Count(string(spec), "${{ kit.args.worktree }}"), strings.Count(string(spec), "'${{ kit.args.worktree }}'")
+
+	if all == 0 || all != quoted {
+		t.Errorf("herdr kit embeds the worktree %d times, %d of them in single quotes, want every one in single quotes", all, quoted)
+	}
+}
+
 // herdr の kit は VM 内の作業ツリーの path を bash の単一引用符の中へ差し込む。
 func TestDefineSandboxRefusesAWorktreeThatTheHerdrKitCannotCarry(t *testing.T) {
 	for _, repo := range []string{"/src/it's", "/src/a\nb", "/src/caf\xe9"} {

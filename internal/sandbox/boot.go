@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/swat9013/sbxr/internal/runtime"
+	"github.com/swat9013/sbxr/internal/shell"
 )
 
 // aptWait は init の前に VM 内の apt-get が終わるのを待つ上限と間隔。sleep は test が差し替える。
@@ -76,15 +77,11 @@ func runBoot(ctx context.Context, v vm, repo string, commands []string, progress
 func bootScript(repo string, commands []string) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/bash\n# sbxr が create 時に書いた boot。sandbox VM の起動ごとに実行される。\n")
-	fmt.Fprintf(&b, "rc=0\ncd %s || exit 1\n", shellQuote(repo))
+	fmt.Fprintf(&b, "rc=0\ncd %s || exit 1\n", shell.Quote(repo))
 	for i, command := range commands {
 		fmt.Fprintf(&b, "echo 'boot[%d]: start'\n", i+1)
-		fmt.Fprintf(&b, "bash -c %s < /dev/null || { echo \"boot[%d] fail exit=$?\"; rc=1; }\n", shellQuote(command), i+1)
+		fmt.Fprintf(&b, "bash -c %s < /dev/null || { echo \"boot[%d] fail exit=$?\"; rc=1; }\n", shell.Quote(command), i+1)
 	}
 	b.WriteString("exit \"$rc\"\n")
 	return b.String()
-}
-
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

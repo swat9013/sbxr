@@ -1,4 +1,5 @@
-// Package herdr は host の herdr CLI で herdr machine を扱う (ADR 0007)。sbx の lifecycle からではなく sbxr 本体が呼ぶ。
+// Package herdr は host の herdr CLI で herdr machine を扱い (ADR 0007)、登録した VM 内の herdr CLI で最初の workspace を
+// VM 内の作業ツリーで開き直す (decision/0015)。sbx の lifecycle からではなく sbxr 本体が呼ぶ。
 package herdr
 
 import (
@@ -8,6 +9,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/swat9013/sbxr/internal/shell"
 )
 
 // Machine は host の herdr に保存された SSH machine。
@@ -48,7 +51,15 @@ func enableArgs(id string) []string  { return []string{"machine", "enable", id} 
 func disableArgs(id string) []string { return []string{"machine", "disable", id} }
 func removeArgs(id string) []string  { return []string{"machine", "remove", id} }
 
-func command(args []string) string { return "herdr " + strings.Join(args, " ") }
+// VM 内の herdr server の workspace を扱う引数 (decision/0015)。VM 内の herdr CLI で実行する。
+
+func workspaceListArgs() []string { return []string{"workspace", "list"} }
+func workspaceCreateArgs(cwd string) []string {
+	return []string{"workspace", "create", "--cwd", cwd, "--focus"}
+}
+func workspaceCloseArgs(id string) []string { return []string{"workspace", "close", id} }
+
+func command(args []string) string { return "herdr " + shell.Join(args) }
 
 // addCommand は target を登録する herdr のコマンド (復旧手順として見せる)。
 func addCommand(target, label string) string { return command(addArgs(target, label)) }

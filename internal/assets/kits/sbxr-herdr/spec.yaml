@@ -59,8 +59,8 @@ setup:
         - bash
         - -c
         - |
-          # 作業ツリーが無ければ既定の cwd で起動する (herdr は使えるようにする。無いことは前の段が fail 行で残す)
-          cd '${{ kit.args.worktree }}'
+          # 作業ツリーに入れなくても既定の cwd で起動する (herdr は使えるようにし、入れなかったことは fail 行で残す)
+          cd '${{ kit.args.worktree }}' || echo "sbxr-herdr: fail worktree (server を既定の cwd で起動する)"
           exec herdr server
       background: true
     - description: Claude Code の integration を入れる (server が動いてから)

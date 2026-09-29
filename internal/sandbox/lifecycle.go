@@ -433,8 +433,7 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 		}
 		return err
 	}
-	// VM 内の作業ツリーは host の repo (git URL なら cache clone) と同じ path にある (decision/0014)
-	if err := l.registry().StartAtWorktree(ctx, name, prepared.Target.Repo); err != nil {
+	if err := herdr.StartAtWorktree(ctx, l.Runtime, name, spec.Worktree()); err != nil {
 		if start, ok := errors.AsType[*herdr.WorktreeStartError](err); ok {
 			return fmt.Errorf("%w\nsandbox VM %s は作り、herdr machine も登録した。復旧: %s", err, name, start.Recovery)
 		}

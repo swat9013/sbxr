@@ -678,28 +678,27 @@ func TestCreateInstallsTheDeclaredHerdrAndRegistersTheSandbox(t *testing.T) {
 	}
 }
 
-// herdr の pane を VM 内の作業ツリーから始める (decision/0014・decision/0015)。
-func TestCreateStartsHerdrAtTheWorktreeOfTheVM(t *testing.T) {
-	w := newWorld(t, herdrUserConfig)
-	repo := localRepo(t, "app", "")
-
-	w.mustCreate(repo)
-
-	if len(w.herdrServer.Workspaces) != 1 || w.herdrServer.Workspaces[0].Cwd != repo {
-		t.Errorf("herdr workspaces in the VM = %v, want only one at %s", w.herdrServer.Workspaces, repo)
-	}
-}
-
-func TestCreateKeepsTheVMAndShowsHowToStartHerdrAtTheWorktreeWhenItFails(t *testing.T) {
+// herdr の pane を VM 内の作業ツリーから始める (decision/0014・decision/0015)。開き直しの中身は internal/herdr、
+// sbx の adapter を通した create の結果は cmd/sbxr の test が見る。
+func TestCreateShowsHowToStartHerdrAtTheWorktreeWhenItFails(t *testing.T) {
 	w := newWorld(t, herdrUserConfig)
 	w.herdrServer.FailCreate = true
 	repo := localRepo(t, "app", "")
 
 	_, err := w.create(repo, unattended())
 
-	if err == nil || !strings.Contains(err.Error(), "herdr workspace create --cwd '"+repo+"'") {
+	if err == nil || !strings.Contains(err.Error(), "herdr workspace create --cwd "+repo) {
 		t.Errorf("Create() error = %v, want how to start herdr at the worktree by hand", err)
 	}
+}
+
+func TestCreateKeepsTheVMAndTheRegistrationWhenHerdrCannotStartAtTheWorktree(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	w.herdrServer.FailCreate = true
+	repo := localRepo(t, "app", "")
+
+	_, _ = w.create(repo, unattended())
+
 	if got := w.stateOf(repo); got != stateRunning || len(w.herdr.Machines) != 1 {
 		t.Errorf("state = %s, machines = %v, want the creation and the registration finished", got, w.herdr.Machines)
 	}
