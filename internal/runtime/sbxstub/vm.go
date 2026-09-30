@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/swat9013/sbxr/internal/herdr/servertest"
 )
 
 // VMCommand は sbx exec が VM へ渡すコマンド。
@@ -51,6 +53,8 @@ type FakeVM struct {
 	AptPolls int
 	// HTTP は VM 内から https://<host>/ へ送ったときの結果 (host → 結果)。無い host は DefaultHTTP で決まる。
 	HTTP map[string]HTTPResult
+	// HerdrServer は VM 内の herdr server。nil なら最初の herdr のコマンドで、herdr machine add が起動した直後の server を置く。
+	HerdrServer *servertest.Server
 	// Events は bash -c の実行 ("shell <command>")・ファイルの実行 ("exec <path>")・herdr server の停止 ("stop herdr server")・
 	// https の probe ("probe <url>") を起きた順に並べる。
 	Events []string
@@ -165,6 +169,13 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 			return []byte("123\n"), nil
 		}
 		return nil, fmt.Errorf("exit status 1")
+	case len(args) > 0 && args[0] == "herdr":
+		if vm.HerdrServer == nil {
+			vm.HerdrServer = servertest.NewServer()
+		}
+		if out, handled, err := vm.HerdrServer.Answer(args); handled {
+			return out, err
+		}
 	case len(args) == 3 && args[0] == "sh" && args[1] == "-c" && strings.HasPrefix(args[2], "pkill -x herdr"):
 		vm.Events = append(vm.Events, "stop herdr server")
 		return nil, nil

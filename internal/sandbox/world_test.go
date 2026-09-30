@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/swat9013/sbxr/internal/herdr/herdrtest"
+	"github.com/swat9013/sbxr/internal/herdr/servertest"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 	"github.com/swat9013/sbxr/internal/secret"
@@ -28,6 +29,8 @@ type world struct {
 	t     *testing.T
 	vms   *inmemory.Runtime
 	herdr *herdrtest.Fake
+	// herdrServer は VM 内の herdr server (herdr machine add が起動した直後の状態から始まる)。
+	herdrServer *servertest.Server
 	// places と userConfig は一時ディレクトリの下。
 	places     Places
 	userConfig string
@@ -54,15 +57,22 @@ func newWorld(t *testing.T, userConfig string) *world {
 	t.Helper()
 	root := t.TempDir()
 	w := &world{
-		t:          t,
-		vms:        inmemory.New(),
-		herdr:      &herdrtest.Fake{},
-		places:     Places{StateRoot: filepath.Join(root, "state"), CacheRoot: filepath.Join(root, "cache")},
-		userConfig: filepath.Join(root, "config.yaml"),
-		secrets:    secret.Values{},
+		t:           t,
+		vms:         inmemory.New(),
+		herdr:       &herdrtest.Fake{},
+		herdrServer: servertest.NewServer(),
+		places:      Places{StateRoot: filepath.Join(root, "state"), CacheRoot: filepath.Join(root, "cache")},
+		userConfig:  filepath.Join(root, "config.yaml"),
+		secrets:     secret.Values{},
 	}
-	// 作成の段 (materialize・read-back・egress 自己検証) が VM に送るコマンドに答える
-	w.vms.Respond = vmAnswers(nil)
+	// 作成の段 (materialize・read-back・egress 自己検証・herdr の workspace) が VM に送るコマンドに答える
+	answers := vmAnswers(nil)
+	w.vms.Respond = func(sandbox string, command runtime.SandboxCommand) ([]byte, error) {
+		if out, handled, err := w.herdrServer.Answer(command.Args); handled {
+			return out, err
+		}
+		return answers(sandbox, command)
+	}
 	if err := os.WriteFile(w.userConfig, []byte(userConfig), 0o600); err != nil {
 		t.Fatal(err)
 	}

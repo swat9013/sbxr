@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 
@@ -67,7 +69,7 @@ func (k embeddedKit) source() string { return "./" + kitsDir + "/" + k.name }
 func kits(spec SandboxSpec) []embeddedKit {
 	var list []embeddedKit
 	if spec.Herdr != nil {
-		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": spec.Herdr.Version}})
+		list = append(list, embeddedKit{name: herdrKit, args: map[string]string{"version": spec.Herdr.Version, "worktree": spec.Worktree()}})
 	}
 	if spec.ReplayBoot {
 		list = append(list, embeddedKit{name: bootKit})
@@ -75,8 +77,23 @@ func kits(spec SandboxSpec) []embeddedKit {
 	return list
 }
 
+// herdrWorktreeOK は、herdr の kit が VM 内の作業ツリーの path を運べるかを確かめる。kit は path を bash の
+// 単一引用符の中へ差し込み、TOML の文字列 (UTF-8 に限る) として書くので、単一引用符・制御文字・UTF-8 でない byte を
+// 含む path は運べない。
+func herdrWorktreeOK(path string) error {
+	if !utf8.ValidString(path) || strings.ContainsFunc(path, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) {
+		return fmt.Errorf("herdr 連携は、単一引用符・制御文字・UTF-8 でない byte を含む path の repo (%q) を扱えない。repo を別の path に置くか、user 設定で herdr.enabled: false にする", path)
+	}
+	return nil
+}
+
 // DefineSandbox は状態ディレクトリ (sbxr が作ったもの) に env 定義と埋め込みの kit を書く。
 func (s *Sbx) DefineSandbox(stateDir string, spec SandboxSpec) error {
+	if spec.Herdr != nil {
+		if err := herdrWorktreeOK(spec.Worktree()); err != nil {
+			return err
+		}
+	}
 	selected := kits(spec)
 	var refs []envKit
 	for _, kit := range selected {

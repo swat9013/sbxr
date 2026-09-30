@@ -69,6 +69,9 @@ type SandboxSpec struct {
 	EgressRules []string
 }
 
+// Worktree は VM 内の作業ツリーの path。host の repo (git URL なら cache clone) と同じ path に置く (decision/0014)。
+func (spec SandboxSpec) Worktree() string { return spec.Repo }
+
 // HerdrInstall は VM に導入する herdr の版。
 type HerdrInstall struct {
 	Version string
