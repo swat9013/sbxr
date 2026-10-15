@@ -19,6 +19,7 @@ Roles this repo adds on top of the five canonical ones.
 | Role              | Label in our tracker | Meaning                                                                 |
 | ----------------- | -------------------- | ----------------------------------------------------------------------- |
 | awaiting grilling | `need-grilling`      | Has open design questions; resolve them in a grilling session before `ready-for-agent` |
+| planned split parent | `tracking-issue` | Parent of a planned split into child issues; not implemented directly |
 
 When a skill mentions the awaiting-grilling (深掘り待ち) role, apply `need-grilling`. Once grilling settles the questions, record the decisions as an issue comment, remove `need-grilling`, and re-review the issue before applying `ready-for-agent`.
 

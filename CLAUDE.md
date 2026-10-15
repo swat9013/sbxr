@@ -24,3 +24,8 @@ Issue は GitHub Issues (swat9013/sbxr) で管理し、`gh` CLI で操作する�
 ### Domain docs
 
 single-context: root の `CONTEXT.md` と `docs/adr/`。See `docs/agents/domain.md`. 実装に入る前に、設計ドキュメントの索引 `docs/design/sbxr/README.md` も読む。
+
+## Worktree 方式
+
+- git diff に差分が出る作業は git worktree 上で行う (読み取りだけの作業は除く)
+- 差分の出る作業を subagent に任せるときは、Agent tool に `isolation: "worktree"` を渡す
