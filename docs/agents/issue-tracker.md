@@ -43,3 +43,22 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+## follow-up issue の起票
+
+作業の中で見つけた範囲外の欠陥・指摘を issue にするときは、次に従う。
+
+- **変更した単位**: 変更した file と一緒に保守・レビューされるまとまり。skill なら skill のディレクトリ、それ以外は変更した file とその test
+- **直す**: この CL の変更が生んだものと、単位の中で見つけたもの (レビューの区分を問わない)。ただし 1 CL で直せない大きさのものと `[上限超過]` は起票する (上限は、修正の差分を再レビュー 1 巡で見切れる量に保つためにある)。依頼や issue 本文が範囲を狭めているときはそれに従う
+- **単位の外**: 欠陥 (レビューの Act on・Consider を含む。区分の語はレビューの出力のもの) は起票し、それ以外 (Noted・欠陥を伴わない改善) は起票せず CL の説明文に 1 行残す
+- 判定条件が同じで対象だけ違う指摘は 1 件に束ね、対象を本文の checklist に並べる
+- 起票の前に、同じ指摘の issue を、open なものと、`docs/agents/triage-labels.md` の表で `wontfix` の役を持つ label で close したものから、題名と変更対象の file path の 2 通りで探す。当たった issue は本文を読み、判定条件と対象が同じかで同じ指摘かを決める。同じ指摘の issue があれば起票せず、open なら発端の issue と CL の番号があればコメントで足す
+- 起票した issue は、発端の issue (作業が担当している issue) の子にする。親子は tracker の親子の機能で付け、本書に「follow-up issue の深さ」節があれば、その測り方が辿れる形にする (測り方が `github-sub-issue` なら sub-issue にし、本文の行で代えない)。issue を介さず人が始めた作業なら親を付けない — 人が起点の作業は agent の起票の連鎖ではない
+- 本文に `## 範囲` の節を置き、変更してよい範囲を、issue が直す file の「変更した単位」で書く。狭めるなら理由を書く。あわせて「範囲外で見つけた欠陥・指摘は `docs/agents/issue-tracker.md`「follow-up issue の起票」に従って扱う」を書く
+- 付ける label は triage 待ち (`docs/agents/triage-labels.md` の表で `needs-triage` の役を持つ label) だけにする。着手可は triage が付ける。本書に「follow-up issue の深さ」節があれば、triage はそこで連鎖の深さを測ってから付ける
+
+## follow-up issue の深さ
+
+- 測り方: github-sub-issue
+- 上限: 1
+- 計画的な分解の親の label: tracking-issue
