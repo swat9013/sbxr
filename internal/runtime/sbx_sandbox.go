@@ -32,6 +32,26 @@ type envDefinition struct {
 	Workspace     envWorkspace      `yaml:"workspace"`
 	Kits          []envKit          `yaml:"kits"`
 	Env           map[string]string `yaml:"env,omitempty"`
+	// SandboxOptions は作成時に決まる sandbox の設定。sbx v0.48.0 で確かめた key だけを書く (decision/0016)。
+	SandboxOptions *envSandboxOptions `yaml:"sandboxOptions,omitempty"`
+}
+
+// envSandboxOptions は env 定義の sandboxOptions。
+type envSandboxOptions struct {
+	// Skills は host の skills store を VM の agent の skills ディレクトリへ共有する mode (off・readonly・readwrite)。
+	// 空なら sbx の既定 (readonly か、sbx 設定の skills.defaultMode)。
+	Skills string `yaml:"skills,omitempty"`
+}
+
+// skillsOff は host の skills store を共有しない mode。
+const skillsOff = "off"
+
+// sandboxOptions は作る内容から env 定義の sandboxOptions を組み立てる。書くものが無ければ nil。
+func sandboxOptions(spec SandboxSpec) *envSandboxOptions {
+	if !spec.KeepHostSkillsOut {
+		return nil
+	}
+	return &envSandboxOptions{Skills: skillsOff}
 }
 
 type envWorkspace struct {
@@ -100,12 +120,13 @@ func (s *Sbx) DefineSandbox(stateDir string, spec SandboxSpec) error {
 		refs = append(refs, envKit{Source: kit.source(), Args: kit.args})
 	}
 	env, err := yaml.Marshal(envDefinition{
-		SchemaVersion: "1",
-		Agent:         "claude",
-		Name:          spec.Name,
-		Workspace:     envWorkspace{Path: spec.Repo, Clone: true},
-		Kits:          refs,
-		Env:           spec.Env,
+		SchemaVersion:  "1",
+		Agent:          "claude",
+		Name:           spec.Name,
+		Workspace:      envWorkspace{Path: spec.Repo, Clone: true},
+		Kits:           refs,
+		Env:            spec.Env,
+		SandboxOptions: sandboxOptions(spec),
 	})
 	if err != nil {
 		return err

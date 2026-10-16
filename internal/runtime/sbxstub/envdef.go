@@ -26,3 +26,26 @@ func envName(dir string) (string, error) {
 	}
 	return env.Name, nil
 }
+
+// envSkillsMode は dir の env 定義の sandboxOptions.skills を読む。無ければ空 (sbx の既定の共有)。
+// sbx が受ける値は off・readonly・readwrite で、ほかの値は error (sbx create --skills の help、sbx v0.48.0)。
+func envSkillsMode(dir string) (string, error) {
+	data, err := os.ReadFile(filepath.Join(dir, envFile))
+	if err != nil {
+		return "", fmt.Errorf("sbxstub: no %s found at %s: %w", envFile, dir, err)
+	}
+	var env struct {
+		SandboxOptions struct {
+			Skills string `yaml:"skills"`
+		} `yaml:"sandboxOptions"`
+	}
+	if err := yaml.Unmarshal(data, &env); err != nil {
+		return "", fmt.Errorf("sbxstub: %s/%s を読めない: %w", dir, envFile, err)
+	}
+	switch mode := env.SandboxOptions.Skills; mode {
+	case "", "off", "readonly", "readwrite":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("sbxstub: %s/%s の sandboxOptions.skills %q は off・readonly・readwrite のどれでもない", dir, envFile, mode)
+	}
+}
