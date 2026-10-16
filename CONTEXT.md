@@ -88,7 +88,7 @@ repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用�
 create の最後に、VM 内から許可先に届くことと許可外に届かないことを 1 往復ずつ確かめる段。通らなければ作成時の宣言を書かない。
 
 **proxy の拒否応答**:
-許可外の宛先への通信に実行基盤の proxy が返す応答（状態コード 403 と、body の先頭の `Approval required for <宛先>.`（どの rule にも当たらず承認待ちになった）か `Blocked by local rule for <宛先>`（deny rule に当たった））。egress 自己検証は、これだけを「届かない」とみなす。承認待ちも、利用者が承認するまで宛先へ届かないので「届かない」に含める（decision/0016）。
+許可外の宛先への通信に実行基盤の proxy が返す応答（状態コード 403 と、body の 1 行目の `Approval required for <宛先>.`（どの rule にも当たらず承認待ちになった）か `Blocked by local rule for <宛先>`（deny rule に当たった））。egress 自己検証は、これだけを「届かない」とみなす（decision/0016）。
 
 ### secret
 

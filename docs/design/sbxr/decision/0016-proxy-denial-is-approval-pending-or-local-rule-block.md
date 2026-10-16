@@ -8,7 +8,7 @@
 
 [decision/0007](0007-egress-self-check-verdict-by-proxy-denial.md) の「覆す条件」（proxy の拒否応答が変わったとき）が成り立った。0007 の判定の表・許可先と許可外の選び方・probe 先が無いときの扱いは保ち、**proxy の拒否応答** の定義だけを次に置き換える。
 
-- 状態コードが 403 で、body が次のどちらかで始まる応答。`<host>` は probe した宛先
+- 状態コードが 403 で、body の 1 行目が次のどちらかと一致する応答。`<host>` は probe した宛先
   - `Approval required for <host>:443.`: どの rule にも当たらない宛先（default deny）。sbx はこの通信を承認待ちとして記録する
   - `Blocked by local rule for <host>:443`: deny rule に当たった宛先
 - 承認待ちは「届かない」とみなす
@@ -27,13 +27,14 @@
 
   `sbx policy approval ls` には、その sandbox の承認待ちが 1 件（`no matching allow rule (default deny)`、選択肢は allow と dismiss）現れる
 - 承認待ちの間、同じ宛先へ送り直しても 403 が返る（実測）。承認待ちの通信は宛先へ届いていない。承認は利用者が `sbx policy approval respond` で明示に行う操作で、承認するまで default deny のまま効いている。egress 自己検証が確かめたいのは「許可外へは proxy の policy が通さない」ことなので、承認待ちは「届かない」に当たる
-- deny rule に当たった宛先へは、403 と body `Blocked by local rule for example.net:443` が返る（sandbox スコープの deny rule で実測）。許可外の候補を利用者が deny rule で塞いでいても、egress 自己検証が「届いた」と誤判定しないよう、こちらも拒否応答に含める
-- body の先頭を宛先の host と port まで含めて照合するのは、0007 と同じく、TLS を終端する proxy の応答と宛先自身の 403 を区別するため。文言だけで照合するより、宛先自身の 403 の body と取り違える余地が狭い
+- deny rule に当たった宛先へは、403 と body `Blocked by local rule for <host>:443`（1 行）が返る。sandbox スコープの deny rule でも global の deny rule でも同じ body だった（実測）。許可外の候補を利用者が deny rule で塞いでいても、egress 自己検証が「届いた」と誤判定しないよう、こちらも拒否応答に含める
+- body の 1 行目を宛先の host と port まで含めて一致で照合するのは、0007 と同じく、TLS を終端する proxy の応答と宛先自身の 403 を区別するため。文言だけで照合するより、宛先自身の 403 の body と取り違える余地が狭い。前置きの一致にしないのは、`:4430` のような別の port の応答まで当たるため
 - v0.45.1 の body を受けないのは、#91 の方針（sbx の両方の版を通す分岐を作らない）に従うため。sbxr が対応する sbx の版の下限は #99 で決める
 
 ## 影響
 
-- create のたびに、許可外の候補（`example.com` など）への承認待ちが sbx に 1 件残る。sandbox を撤去すると消える（実測）。利用者が allow すると、その sandbox だけがその宛先へ届くようになる
+- create のたびに、許可外の候補（`example.com` など）への承認待ちが sbx に 1 件残る。sandbox を撤去すると消える（実測）
+- 利用者がその承認待ちを allow すると、sbx は `scope: sandbox:<名前>` の allow rule を足し、その sandbox だけがその宛先へ届くようになる。この rule も sandbox の撤去で消える（実測）。egress 自己検証は create のときだけ走るので、allow した後に同じ VM で検証し直すことはなく、作り直した VM には rule が残っていない
 
 ## 却下した代替案
 
