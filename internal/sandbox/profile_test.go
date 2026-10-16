@@ -49,46 +49,61 @@ func TestProfileSettingsKeepsAKeyDeclaredFalse(t *testing.T) {
 	}
 }
 
-// recordedWithNullProfileKeys は profile の yaml tag に omitempty が無かった版が書いた作成時の宣言の形
-// (宣言していない key を null・空の map で書いた)。
-const recordedWithNullProfileKeys = `profile:
-    model: opus
-    effortLevel: null
-    enabledPlugins: {}
-    language: null
-    outputStyle: null
-    feedbackDrafts: null
-    awaySummaryEnabled: null
-    autoMemoryEnabled: false
-    autoDreamEnabled: null
-    promptSuggestionEnabled: null
-    spinnerTipsEnabled: null
-    env: {}
-    extraKnownMarketplaces: {}
-git:
-    name: tester
-    email: tester@example.com
-init: []
-boot: []
-sandbox_egress: []
-secrets: []
-`
+// v010AsCurrent は v0.1.0 の作成時の宣言 (v010Declaration) と同じ内容を、今の宣言として組んだもの。
+// v0.1.0 は profile の yaml tag に omitempty が無く、宣言していない key を null・空の map で記録した。
+func v010AsCurrent() sandboxDeclaration {
+	opus, medium, off, no := "opus", "medium", "off", false
+	current := sandboxDeclaration{
+		Profile: config.Profile{
+			Model: &opus, EffortLevel: &medium, FeedbackDrafts: &off,
+			AwaySummaryEnabled: &no, AutoMemoryEnabled: &no, AutoDreamEnabled: &no, PromptSuggestionEnabled: &no, SpinnerTipsEnabled: &no,
+			Env: map[string]string{
+				"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE":          "60",
+				"CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR": "1",
+				"CLAUDE_CODE_ENABLE_TODO_TOOLS":            "1",
+				"DISABLE_ERROR_REPORTING":                  "1",
+			},
+			ExtraKnownMarketplaces: map[string]any{
+				"claude-plugins-official": map[string]any{"source": map[string]any{"repo": "anthropics/claude-plugins-official", "source": "github"}},
+			},
+		},
+		Herdr: &herdrPin{Version: "v0.9.0"},
+	}
+	current.Git.Name, current.Git.Email = "tester", "tester@example.com"
+	return current
+}
 
-func TestARecordWithNullProfileKeysIsNoDriftFromTheSameDeclaration(t *testing.T) {
+func TestARecordWithNullProfileKeysIsComparedByTheDeclaredValues(t *testing.T) {
+	data, err := os.ReadFile(v010Declaration)
+	if err != nil {
+		t.Fatal(err)
+	}
 	dir := stateDir{path: t.TempDir()}
-	if err := os.WriteFile(filepath.Join(dir.path, declarationFile), []byte(recordedWithNullProfileKeys), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir.path, declarationFile), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	record, found, err := dir.record()
 	if err != nil || !found {
 		t.Fatalf("record() = %v, %v", found, err)
 	}
-	current := sandboxDeclaration{Profile: declaredProfile()}
-	current.Git.Name, current.Git.Email = "tester", "tester@example.com"
+	for _, tc := range []struct {
+		name   string
+		change func(*sandboxDeclaration)
+		want   []Difference
+	}{
+		{"the same declaration", func(*sandboxDeclaration) {}, nil},
+		{"a key recorded as null and now declared", func(d *sandboxDeclaration) { ja := "ja"; d.Profile.Language = &ja },
+			[]Difference{{Path: "profile.language", Recorded: "(なし)", Current: `"ja"`}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			current := v010AsCurrent()
+			tc.change(&current)
 
-	got, err := record.Drift(current)
+			got, err := record.Drift(current)
 
-	if err != nil || len(got.Differences) != 0 {
-		t.Errorf("Drift = %v, %v, want no difference", got.Differences, err)
+			if err != nil || !reflect.DeepEqual(got.Differences, tc.want) {
+				t.Errorf("Drift = %v, %v, want %v", got.Differences, err, tc.want)
+			}
+		})
 	}
 }
