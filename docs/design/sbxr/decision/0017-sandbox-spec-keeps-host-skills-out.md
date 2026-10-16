@@ -1,4 +1,4 @@
-# 0016. host の skills を持ち込まないことを作る内容の項目にし、Sbx adapter は env 定義で skills の共有を切る
+# 0017. host の skills を持ち込まないことを作る内容の項目にし、Sbx adapter は env 定義で skills の共有を切る
 
 - Status: Accepted
 - Date: 2026-10-16

@@ -203,7 +203,7 @@ func TestCreateSandboxReportsAFailureAfterTheVMWasCreatedWithItsStep(t *testing.
 	}
 }
 
-// sbx は既定で host の skills store を VM の ~/.claude/skills へ共有する。頼まれたときだけ env 定義で切る (decision/0016)。
+// sbx は既定で host の skills store を VM の ~/.claude/skills へ共有する。頼まれたときだけ env 定義で切る (decision/0017)。
 // sbx が env 定義から読む skills の mode は、stub が adapter とは独立に読む。
 func TestTheCreatedVMSharesNoHostSkillsOnlyWhenAskedToKeepThemOut(t *testing.T) {
 	for name, tc := range map[string]struct {

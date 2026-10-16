@@ -19,7 +19,7 @@ import (
 )
 
 // sbx の env 定義と kit は、sbx v0.45.1 の `sbx env` に合わせた約束 (decision/0009)。
-// env 定義の sandboxOptions は sbx v0.48.0 で確かめた (decision/0016)。
+// env 定義の sandboxOptions は sbx v0.48.0 で確かめた (decision/0017)。
 
 // envFile は状態ディレクトリに置く env 定義のファイル名。
 const envFile = "sbxenv.yaml"

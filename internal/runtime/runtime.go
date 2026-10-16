@@ -63,7 +63,7 @@ type SandboxSpec struct {
 	ReplayBoot bool
 	// Herdr は VM に導入する herdr。nil なら導入しない。
 	Herdr *HerdrInstall
-	// KeepHostSkillsOut なら、host の skills を VM の agent へ持ち込まない (decision/0016)。
+	// KeepHostSkillsOut なら、host の skills を VM の agent へ持ち込まない (decision/0017)。
 	// false なら実行基盤の既定に任せる。
 	KeepHostSkillsOut bool
 	// Secrets は sandbox VM に限って置く secret (値を含む)。

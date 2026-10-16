@@ -57,7 +57,7 @@ func TestCreateAsksTheRuntimeToReplayBootEvenWithoutADeclaredBoot(t *testing.T) 
 	}
 }
 
-// agent runtime profile は host 側の個人設定を持ち込まない (decision/0016)。宣言で切り替える形は無い。
+// agent runtime profile は host 側の個人設定を持ち込まない (decision/0017)。宣言で切り替える形は無い。
 func TestCreateAsksTheRuntimeToKeepHostSkillsOut(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 
