@@ -142,6 +142,7 @@ func TestSbxCannotTellTheStatusFromAnUnexpectedSandboxList(t *testing.T) {
 		`{"sandboxes":[{"name":"app","status":"running"}]}`,
 		`[{}]`,
 		`[{"id":"app","status":"running"}]`,
+		`[{"name":"app","status":"running"},{}]`,
 		``,
 	} {
 		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/inmemory"
+	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 )
 
 // answerProbes は VM 内の probe script に、allowed に無い example.com・example.net・example.org には proxy の拒否応答を、
@@ -30,9 +31,9 @@ func answerProbes(allowed []string) func(runtime.SandboxCommand) ([]byte, error)
 	}
 }
 
-// approvalRequired は sbx v0.48.0 の proxy が、どの rule にも当たらない宛先へ返す body (実測)。
+// approvalRequired は sbx の proxy が、どの rule にも当たらない宛先へ返す body (実測は sbx stub が持つ)。
 func approvalRequired(host string) string {
-	return "Approval required for " + host + ":443.\n\nReview and respond with:\n  sbx policy approval ls\n"
+	return sbxstub.ProxyDenial(host).Body
 }
 
 func TestProbeReadsOnlyTheProxysDenialOfThatHostAsDenied(t *testing.T) {
@@ -43,6 +44,8 @@ func TestProbeReadsOnlyTheProxysDenialOfThatHostAsDenied(t *testing.T) {
 		{"承認待ち (どの rule にも当たらない)", "0 403\n" + approvalRequired("example.com"), probeDenied},
 		{"deny rule に当たった", "0 403\nBlocked by local rule for example.com:443\n", probeDenied},
 		{"別の宛先の承認待ち", "0 403\n" + approvalRequired("example.net"), probeReached},
+		{"別の宛先の deny rule", "0 403\nBlocked by local rule for example.net:443\n", probeReached},
+		{"別の port の deny rule", "0 403\nBlocked by local rule for example.com:4430\n", probeReached},
 		{"宛先自身の 403", "0 403\n<html>Forbidden</html>\n", probeReached},
 		{"sbx v0.45.1 の拒否応答は受けない", "0 403\nBlocked by network policy: domain example.com:443\n", probeReached},
 		{"200 で同じ文言の body", "0 200\n" + approvalRequired("example.com"), probeReached},

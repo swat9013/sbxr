@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -127,17 +128,18 @@ func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus,
 		return SandboxUnknown, err
 	}
 	// 読めない形を「VM が無い」と読まないよう、配列でないもの (null を含む) と name の無い要素は error にする
-	var sandboxes *[]struct {
-		Name   string `json:"name"`
-		Status string `json:"status"`
+	var sandboxes *[]sbxSandbox
+	if err := json.Unmarshal(out, &sandboxes); err != nil {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を sandbox の配列として読めない (sbxr は sbx %s の出力の形を読む): %w: %q", sbxOutputVersion, err, sbxOutputHead(out))
 	}
-	if err := json.Unmarshal(out, &sandboxes); err != nil || sandboxes == nil {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を sandbox の配列として読めない (sbxr は sbx v0.48.0 の出力の形を読む): %q", truncate(out))
+	if sandboxes == nil {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力が null で、sandbox の配列でない (sbxr は sbx %s の出力の形を読む)", sbxOutputVersion)
+	}
+	// 一致を探す前に全要素を確かめる (一致の後ろにある name の無い要素を見落とさない)
+	if slices.ContainsFunc(*sandboxes, func(sb sbxSandbox) bool { return sb.Name == "" }) {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に name の無い sandbox がある (sbxr は sbx %s の出力の形を読む): %q", sbxOutputVersion, sbxOutputHead(out))
 	}
 	for _, sb := range *sandboxes {
-		if sb.Name == "" {
-			return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に name の無い sandbox がある (sbxr は sbx v0.48.0 の出力の形を読む): %q", truncate(out))
-		}
 		if sb.Name == sandbox {
 			return sbxStatus(sb.Status), nil
 		}
@@ -145,8 +147,17 @@ func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus,
 	return SandboxAbsent, nil
 }
 
-// truncate は error に添える sbx の出力を先頭 200 byte に切る。
-func truncate(out []byte) []byte {
+// sbxOutputVersion は、Sbx adapter が読む sbx の出力の形を実測した版。版の下限は #99 で決める。
+const sbxOutputVersion = "v0.48.0"
+
+// sbxSandbox は sbx ls --json の要素のうち、sbxr が読む field。
+type sbxSandbox struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// sbxOutputHead は error に添える sbx の出力を先頭 200 byte に切る。
+func sbxOutputHead(out []byte) []byte {
 	const limit = 200
 	if len(out) > limit {
 		return out[:limit]
