@@ -126,19 +126,32 @@ func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus,
 	if err != nil {
 		return SandboxUnknown, err
 	}
-	var sandboxes []struct { // null でも空でもよい
+	// 読めない形を「VM が無い」と読まないよう、配列でないもの (null を含む) と name の無い要素は error にする
+	var sandboxes *[]struct {
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
-	if err := json.Unmarshal(out, &sandboxes); err != nil {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を sandbox の配列として読めない: %w", err)
+	if err := json.Unmarshal(out, &sandboxes); err != nil || sandboxes == nil {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を sandbox の配列として読めない (sbxr は sbx v0.48.0 の出力の形を読む): %q", truncate(out))
 	}
-	for _, sb := range sandboxes {
+	for _, sb := range *sandboxes {
+		if sb.Name == "" {
+			return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に name の無い sandbox がある (sbxr は sbx v0.48.0 の出力の形を読む): %q", truncate(out))
+		}
 		if sb.Name == sandbox {
 			return sbxStatus(sb.Status), nil
 		}
 	}
 	return SandboxAbsent, nil
+}
+
+// truncate は error に添える sbx の出力を先頭 200 byte に切る。
+func truncate(out []byte) []byte {
+	const limit = 200
+	if len(out) > limit {
+		return out[:limit]
+	}
+	return out
 }
 
 // sbxStatus は sbx ls の status を読む。stopped 以外は、使用中かもしれないので稼働中と読む
@@ -150,8 +163,8 @@ func sbxStatus(status string) SandboxStatus {
 	return SandboxRunning
 }
 
-// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --force を渡す
-// (sbx v0.48.0 の「Apply the environment plan without asking」。v0.45.1 の --auto-approve は v0.48.0 に無い)。
+// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので、
+// plan を確認なしで適用する --force を渡す。
 func (s *Sbx) createEnvironment(ctx context.Context, envDir string) error {
 	_, err := s.run(ctx, nil, "env", "create", "--force", envDir)
 	return err

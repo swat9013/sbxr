@@ -124,14 +124,32 @@ func TestSbxCreatesTheEnvironmentWithoutAskingForThePlan(t *testing.T) {
 	}
 }
 
-func TestSbxReadsAnEmptyOrNullSandboxListAsAbsent(t *testing.T) {
-	for _, listing := range []string{`[]`, `null`} {
+func TestSbxReadsAnEmptySandboxListAsAbsent(t *testing.T) {
+	run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(`[]`), nil }
+
+	status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
+
+	if err != nil || status != SandboxAbsent {
+		t.Errorf("SandboxStatus([]) = %v, %v, want absent", status, err)
+	}
+}
+
+// 読めない形を「VM が無い」と読むと、destroy が稼働中の VM を消失として扱い、使用中でも撤去してしまう。
+func TestSbxCannotTellTheStatusFromAnUnexpectedSandboxList(t *testing.T) {
+	for _, listing := range []string{
+		`null`,
+		`{}`,
+		`{"sandboxes":[{"name":"app","status":"running"}]}`,
+		`[{}]`,
+		`[{"id":"app","status":"running"}]`,
+		``,
+	} {
 		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
 
 		status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
 
-		if err != nil || status != SandboxAbsent {
-			t.Errorf("SandboxStatus(%s) = %v, %v, want absent", listing, status, err)
+		if err == nil || status != SandboxUnknown {
+			t.Errorf("SandboxStatus(%q) = %v, %v, want unknown with an error", listing, status, err)
 		}
 	}
 }

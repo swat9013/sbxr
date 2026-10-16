@@ -151,8 +151,10 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 			s.Rules = append(s.Rules, GlobalAllow(fmt.Sprintf("added-%d", s.nextID), resource))
 		}
 		return nil, nil
+	case len(args) >= 3 && slices.Equal(args[:3], []string{"policy", "rm", "network"}) && !slices.Contains(args, "--force"):
+		// 実 sbx は stdin が端末でないと確認を出せず、--force を要求する (stub の stdin は端末でない)
+		return nil, fmt.Errorf("sbxstub: stdin is not a terminal; pass --force to skip the confirmation")
 	case len(args) == 6 && slices.Equal(args[:5], []string{"policy", "rm", "network", "--force", "--id"}):
-		// 実 sbx は stdin が端末でないと --force を要求する
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
