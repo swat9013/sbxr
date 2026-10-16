@@ -57,6 +57,17 @@ func TestCreateAsksTheRuntimeToReplayBootEvenWithoutADeclaredBoot(t *testing.T) 
 	}
 }
 
+// agent runtime profile は host 側の個人設定を持ち込まない (decision/0017)。宣言で切り替える形は無い。
+func TestCreateAsksTheRuntimeToKeepHostSkillsOut(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+
+	w.mustCreate(localRepo(t, "app", ""))
+
+	if !w.vms.Definitions[w.places.stateDirPath("app")].KeepHostSkillsOut {
+		t.Errorf("KeepHostSkillsOut = false, want the host skills kept out of the VM")
+	}
+}
+
 func TestCreatePlacesTheWiredSecretValueAndTheRepoEgressAsSandboxRules(t *testing.T) {
 	w := newWorld(t, gitlabUserConfig)
 	w.secrets = secret.Values{"GITLAB_TOKEN": "glpat_x"}

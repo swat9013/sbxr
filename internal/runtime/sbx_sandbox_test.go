@@ -203,6 +203,36 @@ func TestCreateSandboxReportsAFailureAfterTheVMWasCreatedWithItsStep(t *testing.
 	}
 }
 
+// sbx は既定で host の skills store を VM の ~/.claude/skills へ共有する。頼まれたときだけ env 定義で切る (decision/0017)。
+// sbx が env 定義から読む skills の mode は、stub が adapter とは独立に読む。
+func TestTheCreatedVMSharesNoHostSkillsOnlyWhenAskedToKeepThemOut(t *testing.T) {
+	for name, tc := range map[string]struct {
+		keepOut bool
+		want    string
+	}{
+		"kept out":      {true, "off"},
+		"not asked for": {false, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			stub := &sbxstub.Stub{}
+			sbx := NewSbx(stub.Run)
+			dir := t.TempDir()
+			spec := SandboxSpec{Name: "app", Repo: "/src/app", KeepHostSkillsOut: tc.keepOut}
+			if err := sbx.DefineSandbox(dir, spec); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := sbx.CreateSandbox(context.Background(), dir, spec); err != nil {
+				t.Fatal(err)
+			}
+
+			if got, ok := stub.SkillsModes["app"]; !ok || got != tc.want {
+				t.Errorf("skills mode of the created VM = %q (recorded %v), want %q", got, ok, tc.want)
+			}
+		})
+	}
+}
+
 func TestTheEnvDefinitionCarriesTheBootKitOnlyWhenBootIsReplayed(t *testing.T) {
 	for name, replay := range map[string]bool{"replayed": true, "not replayed": false} {
 		t.Run(name, func(t *testing.T) {

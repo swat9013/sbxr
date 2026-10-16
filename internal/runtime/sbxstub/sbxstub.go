@@ -38,6 +38,8 @@ type Stub struct {
 	FailOn string
 	// Sandboxes は sandbox の名前と status。env create で running になり、env rm で消える。
 	Sandboxes map[string]string
+	// SkillsModes は sandbox を作った env 定義の sandboxOptions.skills (無ければ空)。sandbox と一緒に消える。
+	SkillsModes map[string]string
 	// SandboxRules は sandbox スコープ rule の宛先。sandbox と一緒に消える。
 	SandboxRules map[string][]string
 	// SandboxSecrets は sandbox スコープの secret の数。sandbox と一緒に消える。
@@ -89,15 +91,19 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		// sbx v0.48.0 は sandbox の配列そのものを返し、1 つも無ければ []
 		return json.Marshal(list)
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--force"}):
-		name, err := envName(args[3])
+		env, err := readEnv(args[3])
 		if err != nil {
+			return nil, err
+		}
+		if err := env.checkSkillsMode(); err != nil {
 			return nil, err
 		}
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
 		s.ensureMaps()
-		s.Sandboxes[name] = "running"
+		s.Sandboxes[env.Name] = "running"
+		s.SkillsModes[env.Name] = env.SkillsMode
 		return nil, nil
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "rm", "--force"}):
 		// 実 sbx と同じく、env 定義が無ければ消せない。sandbox が無くても sandbox スコープの secret は消して成功する
@@ -110,6 +116,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		}
 		_, existed := s.Sandboxes[name]
 		delete(s.Sandboxes, name)
+		delete(s.SkillsModes, name)
 		delete(s.SandboxRules, name)
 		delete(s.SandboxSecrets, name)
 		if existed && s.VM != nil { // 撤去した VM の中身は、作り直した VM に残らない (fake VM は 1 つなので、sandbox は 1 つを前提にする)
@@ -214,6 +221,9 @@ func (s *Stub) exec(args []string, input string) ([]byte, error) {
 func (s *Stub) ensureMaps() {
 	if s.Sandboxes == nil {
 		s.Sandboxes = map[string]string{}
+	}
+	if s.SkillsModes == nil {
+		s.SkillsModes = map[string]string{}
 	}
 	if s.SandboxRules == nil {
 		s.SandboxRules = map[string][]string{}

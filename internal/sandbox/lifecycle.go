@@ -520,6 +520,8 @@ func sandboxSpec(prepared preparation, values secret.Values) (runtime.SandboxSpe
 		// boot を宣言していなくても再生を頼む (script を置かなければ何も走らない)。再生の仕組みの無い VM を
 		// 実 sbx で確かめていないので、作る VM の形を変えない
 		ReplayBoot: true,
+		// agent runtime profile は host 側の個人設定を持ち込まない (decision/0017)
+		KeepHostSkillsOut: true,
 	}
 	if pin := prepared.Declaration.Herdr; pin != nil {
 		spec.Herdr = &runtime.HerdrInstall{Version: pin.Version}
