@@ -59,7 +59,7 @@ func TestSbxRemovesARuleByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RemoveGlobalEgressRule() error = %v", err)
 	}
-	if want := []string{"policy rm network --id r1"}; !reflect.DeepEqual(stub.Writes, want) {
+	if want := []string{"policy rm network --force --id r1"}; !reflect.DeepEqual(stub.Writes, want) {
 		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
 	}
 }
@@ -125,7 +125,7 @@ func TestSbxCreatesTheEnvironmentWithoutAskingForThePlan(t *testing.T) {
 }
 
 func TestSbxReadsAnEmptyOrNullSandboxListAsAbsent(t *testing.T) {
-	for _, listing := range []string{`{"sandboxes":[]}`, `{"sandboxes":null}`} {
+	for _, listing := range []string{`[]`, `null`} {
 		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
 
 		status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
@@ -225,7 +225,7 @@ func TestSbxReadsTheStatusOfItsSandboxes(t *testing.T) {
 		"starting": SandboxRunning, // sbx の他の値は、使用中かもしれないので稼働中と読む (destroy は拒否する側に倒れる)
 	} {
 		t.Run(status, func(t *testing.T) {
-			listing := `{"sandboxes":[{"name":"app","status":"` + status + `"}]}`
+			listing := `[{"name":"app","status":"` + status + `"}]`
 			run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
 
 			got, err := NewSbx(run).SandboxStatus(context.Background(), "app")

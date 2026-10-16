@@ -95,9 +95,10 @@ func (s *Sbx) AllowGlobalEgress(ctx context.Context, resource string) error {
 	return err
 }
 
-// RemoveGlobalEgressRule は sbx policy rm network --id で global rule を消す。
+// RemoveGlobalEgressRule は sbx policy rm network --id で global rule を消す。sbx の確認は省くので --force を渡す
+// (消す rule は宣言との差分から sbxr が決めている。sbx v0.48.0 は stdin が端末でないと確認を出せず、--force が無ければ失敗する。実測)。
 func (s *Sbx) RemoveGlobalEgressRule(ctx context.Context, id string) error {
-	_, err := s.run(ctx, nil, "policy", "rm", "network", "--id", id)
+	_, err := s.run(ctx, nil, "policy", "rm", "network", "--force", "--id", id)
 	return err
 }
 
@@ -119,25 +120,18 @@ func (s *Sbx) setSandboxSecret(ctx context.Context, sandbox string, secret Sandb
 }
 
 // SandboxStatus は sbx ls --json から sandbox の status を引く。
+// sbx v0.48.0 の出力は sandbox の配列そのもので、sandbox が 1 つも無ければ [] を返す (実測)。
 func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error) {
 	out, err := s.run(ctx, nil, "ls", "--json")
 	if err != nil {
 		return SandboxUnknown, err
 	}
-	var listing map[string]json.RawMessage
-	if err := json.Unmarshal(out, &listing); err != nil {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
-	}
-	raw, ok := listing["sandboxes"]
-	if !ok {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
-	}
-	var sandboxes []struct { // sandbox が 1 つも無ければ null でも空でもよい
+	var sandboxes []struct { // null でも空でもよい
 		Name   string `json:"name"`
 		Status string `json:"status"`
 	}
-	if err := json.Unmarshal(raw, &sandboxes); err != nil {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
+	if err := json.Unmarshal(out, &sandboxes); err != nil {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を sandbox の配列として読めない: %w", err)
 	}
 	for _, sb := range sandboxes {
 		if sb.Name == sandbox {
