@@ -96,13 +96,3 @@ func (l Lifecycle) inspect(ctx context.Context, target sandboxTarget) (observati
 	}
 	return observation{state: stateRunning, status: status, record: record}, nil
 }
-
-// unmanagedError は、管理外 (状態機械の外) の VM に触らない理由を error で返す。
-func unmanagedError(name string) error {
-	return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", name)
-}
-
-// otherSourceError は、別出所 (状態機械の外) の VM に触らない理由を error で返す。recordedSource は状態ディレクトリに記録された出所。
-func otherSourceError(name, recordedSource string) error {
-	return fmt.Errorf("sandbox VM %s は別の repo (%s) から作られている", name, recordedSource)
-}

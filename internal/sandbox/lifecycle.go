@@ -555,6 +555,16 @@ func vanishedError(name, repo string) error {
 	return fmt.Errorf("sandbox VM %s は sbxr の外で撤去されている (状態ディレクトリだけが残っている)。sbxr destroy %s で片付ける", name, repo)
 }
 
+// unmanagedError は、管理外 (状態機械の外) の VM に触らない理由を error で返す。
+func unmanagedError(name string) error {
+	return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", name)
+}
+
+// otherSourceError は、別出所 (状態機械の外) の VM に触らない理由を error で返す。
+func otherSourceError(name, recordedSource string) error {
+	return fmt.Errorf("sandbox VM %s は別の repo (%s) から作られている", name, recordedSource)
+}
+
 // unexpectedState は、入口が扱いを決めていない状態に着いたときの error。状態を足したのに入口を直していない不具合で、
 // 黙って作成や撤去へ進まないように止める。
 func unexpectedState(name string, s state, event string) error {
