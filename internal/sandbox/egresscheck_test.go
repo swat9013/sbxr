@@ -24,9 +24,39 @@ func answerProbes(allowed []string) func(runtime.SandboxCommand) ([]byte, error)
 		}
 		host := strings.TrimSuffix(strings.TrimPrefix(command.Args[4], "https://"), "/")
 		if slices.Contains([]string{"example.com", "example.net", "example.org"}, host) && !slices.Contains(allowed, host+":443") {
-			return []byte("0 403\n" + proxyDenial + "\n"), nil
+			return []byte("0 403\n" + approvalRequired(host)), nil
 		}
 		return []byte("0 200\nok\n"), nil
+	}
+}
+
+// approvalRequired は sbx v0.48.0 の proxy が、どの rule にも当たらない宛先へ返す body (実測)。
+func approvalRequired(host string) string {
+	return "Approval required for " + host + ":443.\n\nReview and respond with:\n  sbx policy approval ls\n"
+}
+
+func TestProbeReadsOnlyTheProxysDenialOfThatHostAsDenied(t *testing.T) {
+	for _, tt := range []struct {
+		name, out string
+		want      probeResult
+	}{
+		{"承認待ち (どの rule にも当たらない)", "0 403\n" + approvalRequired("example.com"), probeDenied},
+		{"deny rule に当たった", "0 403\nBlocked by local rule for example.com:443\n", probeDenied},
+		{"別の宛先の承認待ち", "0 403\n" + approvalRequired("example.net"), probeReached},
+		{"宛先自身の 403", "0 403\n<html>Forbidden</html>\n", probeReached},
+		{"sbx v0.45.1 の拒否応答は受けない", "0 403\nBlocked by network policy: domain example.com:443\n", probeReached},
+		{"200 で同じ文言の body", "0 200\n" + approvalRequired("example.com"), probeReached},
+		{"HTTP 応答が無い", "6 000\ncurl: (6) Could not resolve host\n", probeFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			v, _ := runningVM(t, func(runtime.SandboxCommand) ([]byte, error) { return []byte(tt.out), nil })
+
+			p, err := probeHTTPS(context.Background(), v, "example.com")
+
+			if err != nil || p.result != tt.want {
+				t.Errorf("probeHTTPS = %+v, %v, want result %d", p, err, tt.want)
+			}
+		})
 	}
 }
 
@@ -72,7 +102,7 @@ func TestProbeScriptPrintsTheCurlExitCodeTheStatusAndTheBodyHead(t *testing.T) {
 		exitCode         int
 		want             string
 	}{
-		{"proxy の拒否応答", "Blocked by network policy: domain example.com:443\n", "403", 0, "0 403\nBlocked by network policy: domain example.com:443\n"},
+		{"proxy の拒否応答", "Approval required for example.com:443.\n", "403", 0, "0 403\nApproval required for example.com:443.\n"},
 		{"curl の失敗は error を出す", "", "000", 6, "6 000\ncurl: (6) Could not resolve host\n"},
 		{"body は先頭 1024 byte だけ", strings.Repeat("x", 2000), "200", 0, "0 200\n" + strings.Repeat("x", 1024)},
 	} {
