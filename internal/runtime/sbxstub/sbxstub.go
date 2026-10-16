@@ -87,7 +87,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 			list = append(list, sandbox{Name: name, Status: s.Sandboxes[name]})
 		}
 		return json.Marshal(map[string][]sandbox{"sandboxes": list})
-	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--auto-approve"}):
+	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--force"}):
 		name, err := envName(args[3])
 		if err != nil {
 			return nil, err

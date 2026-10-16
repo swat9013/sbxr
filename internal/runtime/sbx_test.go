@@ -107,6 +107,23 @@ func TestSbxSetsAPlaceholderSecretForEveryHost(t *testing.T) {
 	}
 }
 
+func TestSbxCreatesTheEnvironmentWithoutAskingForThePlan(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sbxenv.yaml"), []byte("name: app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub := &sbxstub.Stub{}
+
+	err := NewSbx(stub.Run).createEnvironment(context.Background(), dir)
+
+	if err != nil {
+		t.Fatalf("createEnvironment() error = %v", err)
+	}
+	if want := []string{"env create --force " + dir}; !reflect.DeepEqual(stub.Writes, want) {
+		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
+	}
+}
+
 func TestSbxReadsAnEmptyOrNullSandboxListAsAbsent(t *testing.T) {
 	for _, listing := range []string{`{"sandboxes":[]}`, `{"sandboxes":null}`} {
 		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }

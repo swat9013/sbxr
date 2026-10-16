@@ -156,9 +156,10 @@ func sbxStatus(status string) SandboxStatus {
 	return SandboxRunning
 }
 
-// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --auto-approve を渡す。
+// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --force を渡す
+// (sbx v0.48.0 の「Apply the environment plan without asking」。v0.45.1 の --auto-approve は v0.48.0 に無い)。
 func (s *Sbx) createEnvironment(ctx context.Context, envDir string) error {
-	_, err := s.run(ctx, nil, "env", "create", "--auto-approve", envDir)
+	_, err := s.run(ctx, nil, "env", "create", "--force", envDir)
 	return err
 }
 
