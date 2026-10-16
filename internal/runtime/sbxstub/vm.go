@@ -68,9 +68,9 @@ type HTTPResult struct {
 	Body string
 }
 
-// ProxyDenial は sbx の proxy の拒否応答 (sbx v0.45.1 の実測)。
+// ProxyDenial は sbx の proxy の拒否応答 (sbx v0.48.0 の実測)。どの rule にも当たらない宛先は承認待ちになる。
 func ProxyDenial(host string) HTTPResult {
-	return HTTPResult{Code: "403", Body: "Blocked by network policy: domain " + host + ":443\ndetail: no matching allow rule — blocked by default deny policy\n"}
+	return HTTPResult{Code: "403", Body: "Approval required for " + host + ":443.\n\nReview and respond with:\n  sbx policy approval ls\n"}
 }
 
 // DefaultHTTP は HTTP に無い host の結果: IANA の予約 domain そのもの (example.com など。subdomain は含めない) は proxy が拒否し、
