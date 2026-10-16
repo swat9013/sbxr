@@ -103,6 +103,12 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 7. sbx が global rule の host の大小文字や port の無い pattern（例: `*.example.com`）を正規化して保存するか。書き換えるなら、`sbxr policy sync` はその宛先を毎回消して足し直す（ADR 0008）
 8. copy 方式で、host と同じ path（例: `/Users/<user>/...`）の親ディレクトリを VM 内に agent の所有で作り、そこへ展開できるか（decision/0014）。4 で確かめたのは `/home/agent/workspace/<repo>` だけ
 9. `herdr machine add` が ssh 経由で起動し直す VM 内の herdr server でも、最初の workspace が VM 内の作業ツリーで始まるか（decision/0014）。2026-09-29 の実測では、sbxr の kit が起動した server は登録の前に止められ、`machine add` が起動した server の cwd は `/home/agent/workspace` だった。その cwd の決まり方と、`new_cwd` が最初の workspace に効くかは確かめていない。→ 成り立たない（下の実測。#85）
+10. Kit spec v3 の kit を使う VM でも、`/var/log/sbx-kit-startup.log` に dispatcher の行（`=== dispatcher run`・`=== dispatcher complete ===`・`fail /etc/durable-startup.d/… exit=`）が今と同じ文面で出るか。herdr を有効にした create は、この行で kit startup の完了と失敗を読む（Sbx adapter）。文面は v2 runtime の dispatcher（`/etc/durable-startup.d/run.sh`）のもので、v3 の `lifecycle@1` は startup hook を毎 boot 走らせることだけを決め、log の場所も文面も決めていない。v3 の移行の手順は log の path に同じ `/var/log/sbx-kit-startup.log` を案内しているが、文面が同じかは書いていない。成り立たなければ、create は完了を読めず、待ちの上限（300 秒）の後に失敗する。v3 へ移る前に確かめる（#74 の項目 2）
+
+10 は、Kit spec v3 への移行を決めたときに確かめる。sbxr の埋め込み kit は v2（`schemaVersion: "2"`）で、env 定義は built-in の `agent: claude` を使う。v3 の kit は v1・v2 の kit と同じ sandbox に混ぜられないので、移行は全面になる。移行は spec が成熟するまで実装しない。次のどちらかが起きたら移行を検討し始め、新しい issue を起こして #74 を参照する。
+
+- spec の最終版が出る（2026-09-28 の調査の時点で experimental。最終版は 2026 Q4 の予定）
+- sbx が v2 kit か built-in agent（`agent: claude`）の非推奨化を告知する
 
 ### 実測（2026-09-27、sbx v0.45.1、#33）
 
