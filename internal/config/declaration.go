@@ -64,19 +64,19 @@ type HerdrDeclaration struct {
 
 // Profile は agent runtime profile の宣言。VM 内の Claude Code の settings.json へ入る key だけを持つ。
 type Profile struct {
-	Model                   *string           `yaml:"model"`
-	EffortLevel             *string           `yaml:"effortLevel"`
-	EnabledPlugins          map[string]bool   `yaml:"enabledPlugins"`
-	Language                *string           `yaml:"language"`
-	OutputStyle             *string           `yaml:"outputStyle"`
-	FeedbackDrafts          *string           `yaml:"feedbackDrafts"`
-	AwaySummaryEnabled      *bool             `yaml:"awaySummaryEnabled"`
-	AutoMemoryEnabled       *bool             `yaml:"autoMemoryEnabled"`
-	AutoDreamEnabled        *bool             `yaml:"autoDreamEnabled"`
-	PromptSuggestionEnabled *bool             `yaml:"promptSuggestionEnabled"`
-	SpinnerTipsEnabled      *bool             `yaml:"spinnerTipsEnabled"`
-	Env                     map[string]string `yaml:"env"`
-	ExtraKnownMarketplaces  map[string]any    `yaml:"extraKnownMarketplaces"`
+	Model                   *string           `yaml:"model,omitempty"`
+	EffortLevel             *string           `yaml:"effortLevel,omitempty"`
+	EnabledPlugins          map[string]bool   `yaml:"enabledPlugins,omitempty"`
+	Language                *string           `yaml:"language,omitempty"`
+	OutputStyle             *string           `yaml:"outputStyle,omitempty"`
+	FeedbackDrafts          *string           `yaml:"feedbackDrafts,omitempty"`
+	AwaySummaryEnabled      *bool             `yaml:"awaySummaryEnabled,omitempty"`
+	AutoMemoryEnabled       *bool             `yaml:"autoMemoryEnabled,omitempty"`
+	AutoDreamEnabled        *bool             `yaml:"autoDreamEnabled,omitempty"`
+	PromptSuggestionEnabled *bool             `yaml:"promptSuggestionEnabled,omitempty"`
+	SpinnerTipsEnabled      *bool             `yaml:"spinnerTipsEnabled,omitempty"`
+	Env                     map[string]string `yaml:"env,omitempty"`
+	ExtraKnownMarketplaces  map[string]any    `yaml:"extraKnownMarketplaces,omitempty"`
 }
 
 // GitDeclaration は VM 内の commit に使う git identity の宣言。
