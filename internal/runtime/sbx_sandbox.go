@@ -19,6 +19,7 @@ import (
 )
 
 // sbx の env 定義と kit は、sbx v0.45.1 の `sbx env` に合わせた約束 (decision/0009)。
+// env 定義の sandboxOptions は sbx v0.48.0 で確かめた (decision/0016)。
 
 // envFile は状態ディレクトリに置く env 定義のファイル名。
 const envFile = "sbxenv.yaml"
@@ -32,7 +33,7 @@ type envDefinition struct {
 	Workspace     envWorkspace      `yaml:"workspace"`
 	Kits          []envKit          `yaml:"kits"`
 	Env           map[string]string `yaml:"env,omitempty"`
-	// SandboxOptions は作成時に決まる sandbox の設定。sbx v0.48.0 で確かめた key だけを書く (decision/0016)。
+	// SandboxOptions は作成時に決まる sandbox の設定。
 	SandboxOptions *envSandboxOptions `yaml:"sandboxOptions,omitempty"`
 }
 

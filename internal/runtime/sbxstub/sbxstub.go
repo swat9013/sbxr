@@ -91,11 +91,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		// sbx v0.48.0 は sandbox の配列そのものを返し、1 つも無ければ []
 		return json.Marshal(list)
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--force"}):
-		name, err := envName(args[3])
-		if err != nil {
-			return nil, err
-		}
-		skills, err := envSkillsMode(args[3])
+		env, err := readEnv(args[3])
 		if err != nil {
 			return nil, err
 		}
@@ -103,8 +99,8 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 			return nil, err
 		}
 		s.ensureMaps()
-		s.Sandboxes[name] = "running"
-		s.SkillsModes[name] = skills
+		s.Sandboxes[env.Name] = "running"
+		s.SkillsModes[env.Name] = env.SkillsMode
 		return nil, nil
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "rm", "--force"}):
 		// 実 sbx と同じく、env 定義が無ければ消せない。sandbox が無くても sandbox スコープの secret は消して成功する

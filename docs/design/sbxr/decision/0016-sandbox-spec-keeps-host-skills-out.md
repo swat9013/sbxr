@@ -18,6 +18,8 @@
   - `sandboxOptions.skills: "off"` を書いた env 定義を `sbx env plan` が受け付け、plan に `sandboxOptions.skills: off` の行が出た
   - 対照として、`sandboxOptions` の下の未知の key は `unknown field "…" in sandboxOptions` で、top-level の `skills` は `unknown field "skills"` で拒まれた（key を黙って読み捨てたのではない）
   - この env 定義で `sbx env create --force` した VM には、`~/.claude/skills` が無く、`/proc/mounts` に skills の共有 store の mount が無かった
+  - sbxr が書いた env 定義（`sandboxOptions.skills: "off"` と kit `sbxr-herdr`・`sbxr-boot`）で作った VM を `sbxr stop` で止め、`sbx exec` で起動し直した後も、`~/.claude/skills` は無く、共有 store の mount も無かった。`claude plugin list` に host の skill は出なかった
+  - sbx 設定 `skills.defaultMode` を既定から変えた host での振る舞いは確かめていない
 - 項目にして domain が頼むのは、VM に入るものを作る内容の項目として domain が頼み、adapter が実行基盤の仕組みで入れる形（decision/0009 の boot の再生・herdr の導入）にそろえるため
 - env 定義で切ると、作成の時点で共有が入らない。VM の起動ごとに外す処理を kit に足さずに済む
 

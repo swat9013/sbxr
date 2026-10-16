@@ -64,7 +64,7 @@ type SandboxSpec struct {
 	// Herdr は VM に導入する herdr。nil なら導入しない。
 	Herdr *HerdrInstall
 	// KeepHostSkillsOut なら、host の skills を VM の agent へ持ち込まない (decision/0016)。
-	// false なら実行基盤の既定に任せる (sbx は host の skills store を共有する)。
+	// false なら実行基盤の既定に任せる。
 	KeepHostSkillsOut bool
 	// Secrets は sandbox VM に限って置く secret (値を含む)。
 	Secrets []SandboxSecret
