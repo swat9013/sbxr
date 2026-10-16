@@ -97,15 +97,12 @@ func (l Lifecycle) inspect(ctx context.Context, target sandboxTarget) (observati
 	return observation{state: stateRunning, status: status, record: record}, nil
 }
 
-// outsideMachine は、状態機械の外 (管理外・別出所) の VM に触らない理由を error で返す。状態機械の外の状態でだけ呼ぶ。
-func (o observation) outsideMachine(name string) error {
-	switch o.state {
-	case stateUnmanaged:
-		return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", name)
-	case stateOtherSource:
-		return fmt.Errorf("sandbox VM %s は別の repo (%s) から作られている", name, o.recordedSource)
-	case stateAbsent, stateIncompleteRunning, stateIncompleteStopped, stateRunning, stateStopped, stateVMGone:
-		return fmt.Errorf("sandbox VM %s の状態 %s は状態機械の外ではない (sbxr の不具合)", name, o.state)
-	}
-	return fmt.Errorf("sandbox VM %s の状態 %s は未知 (sbxr の不具合)", name, o.state)
+// unmanagedError は、管理外 (状態機械の外) の VM に触らない理由を error で返す。
+func unmanagedError(name string) error {
+	return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", name)
+}
+
+// otherSourceError は、別出所 (状態機械の外) の VM に触らない理由を error で返す。recordedSource は状態ディレクトリに記録された出所。
+func otherSourceError(name, recordedSource string) error {
+	return fmt.Errorf("sandbox VM %s は別の repo (%s) から作られている", name, recordedSource)
 }

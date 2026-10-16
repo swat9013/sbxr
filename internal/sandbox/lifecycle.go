@@ -184,8 +184,10 @@ func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateRe
 		return CreateResult{}, fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている (VM は稼働している)。sbxr stop %s → sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo, repo)
 	case stateVMGone:
 		return CreateResult{}, fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(name, repo), repo)
-	case stateUnmanaged, stateOtherSource:
-		return CreateResult{}, observed.outsideMachine(name)
+	case stateUnmanaged:
+		return CreateResult{}, unmanagedError(name)
+	case stateOtherSource:
+		return CreateResult{}, otherSourceError(name, observed.recordedSource)
 	}
 	return CreateResult{}, unexpectedState(name, observed.state, "create")
 }
@@ -215,8 +217,10 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 		return StopResult{}, fmt.Errorf("sandbox VM %s は無い", name)
 	case stateVMGone: // 止める VM が無い。herdr machine にも触れない
 		return StopResult{}, vanishedError(name, repo)
-	case stateUnmanaged, stateOtherSource:
-		return StopResult{}, observed.outsideMachine(name)
+	case stateUnmanaged:
+		return StopResult{}, unmanagedError(name)
+	case stateOtherSource:
+		return StopResult{}, otherSourceError(name, observed.recordedSource)
 	}
 	return StopResult{}, unexpectedState(name, observed.state, "stop")
 }
@@ -280,8 +284,10 @@ func (l Lifecycle) requireDestroyable(ctx context.Context, target sandboxTarget,
 		return fmt.Errorf("sandbox VM %s は %s (使用中かを確かめられない)。sbxr stop %s で止めてから撤去するか、--force で撤去する", name, observed.status, target.Input)
 	case stateAbsent:
 		return fmt.Errorf("sandbox VM %s は無い", name)
-	case stateUnmanaged, stateOtherSource:
-		return observed.outsideMachine(name)
+	case stateUnmanaged:
+		return unmanagedError(name)
+	case stateOtherSource:
+		return otherSourceError(name, observed.recordedSource)
 	}
 	return unexpectedState(name, observed.state, "destroy")
 }
