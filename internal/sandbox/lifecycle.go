@@ -184,8 +184,10 @@ func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateRe
 		return CreateResult{}, fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている (VM は稼働している)。sbxr stop %s → sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo, repo)
 	case stateVMGone:
 		return CreateResult{}, fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(name, repo), repo)
-	case stateUnmanaged, stateOtherSource:
-		return CreateResult{}, observed.outsideMachine(name)
+	case stateUnmanaged:
+		return CreateResult{}, unmanagedError(name)
+	case stateOtherSource:
+		return CreateResult{}, otherSourceError(name, observed.recordedSource)
 	}
 	return CreateResult{}, unexpectedState(name, observed.state, "create")
 }
@@ -215,8 +217,10 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 		return StopResult{}, fmt.Errorf("sandbox VM %s は無い", name)
 	case stateVMGone: // 止める VM が無い。herdr machine にも触れない
 		return StopResult{}, vanishedError(name, repo)
-	case stateUnmanaged, stateOtherSource:
-		return StopResult{}, observed.outsideMachine(name)
+	case stateUnmanaged:
+		return StopResult{}, unmanagedError(name)
+	case stateOtherSource:
+		return StopResult{}, otherSourceError(name, observed.recordedSource)
 	}
 	return StopResult{}, unexpectedState(name, observed.state, "stop")
 }
@@ -280,8 +284,10 @@ func (l Lifecycle) requireDestroyable(ctx context.Context, target sandboxTarget,
 		return fmt.Errorf("sandbox VM %s は %s (使用中かを確かめられない)。sbxr stop %s で止めてから撤去するか、--force で撤去する", name, observed.status, target.Input)
 	case stateAbsent:
 		return fmt.Errorf("sandbox VM %s は無い", name)
-	case stateUnmanaged, stateOtherSource:
-		return observed.outsideMachine(name)
+	case stateUnmanaged:
+		return unmanagedError(name)
+	case stateOtherSource:
+		return otherSourceError(name, observed.recordedSource)
 	}
 	return unexpectedState(name, observed.state, "destroy")
 }
@@ -547,6 +553,16 @@ func discardClone(places Places, target sandboxTarget) error {
 // vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の create と stop を止める error。
 func vanishedError(name, repo string) error {
 	return fmt.Errorf("sandbox VM %s は sbxr の外で撤去されている (状態ディレクトリだけが残っている)。sbxr destroy %s で片付ける", name, repo)
+}
+
+// unmanagedError は、管理外 (状態機械の外) の VM に触らない理由を error で返す。
+func unmanagedError(name string) error {
+	return fmt.Errorf("sandbox VM %s は sbxr の管理外 (sbxr の状態ディレクトリが無い) なので触らない", name)
+}
+
+// otherSourceError は、別出所 (状態機械の外) の VM に触らない理由を error で返す。
+func otherSourceError(name, recordedSource string) error {
+	return fmt.Errorf("sandbox VM %s は別の repo (%s) から作られている", name, recordedSource)
 }
 
 // unexpectedState は、入口が扱いを決めていない状態に着いたときの error。状態を足したのに入口を直していない不具合で、
