@@ -99,7 +99,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 3. VM が使っている template の image を `sbx template rm` で消せるか（旧い template の片付け）
 4. copy 方式の持ち込み: `sbx cp` は host の uid と mode のまま置く（ADR 0006）。`sbx exec -i` の stdin で流し込み、VM の agent から読み書きできるか
 5. mount 方式: env 定義で `workspace.clone: false` にしたとき、host の作業ツリーが VM の agent から読み書きできる uid で見えるか
-6. VM 内から許可外の宛先への通信が proxy で拒否され、curl が失敗として返るか（egress 自己検証の判定）
+6. VM 内から許可外の宛先への通信が proxy で拒否され、curl が失敗として返るか（egress 自己検証の判定）。下の実測は sbx v0.45.1 の拒否応答（body の `Blocked by network policy`）を前提にしている。sbx v0.48.0 では許可外の宛先が承認待ち（body の 1 行目が `Approval required for <宛先>.`）になり、この前提は古くなった → [decision/0016](decision/0016-proxy-denial-is-approval-pending-or-local-rule-block.md)
 7. sbx が global rule の host の大小文字や port の無い pattern（例: `*.example.com`）を正規化して保存するか。書き換えるなら、`sbxr policy sync` はその宛先を毎回消して足し直す（ADR 0008）
 8. copy 方式で、host と同じ path（例: `/Users/<user>/...`）の親ディレクトリを VM 内に agent の所有で作り、そこへ展開できるか（decision/0014）。4 で確かめたのは `/home/agent/workspace/<repo>` だけ
 9. `herdr machine add` が ssh 経由で起動し直す VM 内の herdr server でも、最初の workspace が VM 内の作業ツリーで始まるか（decision/0014）。2026-09-29 の実測では、sbxr の kit が起動した server は登録の前に止められ、`machine add` が起動した server の cwd は `/home/agent/workspace` だった。その cwd の決まり方と、`new_cwd` が最初の workspace に効くかは確かめていない。→ 成り立たない（下の実測。#85）
@@ -137,7 +137,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
    - 403 の body は `Blocked by network policy: domain example.com:443`。TLS は proxy が終端しているので、状態コードだけでは宛先自身の 403 と区別できない
    - `curl -f` は許可外で exit 22、許可先の `https://github.com` で exit 0 を返す。ただし、宛先が 4xx を返すと誤判定する
    - `--noproxy '*'` では、許可外は exit 6（名前解決の失敗）、許可先は 200 だった。`http://example.com` も 403 で拒否された
-   - decision/0006 の核（VM 内から実際の通信で 1 往復ずつ確かめる）は成り立つ。「届く」「届かない」の判定は、#39 で proxy の拒否応答（403 と body の `Blocked by network policy`）に置き換えた → [decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)
+   - decision/0006 の核（VM 内から実際の通信で 1 往復ずつ確かめる）は成り立つ。「届く」「届かない」の判定は、#39 で proxy の拒否応答（403 と body の `Blocked by network policy`）に置き換えた → [decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)。この body は sbx v0.48.0 では返らず、拒否応答の定義は v0.48.0 の承認待ちと deny rule の拒否に置き換えた → [decision/0016](decision/0016-proxy-denial-is-approval-pending-or-local-rule-block.md)
 
 ### 実測（2026-09-29、sbx v0.46.0、host の herdr 0.9.1 / VM の herdr v0.9.0、#85）
 
