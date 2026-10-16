@@ -87,7 +87,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 - 回収（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は未回収に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)・[decision/0003](decision/0003-destroy-checks-unrecovered.md)
 - 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)
 - init の重さ（#13）: 重い tool の導入が create のたびに init で走る。→ [decision/0004](decision/0004-template-per-repo-built-in-create.md)・[decision/0005](decision/0005-template-build-inputs-and-refresh.md)
-- egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)
+- egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)・[decision/0016](decision/0016-proxy-denial-is-approval-pending-or-local-rule-block.md)
 - VM 内の作業ツリー: copy の置き場が決まっておらず、herdr の pane は VM 内の作業ツリーではなく image の既定の cwd（`/home/agent/workspace`）で始まる。→ [decision/0014](decision/0014-vm-worktree-at-host-path-and-herdr-starts-there.md)・[decision/0015](decision/0015-herdr-first-workspace-reopened-after-registration.md)
 
 ## 未実測の前提
