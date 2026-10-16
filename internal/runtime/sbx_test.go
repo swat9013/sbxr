@@ -59,7 +59,7 @@ func TestSbxRemovesARuleByID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RemoveGlobalEgressRule() error = %v", err)
 	}
-	if want := []string{"policy rm network --id r1"}; !reflect.DeepEqual(stub.Writes, want) {
+	if want := []string{"policy rm network --force --id r1"}; !reflect.DeepEqual(stub.Writes, want) {
 		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
 	}
 }
@@ -107,14 +107,50 @@ func TestSbxSetsAPlaceholderSecretForEveryHost(t *testing.T) {
 	}
 }
 
-func TestSbxReadsAnEmptyOrNullSandboxListAsAbsent(t *testing.T) {
-	for _, listing := range []string{`{"sandboxes":[]}`, `{"sandboxes":null}`} {
+func TestSbxCreatesTheEnvironmentWithoutAskingForThePlan(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sbxenv.yaml"), []byte("name: app\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub := &sbxstub.Stub{}
+
+	err := NewSbx(stub.Run).createEnvironment(context.Background(), dir)
+
+	if err != nil {
+		t.Fatalf("createEnvironment() error = %v", err)
+	}
+	if want := []string{"env create --force " + dir}; !reflect.DeepEqual(stub.Writes, want) {
+		t.Errorf("sbx writes = %q, want %q", stub.Writes, want)
+	}
+}
+
+func TestSbxReadsAnEmptySandboxListAsAbsent(t *testing.T) {
+	run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(`[]`), nil }
+
+	status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
+
+	if err != nil || status != SandboxAbsent {
+		t.Errorf("SandboxStatus([]) = %v, %v, want absent", status, err)
+	}
+}
+
+// 読めない形を「VM が無い」と読むと、destroy が稼働中の VM を消失として扱い、使用中でも撤去してしまう。
+func TestSbxCannotTellTheStatusFromAnUnexpectedSandboxList(t *testing.T) {
+	for _, listing := range []string{
+		`null`,
+		`{}`,
+		`{"sandboxes":[{"name":"app","status":"running"}]}`,
+		`[{}]`,
+		`[{"id":"app","status":"running"}]`,
+		`[{"name":"app","status":"running"},{}]`,
+		``,
+	} {
 		run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
 
 		status, err := NewSbx(run).SandboxStatus(context.Background(), "app")
 
-		if err != nil || status != SandboxAbsent {
-			t.Errorf("SandboxStatus(%s) = %v, %v, want absent", listing, status, err)
+		if err == nil || status != SandboxUnknown {
+			t.Errorf("SandboxStatus(%q) = %v, %v, want unknown with an error", listing, status, err)
 		}
 	}
 }
@@ -208,7 +244,7 @@ func TestSbxReadsTheStatusOfItsSandboxes(t *testing.T) {
 		"starting": SandboxRunning, // sbx の他の値は、使用中かもしれないので稼働中と読む (destroy は拒否する側に倒れる)
 	} {
 		t.Run(status, func(t *testing.T) {
-			listing := `{"sandboxes":[{"name":"app","status":"` + status + `"}]}`
+			listing := `[{"name":"app","status":"` + status + `"}]`
 			run := func(context.Context, io.Reader, ...string) ([]byte, error) { return []byte(listing), nil }
 
 			got, err := NewSbx(run).SandboxStatus(context.Background(), "app")

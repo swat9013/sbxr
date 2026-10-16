@@ -86,8 +86,9 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		for _, name := range slices.Sorted(maps.Keys(s.Sandboxes)) {
 			list = append(list, sandbox{Name: name, Status: s.Sandboxes[name]})
 		}
-		return json.Marshal(map[string][]sandbox{"sandboxes": list})
-	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--auto-approve"}):
+		// sbx v0.48.0 は sandbox の配列そのものを返し、1 つも無ければ []
+		return json.Marshal(list)
+	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "create", "--force"}):
 		name, err := envName(args[3])
 		if err != nil {
 			return nil, err
@@ -150,16 +151,19 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 			s.Rules = append(s.Rules, GlobalAllow(fmt.Sprintf("added-%d", s.nextID), resource))
 		}
 		return nil, nil
-	case len(args) == 5 && slices.Equal(args[:4], []string{"policy", "rm", "network", "--id"}):
+	case len(args) >= 3 && slices.Equal(args[:3], []string{"policy", "rm", "network"}) && !slices.Contains(args, "--force"):
+		// 実 sbx は stdin が端末でないと確認を出せず、--force を要求する (stub の stdin は端末でない)
+		return nil, fmt.Errorf("sbxstub: stdin is not a terminal; pass --force to skip the confirmation")
+	case len(args) == 6 && slices.Equal(args[:5], []string{"policy", "rm", "network", "--force", "--id"}):
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
 		if s.DropWrites {
 			return nil, nil
 		}
-		index := slices.IndexFunc(s.Rules, func(r Rule) bool { return r.ID == args[4] })
+		index := slices.IndexFunc(s.Rules, func(r Rule) bool { return r.ID == args[5] })
 		if index < 0 {
-			return nil, fmt.Errorf("sbxstub: rule %s が無い", args[4])
+			return nil, fmt.Errorf("sbxstub: rule %s が無い", args[5])
 		}
 		s.Rules = slices.Delete(s.Rules, index, index+1)
 		return nil, nil

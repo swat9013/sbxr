@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -95,9 +96,10 @@ func (s *Sbx) AllowGlobalEgress(ctx context.Context, resource string) error {
 	return err
 }
 
-// RemoveGlobalEgressRule は sbx policy rm network --id で global rule を消す。
+// RemoveGlobalEgressRule は sbx policy rm network --id で global rule を消す。sbx の確認は省くので --force を渡す
+// (消す rule は宣言との差分から sbxr が決めている。sbx v0.48.0 は stdin が端末でないと確認を出せず、--force が無ければ失敗する。実測)。
 func (s *Sbx) RemoveGlobalEgressRule(ctx context.Context, id string) error {
-	_, err := s.run(ctx, nil, "policy", "rm", "network", "--id", id)
+	_, err := s.run(ctx, nil, "policy", "rm", "network", "--force", "--id", id)
 	return err
 }
 
@@ -119,32 +121,48 @@ func (s *Sbx) setSandboxSecret(ctx context.Context, sandbox string, secret Sandb
 }
 
 // SandboxStatus は sbx ls --json から sandbox の status を引く。
+// sbx v0.48.0 の出力は sandbox の配列そのもので、sandbox が 1 つも無ければ [] を返す (実測)。
 func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus, error) {
 	out, err := s.run(ctx, nil, "ls", "--json")
 	if err != nil {
 		return SandboxUnknown, err
 	}
-	var listing map[string]json.RawMessage
-	if err := json.Unmarshal(out, &listing); err != nil {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を読めない: %w", err)
+	// 読めない形を「VM が無い」と読まないよう、配列でないもの (null を含む) と name の無い要素は error にする
+	var sandboxes *[]sbxSandbox
+	if err := json.Unmarshal(out, &sandboxes); err != nil {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力を sandbox の配列として読めない (sbxr は sbx %s の出力の形を読む): %w: %q", sbxOutputVersion, err, sbxOutputHead(out))
 	}
-	raw, ok := listing["sandboxes"]
-	if !ok {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に sandboxes が無い")
+	if sandboxes == nil {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力が null で、sandbox の配列でない (sbxr は sbx %s の出力の形を読む)", sbxOutputVersion)
 	}
-	var sandboxes []struct { // sandbox が 1 つも無ければ null でも空でもよい
-		Name   string `json:"name"`
-		Status string `json:"status"`
+	// 一致を探す前に全要素を確かめる (一致の後ろにある name の無い要素を見落とさない)
+	if slices.ContainsFunc(*sandboxes, func(sb sbxSandbox) bool { return sb.Name == "" }) {
+		return SandboxUnknown, fmt.Errorf("sbx ls --json の出力に name の無い sandbox がある (sbxr は sbx %s の出力の形を読む): %q", sbxOutputVersion, sbxOutputHead(out))
 	}
-	if err := json.Unmarshal(raw, &sandboxes); err != nil {
-		return SandboxUnknown, fmt.Errorf("sbx ls --json の sandboxes を読めない: %w", err)
-	}
-	for _, sb := range sandboxes {
+	for _, sb := range *sandboxes {
 		if sb.Name == sandbox {
 			return sbxStatus(sb.Status), nil
 		}
 	}
 	return SandboxAbsent, nil
+}
+
+// sbxOutputVersion は、Sbx adapter が読む sbx の出力の形を実測した版。版の下限は #99 で決める。
+const sbxOutputVersion = "v0.48.0"
+
+// sbxSandbox は sbx ls --json の要素のうち、sbxr が読む field。
+type sbxSandbox struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// sbxOutputHead は error に添える sbx の出力を先頭 200 byte に切る。
+func sbxOutputHead(out []byte) []byte {
+	const limit = 200
+	if len(out) > limit {
+		return out[:limit]
+	}
+	return out
 }
 
 // sbxStatus は sbx ls の status を読む。stopped 以外は、使用中かもしれないので稼働中と読む
@@ -156,9 +174,10 @@ func sbxStatus(status string) SandboxStatus {
 	return SandboxRunning
 }
 
-// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので --auto-approve を渡す。
+// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので、
+// plan を確認なしで適用する --force を渡す。
 func (s *Sbx) createEnvironment(ctx context.Context, envDir string) error {
-	_, err := s.run(ctx, nil, "env", "create", "--auto-approve", envDir)
+	_, err := s.run(ctx, nil, "env", "create", "--force", envDir)
 	return err
 }
 

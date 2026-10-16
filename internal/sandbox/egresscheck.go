@@ -20,8 +20,14 @@ echo "$status $code"
 if [ "$status" -eq 0 ]; then head -c 1024 "$out"; else head -c 1024 "$err"; fi
 rm -f "$out" "$err"`
 
-// proxyDenial は proxy の拒否応答の body に入る文言 (sbx v0.45.1 の実測。decision/0007)。
-const proxyDenial = "Blocked by network policy"
+// isProxyDenial は、403 の body が host:443 への proxy の拒否応答かを読む (sbx v0.48.0 の実測。decision/0016)。
+// どの rule にも当たらない宛先は承認待ち、deny rule に当たった宛先は local rule の拒否になる。どちらも宛先へは届いていない。
+// 宛先自身の 403 と取り違えないよう、body の 1 行目を宛先まで含めて一致で照合する (前置きの一致では :4430 も当たる)。
+func isProxyDenial(host, body string) bool {
+	target := host + ":443"
+	first, _, _ := strings.Cut(body, "\n")
+	return first == "Approval required for "+target+"." || first == "Blocked by local rule for "+target
+}
 
 // probeResult は VM 内から 1 つの宛先へ送った結果。
 type probeResult int
@@ -29,7 +35,7 @@ type probeResult int
 const (
 	// probeReached は proxy の拒否応答でない HTTP 応答が返った (状態コードを問わない)。
 	probeReached probeResult = iota
-	// probeDenied は proxy の拒否応答 (403 と body の proxyDenial) が返った。
+	// probeDenied は proxy の拒否応答 (403 と、isProxyDenial に当たる body) が返った。
 	probeDenied
 	// probeFailed は HTTP 応答が無い (curl の失敗)。
 	probeFailed
@@ -53,7 +59,7 @@ func probeHTTPS(ctx context.Context, v vm, host string) (probe, error) {
 	switch {
 	case status != "0" || code == "" || code == "000":
 		p.result = probeFailed
-	case code == "403" && strings.Contains(rest, proxyDenial):
+	case code == "403" && isProxyDenial(host, rest):
 		p.result = probeDenied
 	default:
 		p.result = probeReached
@@ -98,7 +104,8 @@ func checkDenied(ctx context.Context, v vm, allowed []string, progress io.Writer
 	case err != nil:
 		return err
 	case p.result == probeReached:
-		return fmt.Errorf("許可外の %s:443 に届いた (状態コード %s。sbx の global policy が許可外の宛先を拒否していない)", host, p.code)
+		// body を添えるのは、policy が効いていないのか、proxy の拒否応答の文面が変わったのかを見分けるため
+		return fmt.Errorf("許可外の %s:443 に届いた (状態コード %s。sbx の global policy が許可外の宛先を拒否していない): %s", host, p.code, p.detail)
 	case p.result == probeFailed:
 		return fmt.Errorf("許可外の %s:443 への通信が proxy の拒否応答を得ずに失敗した (proxy の policy が効いているか確かめられない): %s", host, p.detail)
 	}
