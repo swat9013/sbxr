@@ -33,7 +33,7 @@ type envDefinition struct {
 	Workspace     envWorkspace      `yaml:"workspace"`
 	Kits          []envKit          `yaml:"kits"`
 	Env           map[string]string `yaml:"env,omitempty"`
-	// SandboxOptions は作成時に決まる sandbox の設定。
+	// SandboxOptions は作成時に決まる sandbox の設定。sbx は未知の key を拒むので、実 sbx で確かめた key だけを足す。
 	SandboxOptions *envSandboxOptions `yaml:"sandboxOptions,omitempty"`
 }
 

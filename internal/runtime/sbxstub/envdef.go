@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -16,12 +17,11 @@ const envFile = "sbxenv.yaml"
 type envDefinition struct {
 	// Name は env 定義が指す sandbox VM の名前。
 	Name string
-	// SkillsMode は sandboxOptions.skills。無ければ空 (sbx の既定の共有)。
+	// SkillsMode は sandboxOptions.skills。無ければ空 (sbx の既定の共有)。値は確かめない (作成の側で確かめる)。
 	SkillsMode string
 }
 
-// readEnv は dir の env 定義を読む。env 定義が無いか name が無ければ error (sbx の実測)。
-// sandboxOptions.skills が受ける値は off・readonly・readwrite で、ほかの値は error (sbx create --skills の help、sbx v0.48.0)。
+// readEnv は dir の env 定義を読む。env 定義が無いか、読めないか、name が無ければ error (sbx の実測)。
 func readEnv(dir string) (envDefinition, error) {
 	data, err := os.ReadFile(filepath.Join(dir, envFile))
 	if err != nil {
@@ -33,19 +33,28 @@ func readEnv(dir string) (envDefinition, error) {
 			Skills string `yaml:"skills"`
 		} `yaml:"sandboxOptions"`
 	}
-	if err := yaml.Unmarshal(data, &env); err != nil || env.Name == "" {
+	if err := yaml.Unmarshal(data, &env); err != nil {
+		return envDefinition{}, fmt.Errorf("sbxstub: %s/%s を読めない: %w", dir, envFile, err)
+	}
+	if env.Name == "" {
 		return envDefinition{}, fmt.Errorf("sbxstub: %s/%s の name を読めない", dir, envFile)
 	}
-	switch mode := env.SandboxOptions.Skills; mode {
-	case "", "off", "readonly", "readwrite":
-		return envDefinition{Name: env.Name, SkillsMode: mode}, nil
-	default:
-		return envDefinition{}, fmt.Errorf("sbxstub: %s/%s の sandboxOptions.skills %q は off・readonly・readwrite のどれでもない", dir, envFile, mode)
-	}
+	return envDefinition{Name: env.Name, SkillsMode: env.SandboxOptions.Skills}, nil
 }
 
 // envName は dir の env 定義が指す sandbox VM の名前を読む。env 定義が無ければ error (sbx の実測)。
 func envName(dir string) (string, error) {
 	env, err := readEnv(dir)
 	return env.Name, err
+}
+
+// skillsModes は作成で sandboxOptions.skills が受ける値。空は sbx の既定 (sbx create --skills の help、sbx v0.48.0)。
+var skillsModes = []string{"", "off", "readonly", "readwrite"}
+
+// checkSkillsMode は作成に使う env 定義の sandboxOptions.skills が sbx の受ける値かを確かめる。
+func (env envDefinition) checkSkillsMode() error {
+	if !slices.Contains(skillsModes, env.SkillsMode) {
+		return fmt.Errorf("sbxstub: sandboxOptions.skills %q は off・readonly・readwrite のどれでもない", env.SkillsMode)
+	}
+	return nil
 }

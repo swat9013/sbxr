@@ -95,6 +95,9 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		if err != nil {
 			return nil, err
 		}
+		if err := env.checkSkillsMode(); err != nil {
+			return nil, err
+		}
 		if err := s.recordWrite(args, input); err != nil {
 			return nil, err
 		}
