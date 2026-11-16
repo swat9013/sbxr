@@ -251,7 +251,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 ### Main Success Scenario
 
 1. 利用者が、repo を指定して（省いてもよい）診断を求める
-2. sbxr が環境を検査する（sbx が PATH にある、secret ファイルの mode が 0600 で読める、herdr 連携が有効なら host に herdr がある）
+2. sbxr が環境を検査する（sbx が PATH にあり、版が対応する範囲にある、secret ファイルの mode が 0600 で読める、herdr 連携が有効なら host に herdr がある）
 3. sbxr が user 設定を検査する（書式・型・未知の key、global rule が宣言と揃っている）
 4. sbxr が repo 宣言を検査する（書式・型・未知の key・スコープ制限、repo の egress の group が揃っている）
 5. sbxr が merge 後の git identity と、要求された secret が配線されること・その値が secret ファイルにあることを検査する
@@ -263,6 +263,8 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 1b. git URL: sbxr は一時ディレクトリへ clone して repo 宣言を読み、読み終えたら消す（UC1 と同じ）
 - 2a. sbx が無い: sbxr は sbx の項目を fail にし、3 の global rule を skip にして続ける
 - 2b. secret ファイルが読めない（mode が 0600 でない、書式が違う）: sbxr は fail にし、5 の値の検査を skip にして続ける
+- 2c. sbx の版が下限より旧いか、版を読めない: sbxr は fail にし、sbx の更新を示して続ける
+- 2d. sbx の版が実測済みの上限より新しい: sbxr は ok のまま、実測済みの範囲の外であることを注記して続ける
 - 3a. user 設定が通らない: sbxr は fail にし、user 設定に依る項目（herdr・global rule・git identity・secret の配線と値）を skip にして 4 へ
 - 4a. repo 宣言が通らない（clone できない・ディレクトリが無いを含む）: sbxr は fail にし、merge 後の git identity を skip にする。secret は 1a と同じく user 設定だけで判定して 6 へ
 - 5a. 要求された secret の注入先 host が egress で許可されていない: sbxr は fail にし、host を許可するか要求から外すよう示す（repo を省いたときは、repo の egress で許可されうるので skip にする）
