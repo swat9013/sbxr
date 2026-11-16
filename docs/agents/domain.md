@@ -49,3 +49,9 @@ If the concept you need isn't in the glossary yet, that's a signal: either you'r
 If your output contradicts an existing ADR, surface it explicitly rather than silently overriding:
 
 > _Contradicts ADR-0007 (event-sourced orders), but worth reopening because…_
+
+## 設計 doc の置き場
+
+| 置き場 | 適用範囲 | 索引 |
+|---|---|---|
+| `docs/design/sbxr/` | `cmd/**`・`internal/**`・`skills/**` | `docs/design/sbxr/README.md` |

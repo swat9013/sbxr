@@ -38,14 +38,14 @@ VMGone --> VMGone : stop / 拒否 (destroy を促す)
 
 ' --- destroy ---
 Absent --> Absent : destroy / 拒否 (VM が無い)
-IncompleteStopped --> Absent : destroy / 未回収を検査せずに撤去
+IncompleteStopped --> Absent : destroy / 未 push の作業を検査せずに撤去
 IncompleteRunning --> IncompleteRunning : destroy [--force 無し] / 拒否 (使用中か確かめられない)
 IncompleteRunning --> Absent : destroy [--force] / 撤去
 Running --> Running : destroy [--force 無し] / 拒否 (使用中か確かめられない)
-Running --> Absent : destroy [--force] / 未回収を検査せずに撤去
-Stopped --> Stopped : destroy [未回収あり ∨ 検査に失敗] / 一時起動して検査し、止め直して拒否
-Stopped --> Absent : destroy [未回収なし ∨ 検査対象外] / 一時起動して検査し、止め直して撤去
-Stopped --> Absent : destroy [--force] / 未回収を検査せずに撤去
+Running --> Absent : destroy [--force] / 未 push の作業を検査せずに撤去
+Stopped --> Stopped : destroy [未 push の作業あり ∨ 検査に失敗] / 一時起動して検査し、止め直して拒否
+Stopped --> Absent : destroy [未 push の作業なし ∨ 検査対象外] / 一時起動して検査し、止め直して撤去
+Stopped --> Absent : destroy [--force] / 未 push の作業を検査せずに撤去
 VMGone --> Absent : destroy / VM が無くても sandbox スコープの secret を消して撤去
 
 ' --- sbxr の外で起きること (sbx exec・herdr の再接続・sbx stop・sbx rm) ---
