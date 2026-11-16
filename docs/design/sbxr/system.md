@@ -16,23 +16,23 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 
 却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（2 回目以降の boot の失敗は VM の log に残るだけ）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
 
-アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認関門の根拠）。VM 内の agent は sbxr と接しない。host の agent が skill `sbxr-config` で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは doctor と plan の出力だけである。skill は repo に置くが、sbxr の binary には含めず、境界の外に置く（decision/0013）。
+アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認プロンプトの根拠）。VM 内の agent は sbxr と接しない。host の agent が skill `sbxr-config` で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは doctor と plan の出力だけである。skill は repo に置くが、sbxr の binary には含めず、境界の外に置く（decision/0013）。
 
 ## 相手 × 経由 × 方向
 
 | 相手 | 境界 | 経由 | 方向 | やり取りするもの |
 |---|---|---|---|---|
-| 利用者 | 外 | CLI 引数・端末（port にしない） | 双方向 | コマンド・投入方式・承認・token / 作る内容の要約・drift・未回収・復旧手順 |
+| 利用者 | 外 | CLI 引数・端末（port にしない） | 双方向 | コマンド・投入方式・承認・token / 作る内容の要約・drift・未 push の作業・復旧手順 |
 | user 設定 | 外 | ファイル（port にしない） | 入 | 信頼済みの宣言 |
 | repo 宣言 | 外 | ファイル（port にしない） | 入 | untrusted な宣言 |
 | secret ファイル | 外 | ファイル（port にしない） | 入 / 出（secret setup） | secret の値 |
 | host 側 repo（path のとき） | 外 | host の git・ファイル（port にしない） | 入 / mount では VM が直接書く | origin の host、copy で持ち込むもの、mount の対象、cache 層の inputs |
-| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未回収の検査・egress 自己検証・copy の持ち込み・herdr の最初の workspace の開き直し）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
+| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未 push の作業の検査・egress 自己検証・copy の持ち込み・herdr の最初の workspace の開き直し）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
 | VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版、VM 内の作業ツリー、host の skills を持ち込まないこと）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009）。このうち host の skills を持ち込まないことは kit ではなく、env 定義の `sandboxOptions.skills` で作成時に入れる（decision/0017） |
 | host の herdr | 外 | herdr CLI（port にしない） | 出 | herdr machine の登録・無効化・有効化・解除 |
 | git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan・drift・doctor の一時 clone |
 | GitHub API | 外 | HTTPS（port にしない） | 出 | secret setup github の token の能力の probe |
-| origin | 外 | VM 内の git（Runtime の exec 経由） | VM 発 | 未回収の検査のための fetch。VM からの push は agent と利用者が行い、sbxr は関与しない。VM に ssh 鍵は無く token は HTTPS にだけ注入されるので、materialize が origin の host の ssh 形を https に書き換える。fetch と push には、origin の host の egress 許可と secret の配線が要る |
+| origin | 外 | VM 内の git（Runtime の exec 経由） | VM 発 | 未 push の作業の検査のための fetch。VM からの push は agent と利用者が行い、sbxr は関与しない。VM に ssh 鍵は無く token は HTTPS にだけ注入されるので、materialize が origin の host の ssh 形を https に書き換える。fetch と push には、origin の host の egress 許可と secret の配線が要る |
 | egress の probe 先 | 外 | VM 内の curl（Runtime の exec 経由） | VM 発 | egress 自己検証の 1 往復ずつ |
 
 ### Runtime の順序の制約
@@ -70,7 +70,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 | 停止中 | あり | あり | 停止 |
 | VM 消失 | あり | あり | 無し |
 
-イベントは、sbxr が起こす `create`・`stop`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 6 つ。同じイベントの結果の分岐（create の失敗の段、destroy の `--force` と未回収）は guard で書く。
+イベントは、sbxr が起こす `create`・`stop`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 6 つ。同じイベントの結果の分岐（create の失敗の段、destroy の `--force` と未 push の作業）は guard で書く。
 
 主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →外部起動→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
 
@@ -84,7 +84,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 
 ## 解こうとしている構造課題
 
-- 回収（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は未回収に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)・[decision/0003](decision/0003-destroy-checks-unrecovered.md)
+- VM 内の commit の push（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は未 push の作業に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)・[decision/0003](decision/0003-destroy-checks-unrecovered.md)
 - 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)
 - init の重さ（#13）: 重い tool の導入が create のたびに init で走る。→ [decision/0004](decision/0004-template-per-repo-built-in-create.md)・[decision/0005](decision/0005-template-build-inputs-and-refresh.md)
 - egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)・[decision/0016](decision/0016-proxy-denial-is-approval-pending-or-local-rule-block.md)
@@ -95,7 +95,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 実装の前に実 sbx で確かめる。確かめられなければ、該当する決定を見直す。
 
 1. sbxenv.yaml で template（image）を指定できるか。`sbx env --help`（v0.45.1）に記述が無い。できなければ、#13 は作成の経路（ADR 0006 の `sbx env create`）から見直す
-2. clone 方式（`workspace.clone: true`）の VM 内の repo の origin が、host 側 repo の origin URL を指すか。指さなければ、VM からの push と未回収の検査が成り立たない
+2. clone 方式（`workspace.clone: true`）の VM 内の repo の origin が、host 側 repo の origin URL を指すか。指さなければ、VM からの push と未 push の作業の検査が成り立たない
 3. VM が使っている template の image を `sbx template rm` で消せるか（旧い template の片付け）
 4. copy 方式の持ち込み: `sbx cp` は host の uid と mode のまま置く（ADR 0006）。`sbx exec -i` の stdin で流し込み、VM の agent から読み書きできるか
 5. mount 方式: env 定義で `workspace.clone: false` にしたとき、host の作業ツリーが VM の agent から読み書きできる uid で見えるか
@@ -123,7 +123,7 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
 2. **成り立つ**
    - 手順: probe の repo から clone 方式（`workspace.clone: true`）の VM を作り、`sbx exec -w <repo> <VM> git remote -v`・`git branch -vv`・`git for-each-ref` で VM 内を見た。host 側 repo は、create の後と `sbx env rm` の後に `git for-each-ref` と `git remote -v` で見た
    - VM 内の repo の `git remote -v` は origin だけで、host 側 repo の origin URL を指す。`main` は `origin/main` を追跡する
-   - fetch の前の VM の `refs/remotes/origin/*` は、実際の origin ではなく、create 時の host の local branch を写したもの（origin に無い host の commit を指していた）。未回収の検査を「VM 内で fetch した後」の remote-tracking で行う decision/0003 の定義は、この理由でも外せない
+   - fetch の前の VM の `refs/remotes/origin/*` は、実際の origin ではなく、create 時の host の local branch を写したもの（origin に無い host の commit を指していた）。未 push の作業の検査を「VM 内で fetch した後」の remote-tracking で行う decision/0003 の定義は、この理由でも外せない
    - host 側 repo には `sandbox-<name>` remote（`git://127.0.0.1:<port>/<repo>`）と `refs/sandboxes/<name>/*` が足される。`sbx env rm` の後、remote は消え、`refs/sandboxes/<name>/*` は残る
 3. **成り立つ**
    - 手順: 1 の VM が稼働中のまま、その image の tag を `sbx template rm --force sbxr-probe:t1` で消した。`Removed` で 0 で終わり、`sbx template ls` から消えた
@@ -135,7 +135,7 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
    - 対照として、`sbx cp` で置いたファイルは host の uid（1917701712）と gid 0 のままだった（ADR 0006 の記述どおり）
 5. **成り立つ**
    - 手順: `workspace.clone: false` の VM で、VM 内の host と同じ path の作業ツリーを見た。ファイルは uid 1000（agent）の所有に見え、agent でファイルを作り、commit できた。VM で作ったファイルは host では host の uid で、commit は host 側 repo の log に現れた
-   - ignored のファイル（`.gitignore` に書いた `ignored.txt`）も VM から読めた。decision/0002 が確認関門で示すとしたリスクのとおり
+   - ignored のファイル（`.gitignore` に書いた `ignored.txt`）も VM から読めた。decision/0002 が確認プロンプトで示すとしたリスクのとおり
 6. **前半は成り立ち、後半は成り立たない** → #39
    - 手順: 2 の VM で `sbx exec <VM> curl -sS -o /dev/null -w '%{http_code}' https://example.com` と、同じ形の `https://github.com` を実行した。あわせて `-f`・`--noproxy '*'`・`http://` の変形と、body の中身を見た
    - 許可外の `https://example.com` は proxy（`gateway.docker.internal:3128`）が拒否する。ただし応答は HTTP 403 で、既定の `curl` は exit 0 で返る
