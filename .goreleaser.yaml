@@ -26,7 +26,7 @@ homebrew_casks:
     hooks:
       post:
         # 署名・公証をしていないので、quarantine 属性を外さないと macOS が実行を拒否する
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/sbxr"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/sbxr"]
           end

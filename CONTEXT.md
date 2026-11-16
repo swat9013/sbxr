@@ -45,30 +45,30 @@ _Avoid_: `.sandbox.yaml`（旧名）, repo config
 `~/.config/sbxr/config.yaml`。user スコープの宣言で、信頼済みの入力として扱う。
 _Avoid_: global config, defaults
 
-**確認関門**:
-create の前に merge 結果を人間に見せて承認を得る段階。repo 宣言が untrusted であることへの防御。
-_Avoid_: prompt, confirm
+**確認プロンプト**（confirmation prompt）:
+create の前に merge 結果を利用者に見せ、承認を得る表示。repo 宣言が untrusted であることへの防御で、`--yes` で省ける。
+_Avoid_: 確認関門（旧称。decision/ と ADR の既存 file に残る）, approval gate（CI/CD の別の承認者による承認を指す）
 
 **drift**:
 状態ディレクトリにある作成時の宣言と、現在の宣言との差のうち、既存の sandbox VM が取り込まない部分。drift は再作成の合図になる。global rule は policy sync で既存の sandbox VM にも行き渡るため、drift に含めない。ただし、global rule の変更で配線が変われば、その差は drift になる（配線は作成時にしか置かれない）。
 _Avoid_: 宣言全体の差
 
 **作成時の宣言**:
-create のときに確定し、状態ディレクトリに記録した宣言。記録があることが作成済みの印で、drift の基準になる。
+create のときに確定し、状態ディレクトリに記録した宣言。記録があることが作成済みの印で、drift の基準になる。（last-applied configuration に当たる）
 
 **診断**:
 host の前提（sbx・secret ファイル・herdr・global rule）と 3 スコープの宣言を、規則に照らして全件検査すること（`sbxr doctor`）。スコープごとに独立して検査し、1 つの誤りで残りを止めない。VM の状態は見ない。
 _Avoid_: lint, validate（plan と create の途中の、最初の誤りで止まる検証と紛れる）
 
 **現在の宣言**:
-いまの 3 スコープの宣言から、作成時と同じ扱い（投入方式・repo の egress を落としたか）で確定した宣言。
+いまの 3 スコープの宣言から、作成時と同じ扱い（投入方式・repo の egress を落としたか）で確定した宣言。（effective configuration に当たる）
 
 **投入方式**:
 repo を sandbox VM へ渡す方式。clone（VM 内の clone）・copy（`.git` と ignored でないファイルの複製。`.git/config` の認証設定は除く）・mount（host の作業ツリーの直接 mount）の 3 つ。create のときに利用者が選び、git URL は clone だけ。
 _Avoid_: workspace mode（sbx の用語と紛れる）
 
 **cache 層**:
-repo の source を渡す前に走らせ、template に焼くコマンド列。宣言の `template`（`run`・`inputs`）で書く。
+repo の source を渡す前に走らせ、template に焼くコマンド列。宣言の `template`（`run`・`inputs`）で書く。（prebuild に当たる）
 _Avoid_: init の前半
 
 ### egress
@@ -103,11 +103,11 @@ _Avoid_: keychain, `.sbox/env`
 `secrets` に secret 定義の名前を並べて配線を求めること。全スコープで書け、user スコープの要求は全 sandbox VM への常時要求になる。
 
 **配線**:
-secret 要求のうち、注入先 host がすべて egress 宣言で許可されたものを、sandbox スコープの secret として実行基盤に置くこと。許可は、実行基盤にある rule ではなく宣言で判定する。
+secret 要求のうち、注入先 host がすべて egress 宣言で許可されたものを、sandbox スコープの secret として実行基盤に置くこと。許可は、実行基盤にある rule ではなく宣言で判定する。（secret binding に当たる）
 
-**placeholder 注入**:
-VM には置換用の仮の値だけを入れ、実値は host 側の proxy が通信時に差し込む方式。実値は VM に入らない。
-_Avoid_: env 注入
+**credential injection**:
+VM には置換用の仮の値（placeholder）だけを入れ、実値は host 側の proxy が通信時に差し込む方式。実値は VM に入らない。
+_Avoid_: placeholder 注入（旧称。decision/ と ADR の既存 file に残る）, env 注入
 
 ### VM 内の構成
 
@@ -129,15 +129,12 @@ create 時に 1 回だけ VM 内で走るコマンド列。
 sandbox VM の起動ごとに VM 内で走るコマンド列。起動で消える状態（daemon など）を戻す。走るのは作成時に確定した内容。
 _Avoid_: startup（sbx kit の用語）, resume hook
 
-**回収**:
-sandbox VM 内で agent が作った commit を、VM が消えても残る場所（origin）へ出すこと。VM 内から push して行う。sbxr は host 側 repo へ取り込む経路を持たない。
-_Avoid_: sync, pull, fetch
-
-**未回収**:
-destroy で失われる VM 内の作業。origin から到達できない local branch の commit、未 commit の変更、stash。投入方式が clone か copy の VM だけが持つ。
+**未 push の作業**:
+destroy で失われる VM 内の作業。origin から到達できない local branch の commit（unpushed commits）、未 commit の変更、stash。投入方式が clone か copy の VM だけが持つ。
+_Avoid_: 未回収（旧称。decision/ と ADR の既存 file に残る）, dirty（未 commit の変更だけを指す）
 
 **一時起動**:
-destroy が未回収を検査するために、停止中の sandbox VM を起動し、検査の後に止め直すこと。
+destroy が未 push の作業を検査するために、停止中の sandbox VM を起動し、検査の後に止め直すこと。
 
 ### herdr 連携
 
@@ -165,10 +162,10 @@ sbxr から見た 1 つの sandbox VM の状態とイベント。遷移の正本
 作成時の宣言はあるが、VM が sbxr の外で撤去されている。destroy で片付ける。
 
 **管理外**:
-状態ディレクトリの無い VM。sbxr はどのコマンドでも触らない。
+状態ディレクトリの無い VM。sbxr はどのコマンドでも触らない。（unmanaged resource に当たる）
 
 **別出所**:
 同じ名前の状態ディレクトリが別の出所のもの。sbxr はどのコマンドでも触らない。
 
 **外部起動** / **外部停止** / **外部撤去**:
-sbxr の外（sbx exec・herdr の再接続 / sbx stop / sbx rm）で VM が起動・停止・撤去されること。
+sbxr の外（sbx exec・herdr の再接続 / sbx stop / sbx rm）で VM が起動・停止・撤去されること。（out-of-band change に当たる）

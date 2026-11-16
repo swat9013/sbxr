@@ -1,13 +1,17 @@
 # sbxr の設計
 
-sbxr（repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI）の設計ドキュメント一式。システム関連図 → ユースケース → ドメインモデル図の順で作った。
+sbxr（repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI）の設計ドキュメント一式。目的 → システム関連図 → ユースケース → ドメインモデル図の順で作った。
 
-範囲は、実装済みの v0.1 に次の 4 つを足したもの。
+sbxr が達成したい状態は次の 4 つである。
 
-- #9（回収）: host へ取り込む fetch をやめ、repo の投入方式と destroy 前の未回収の検査に置き換えた
-- #12（egress 自己検証）
-- #13（init の cache 層を template に焼く）
-- repo の投入方式（clone・copy・mount）
+1. **隔離**: VM に入る設定と、VM から通信できる宛先は、利用者が create の前に確かめた内容だけである。
+2. **作業の保全**: VM 内の未 push の作業は、利用者が知らないまま消えない。
+3. **再現**: 同じ宣言からは、同じ構成の VM を作り直せる。
+4. **手数**: 宣言 1 枚と少ないコマンドで使い始められる。
+
+食い違ったときは、隔離 > 作業の保全 > 再現 > 手数の順に優先する。
+
+範囲は、実装済みの v0.1 に、[decision/](decision/) の決定が足したものである。
 
 語は [CONTEXT.md](../../../CONTEXT.md)、リポジトリ全体の設計判断は [docs/adr/](../../adr/) を正本とする。
 
@@ -40,7 +44,7 @@ sbxr（repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI�
 
 出所の hash は例示の短縮形（`/Users/u/src/app` → `1a2b`）で書く。具体的な ID と状態を入れた遷移列で、ドメインモデル図と状態機械が矛盾なく表現できるかを確かめる。見るのは、多重度・集約の境界・系譜。
 
-### シナリオ 1: cache 層を変えて作り直す（正常系と、未回収による停止）
+### シナリオ 1: cache 層を変えて作り直す（正常系と、未 push の作業による停止）
 
 path の repo `/Users/u/src/app` の宣言は `template: {inputs: [.mise.toml], run: [mise install]}`。投入方式は clone。
 
@@ -59,7 +63,7 @@ path の repo `/Users/u/src/app` の宣言は `template: {inputs: [.mise.toml], 
    - 止め直して拒否し、停止中のままになる
 6. 利用者が `sbx exec app -- git push origin feature/x` を実行する
    - 外部起動で稼働中になり、push の後に `sbxr stop` で停止中に戻す
-   - `sbxr destroy` は一時起動して検査し、未回収が空なので撤去する
+   - `sbxr destroy` は一時起動して検査し、未 push の作業が無いなので撤去する
    - 未作成になる。template `sbxr-app-1a2b:3f9a` は残る（参照する VM は 0 件）
 7. `sbxr create`
    - hash `7c21` の template が無いので、`sbxr-app-1a2b:7c21` を作り、同じ出所の `sbxr-app-1a2b:3f9a` を消す
@@ -86,7 +90,7 @@ git URL `https://github.com/acme/api.git` から作る。VM の名前は `api`�
 4. `sbxr stop` で作成途中・停止になる
 5. `sbxr destroy`
    - herdr 連携を有効にして作ったことは、作成の最初に書いた状態ディレクトリから分かる。host の herdr があることを確かめ、`api.sbx` の登録を探す（登録は作成時の宣言の後なので無い）
-   - 作成途中なので未回収を検査せずに撤去する
+   - 作成途中なので未 push の作業を検査せずに撤去する
    - sandbox スコープの secret・rule は env 定義ごと消える。cache clone と状態ディレクトリを片付け、未作成になる
 6. 利用者が sbx の global policy を直し、`sbxr policy sync` を実行してから `sbxr create --yes` をやり直す
    - 稼働中になる。作成時の宣言には、repo の egress を落とした扱いが記録される
@@ -103,7 +107,7 @@ git URL `https://github.com/acme/api.git` から作る。VM の名前は `api`�
 path の repo `/Users/u/src/web` を投入方式 mount で作る。user 設定で herdr 連携を有効（`v0.9.0`）にしている。
 
 1. `sbxr create --workspace mount /Users/u/src/web`
-   - 確認関門で mount のリスクを示し、利用者が承認する
+   - 確認プロンプトで mount のリスクを示し、利用者が承認する
    - VM `web` が稼働中になり、herdr machine `web.sbx`（id `m-12`）を登録する（有効）
 2. `sbxr stop`
    - `m-12` を無効にしてから止め、停止中になる
@@ -115,7 +119,7 @@ path の repo `/Users/u/src/web` を投入方式 mount で作る。user 設定�
    - 状態ディレクトリと作成時の宣言は残る。`m-12` は有効のまま、繋がらない宛先を指す
 5. `sbxr create /Users/u/src/web` は、VM 消失なので destroy を促して止まる
 6. `sbxr destroy`
-   - mount で、しかも VM 消失なので、未回収を検査しない
+   - mount で、しかも VM 消失なので、未 push の作業を検査しない
    - `m-12` を解除し、VM が無くても sandbox スコープの secret を消す
    - 状態ディレクトリを片付け、未作成になる
 
@@ -131,7 +135,7 @@ path の repo `/Users/u/src/web` を投入方式 mount で作る。user 設定�
 1. `sbxr create /a/app`
    - template `sbxr-app-aaaa:3f9a` を作り、VM `app`（出所 `/a/app`）が稼働中になる
 2. `sbxr stop /a/app` → `sbxr destroy /a/app`
-   - 未回収が空なので撤去し、未作成になる
+   - 未 push の作業が無いなので撤去し、未作成になる
    - template `sbxr-app-aaaa:3f9a` は残る
 3. `sbxr create /b/app`
    - VM `app` は未作成なので進む
@@ -153,4 +157,4 @@ path の repo `/Users/u/src/web` を投入方式 mount で作る。user 設定�
 - シナリオ 2 で、herdr 連携の有無が作成時の宣言にしか無いと、作成途中の VM の destroy が herdr machine を扱えない欠陥が見つかった（ADR 0007 の実装は env 定義から判定している）。出所・投入方式と並ぶ、作成の最初に記録する属性に改めた
 
 - シナリオ 4 で、template と build 用 VM を名前で識別すると、別の repo の template を上書き・削除してしまう欠陥が見つかった。識別を出所に改め、build 用 VM に状態ディレクトリ（build の印と出所）を持たせた
-- シナリオ 3 の 5 から、現行の実装が VM 消失でも create を「既にある」として drift の報告にしてしまう点が見つかった。状態機械では destroy を促す拒否として定義した（実装は follow-up）
+- シナリオ 3 の 5 から、現行の実装が VM 消失でも create を「既にある」として drift の報告にしてしまう点が見つかった。状態機械では destroy を促す拒否として定義し、実装もそれに合わせた
