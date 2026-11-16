@@ -104,13 +104,10 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 8. copy 方式で、host と同じ path（例: `/Users/<user>/...`）の親ディレクトリを VM 内に agent の所有で作り、そこへ展開できるか（decision/0014）。4 で確かめたのは `/home/agent/workspace/<repo>` だけ
 9. `herdr machine add` が ssh 経由で起動し直す VM 内の herdr server でも、最初の workspace が VM 内の作業ツリーで始まるか（decision/0014）。2026-09-29 の実測では、sbxr の kit が起動した server は登録の前に止められ、`machine add` が起動した server の cwd は `/home/agent/workspace` だった。その cwd の決まり方と、`new_cwd` が最初の workspace に効くかは確かめていない。→ 成り立たない（下の実測。#85）
 10. Kit spec v3 の kit を使う VM でも、`/var/log/sbx-kit-startup.log` に、Sbx adapter が kit startup の完了と失敗を読む dispatcher の行（上の表の kit dispatcher の行）が今と同じ文面で出るか。herdr を有効にした create はこの行で完了を待つ。文面は v2 runtime の dispatcher（`/etc/durable-startup.d/run.sh`）のもので、v3 の `lifecycle@1` は startup hook を VM の起動のたびに走らせることだけを決め、log の場所も文面も決めていない。v3 への移行の手順（spec の `skills/migrate-kit-to-v3`）は log の path に同じ `/var/log/sbx-kit-startup.log` を案内しているが、文面が同じかは書いていない。成り立たなければ、create は完了を読めず、adapter の待ちの上限の後に失敗する（#74 の項目 2）。→ sbx v0.53.0 では成り立つ（下の 2026-11-16 の実測）
+11. env 定義から、状態ディレクトリに書いた v3 の source kit を参照して VM を作れるか。2026-11-16 の実測は `sbx create --kit` で確かめ、`sbx env create` では確かめていない。v3 の kit 名は directory 名で決まる
+12. v3 の source kit の build（`docker.io/docker/sandbox-kit:3` の pull）が、sbxr の default の global rule のもとで通るか
 
-10 は、Kit spec v3 への移行を検討し始めたときに、移行を決める前に確かめる。sbxr の埋め込み kit は v2（`schemaVersion: "2"`）で、env 定義は built-in の `agent: claude` を使う。v3 の kit は v1・v2 の kit と同じ sandbox に混ぜられないので、移行は全面になる。移行は spec が成熟するまで実装しない。次のどちらかが起きたら移行を検討し始める。根拠は 2026-09-28 の調査（#74）で、読んだ spec は https://github.com/docker/sandbox-kit-spec の commit `b1c53cb` である。
-
-- spec の最終版が出る（調査の時点で experimental。最終版は 2026 Q4 の予定）
-- sbx が v2 kit か built-in agent（`agent: claude`）の非推奨化を告知する
-
-2 つ目の条件は、告知より強い形で起きた。sbx v0.51.0（2026-11-03）は built-in agent を公開の v3 kit に解決するようになり、v1・v2 の kit を v3 の kit と混ぜることを拒む。そのため sbx v0.51.0 以降では、v2 の埋め込み kit を使う `sbxr create` は VM を作る段で失敗する（下の 2026-11-16 の実測）。1 つ目の条件は起きていない（2026-11-16 の時点で spec の最新の tag は prerelease の `v3.0.0-m.12`）。移行をどう進めるかと、sbxr が対応する sbx の版の範囲は決めていない（#94・#99）。
+Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/0018](decision/0018-embedded-kits-move-to-kit-spec-v3.md)。11 と 12 は、移行の実装の前に確かめる。
 
 ### 実測（2026-09-27、sbx v0.45.1、#33）
 
