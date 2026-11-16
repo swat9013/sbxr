@@ -59,7 +59,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 
 1. 利用者が、repo と投入方式（既定は clone）を指定して作成を求める
 2. sbxr が 3 スコープの宣言を merge し、作る内容を確定する（template を再利用するか作るかを含む）
-3. sbxr が作る内容を見せ、利用者に承認を求める（確認関門）
+3. sbxr が作る内容を見せ、利用者に承認を求める（確認プロンプト）
 4. 利用者が承認する
 5. sbxr が cache 層の template を用意する（hash に合う template が無いか期限を過ぎていれば、build 用 VM で作って snapshot し、旧いものを消す）
 6. sbxr が sandbox スコープの secret を置いてから template で sandbox VM を作り、repo を投入方式で渡し、作った後に sandbox スコープ rule を足す
@@ -76,9 +76,9 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 1e. git URL に copy か mount を指定した: sbxr は止まる
 - 2a. 宣言が不正か、secret 要求に定義が無い: sbxr は理由を示して止まる
 - 2b. 要求された secret の注入先 host が egress で許可されていない: sbxr はその secret を配線から外し、作る内容に載せて 3 へ
-- 2c. herdr 連携が有効なのに host に herdr が無い: sbxr は確認関門の前に止まる
-- 3a. 投入方式が mount: sbxr は確認関門で、VM から host の作業ツリー（`.git` を含む）を書き換えられることと、ignored のファイル（`.env`、個人設定の `.claude/settings.local.json` など）も VM から見えることを示す
-- 3b. `--yes`: sbxr は確認関門を省く。git URL なら repo の egress を落とし、落とした宛先を示して 5 へ
+- 2c. herdr 連携が有効なのに host に herdr が無い: sbxr は確認プロンプトの前に止まる
+- 3a. 投入方式が mount: sbxr は確認プロンプトで、VM から host の作業ツリー（`.git` を含む）を書き換えられることと、ignored のファイル（`.env`、個人設定の `.claude/settings.local.json` など）も VM から見えることを示す
+- 3b. `--yes`: sbxr は確認プロンプトを省く。git URL なら repo の egress を落とし、落とした宛先を示して 5 へ
 - 3c. 端末が無い: sbxr は止まる（`--yes` を案内する）
 - 4a. 利用者が承認しない: sbxr は何も残さずに止まる（git URL の cache clone も消す）
 - 5a. secret ファイルが読めないか、配線する secret の値が無い: sbxr は template も状態ディレクトリも作らずに止まる（build 用 VM にも同じ配線をするので、値は template より前に確かめる）
@@ -131,13 +131,13 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - Level: user-goal
 - Trigger: 利用者が、VM での作業を終えたか、作り直したい
 - 事前条件: sbxr が作った VM（作成途中・VM 消失を含む）の状態ディレクトリがある
-- 成功保証: VM と、その sandbox スコープの secret・rule、herdr machine、cache clone、状態ディレクトリが無い。作成済みの clone・copy の VM は、未回収が無いことを確かめてから撤去されている
+- 成功保証: VM と、その sandbox スコープの secret・rule、herdr machine、cache clone、状態ディレクトリが無い。作成済みの clone・copy の VM は、未 push の作業が無いことを確かめてから撤去されている
 
 ### Main Success Scenario
 
 1. 利用者が VM の撤去を求める
 2. sbxr が、sbxr の作った VM で、止まっていることを確かめる
-3. sbxr が VM を一時起動し、未回収が無いことを確かめて、止め直す
+3. sbxr が VM を一時起動し、未 push の作業が無いことを確かめて、止め直す
 4. sbxr が、VM 内の変更が失われることを示して承認を求める
 5. 利用者が承認する
 6. sbxr が herdr machine を解除する
@@ -151,7 +151,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 2c. `--force`: sbxr は稼働中でも進み、3 を省いて 4 へ
 - 2d. herdr 連携を有効にして作った VM で、host に herdr が無い: sbxr は止まる
 - 3a. 投入方式が mount・作成途中の VM・VM 消失: sbxr は検査せずに 4 へ（mount の作業は host の作業ツリーにあり、作成途中の VM は agent に渡していない）
-- 3b. 未回収がある: sbxr は、branch ごとの未 push の commit・未 commit の変更・stash を示し、VM を止め直して止まる。利用者は VM 内から origin へ push して 1 からやり直すか、`--force` を付ける
+- 3b. 未 push の作業がある: sbxr は、branch ごとの未 push の commit・未 commit の変更・stash を示し、VM を止め直して止まる。利用者は VM 内から origin へ push して 1 からやり直すか、`--force` を付ける
 - 3c. 一時起動か検査が失敗した（origin に届かない等）: sbxr は VM を止め直して止まる（`--force` で省ける）。origin の host の egress 許可か secret の配線が無い repo では、毎回ここで止まる
 - 4a. `--yes`: sbxr は確認を省いて 6 へ
 - 4b. 端末が無い: sbxr は止まる（`--yes` を案内する）
@@ -234,10 +234,10 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 2a. drift が無い: ここで終える
 - 2b. 変えたのが user 設定の egress だけ（global rule）: 利用者は UC5 で揃える（既存の VM にも効く）。ここで終える
 - 3a. 投入方式が mount: push は要らない（作業は host の作業ツリーにある）。4 へ
-- 4a. 未回収が残っている: UC4 の 3b で止まる。3 へ戻る
+- 4a. 未 push の作業が残っている: UC4 の 3b で止まる。3 へ戻る
 - 5a. cache 層か inputs の内容が変わった: UC2 の 5 で新しい template を作り、旧いものを消す
 
-却下: 作り直しを 1 コマンドにする（`sbxr recreate`）。理由: destroy を自動では実行しない方針（README の drift 節）を保ち、未回収をどう扱うかの判断を利用者の手に残す。
+却下: 作り直しを 1 コマンドにする（`sbxr recreate`）。理由: destroy を自動では実行しない方針（README の drift 節）を保ち、未 push の作業をどう扱うかの判断を利用者の手に残す。
 
 ## UC8 設定と host の前提を診断する
 
@@ -298,6 +298,6 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 4b. repo が git URL: agent は書かない（生成先はローカル path の repo だけ）
 - 5a. 人手の要る fail（secret の値、global rule の収束、sbx・herdr の導入）: agent は利用者に実行するコマンドを示し、利用者が実行してから 5 をやり直す
 - 5b. 直しても同じ fail が続く: agent は止まり、残った fail・書き換えたファイル・利用者が次にやることを示す
-- 5c. 推測が誤っていたが診断は通った: UC2 の確認関門で利用者が止める
+- 5c. 推測が誤っていたが診断は通った: UC2 の確認プロンプトで利用者が止める
 
 却下: sbxr が agent を呼んで設定を生成する（`sbxr init` など）。理由: 汎用 CLI が agent を subprocess で呼ぶのは標準的でなく、どの agent をどの権限で呼ぶかを CLI が決めることになる（decision/0013）。
