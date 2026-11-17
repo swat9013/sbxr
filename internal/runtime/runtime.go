@@ -150,7 +150,7 @@ func (s SandboxStatus) String() string {
 type SandboxSecret struct {
 	// Service は実行基盤の組み込み service の名前 (例: github)。空なら Hosts と Env による host 指定の credential injection。
 	Service string
-	// Hosts は credential injection で実値を差し込む宛先。
+	// Hosts は host 指定の credential injection で実値を差し込む宛先 (Service があるときは egress で許可を確かめる host)。
 	Hosts []string
 	// Env は placeholder を入れる VM の環境変数名。
 	Env   string

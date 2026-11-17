@@ -63,7 +63,7 @@ func (d Definition) Validate() error {
 	return errors.Join(errs...)
 }
 
-// PlaceholderKeyForHost は host 指定の credential injection で host へ差し込む secret 定義の key を返す。候補が 1 つに決まらなければ止める。
+// PlaceholderKeyForHost は host を注入先に持つ、host 指定の credential injection の secret 定義の key を返す。候補が 1 つに決まらなければ止める。
 func PlaceholderKeyForHost(defs map[string]Definition, host string) (string, error) {
 	keys := map[string][]string{} // key → それを使う定義の名前
 	for _, name := range slices.Sorted(maps.Keys(defs)) {
@@ -74,7 +74,7 @@ func PlaceholderKeyForHost(defs map[string]Definition, host string) (string, err
 	}
 	switch len(keys) {
 	case 0:
-		return "", fmt.Errorf("%s へ host 指定の credential injection で差し込む secret 定義が無い (user 設定の secret_defs に定義してから実行する)", host)
+		return "", fmt.Errorf("%s を注入先に持つ、host 指定の credential injection の secret 定義が無い (user 設定の secret_defs に定義してから実行する)", host)
 	case 1:
 		for key := range keys {
 			return key, nil
