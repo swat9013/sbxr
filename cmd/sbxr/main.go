@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,12 +34,15 @@ type dependencies struct {
 	herdr  herdr.Client
 	// sbxAvailable は host に sbx があるかを確かめる。無ければ error。
 	sbxAvailable func() error
+	// sbxVersion は host の sbx の版を読む。読めなければ error。
+	sbxVersion func(ctx context.Context) (runtime.SbxVersion, error)
 }
 
 func main() {
 	info, _ := debug.ReadBuildInfo() // 取れなければ nil が返る
+	sbx := runtime.NewSbx(runtime.ExecSbx)
 	deps := dependencies{
-		runtime:        runtime.NewSbx(runtime.ExecSbx),
+		runtime:        sbx,
 		userConfigPath: defaultUserConfigPath,
 		secretFilePath: defaultSecretFilePath,
 		githubAPI:      "https://api.github.com",
@@ -47,6 +51,7 @@ func main() {
 		clone:          sandbox.ExecClone,
 		herdr:          herdr.CLI{},
 		sbxAvailable:   runtime.SbxAvailable,
+		sbxVersion:     sbx.Version,
 	}
 	if err := newRootCmd(resolveVersion(version, info), deps).Execute(); err != nil {
 		os.Exit(1)

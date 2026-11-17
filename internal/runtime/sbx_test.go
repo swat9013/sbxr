@@ -261,3 +261,52 @@ func TestSbxConnectsToTheSandboxOverTheSSHConfigSbxWrites(t *testing.T) {
 		t.Errorf("SSHTarget = %q, want app.sbx", got)
 	}
 }
+
+func TestSbxReadsTheVersionFromSbxVersion(t *testing.T) {
+	stub := &sbxstub.Stub{Version: "v0.53.1"}
+
+	version, err := NewSbx(stub.Run).Version(context.Background())
+
+	if err != nil {
+		t.Fatalf("Version() error = %v", err)
+	}
+	if want := (SbxVersion{Major: 0, Minor: 53, Patch: 1}); version != want {
+		t.Errorf("Version() = %v, want %v", version, want)
+	}
+}
+
+func TestSbxFailsOnAVersionItCannotRead(t *testing.T) {
+	for _, version := range []string{"dev", "v0.53", "v0.53.x", "0.53.0", "v0.53.0-rc.1", "v0.+53.0", "v-0.53.0", "v0.053.0"} {
+		t.Run(version, func(t *testing.T) {
+			stub := &sbxstub.Stub{Version: version}
+
+			if _, err := NewSbx(stub.Run).Version(context.Background()); err == nil {
+				t.Errorf("Version() error = nil, want an error for %q", version)
+			}
+		})
+	}
+}
+
+func TestSbxReadsTheVersionLineAfterOtherOutput(t *testing.T) {
+	run := func(context.Context, io.Reader, ...string) ([]byte, error) {
+		return []byte("sbx version check: a new release is available\nsbx version v0.53.0 2c62838 extra\n"), nil
+	}
+
+	version, err := NewSbx(run).Version(context.Background())
+
+	if err != nil || version != (SbxVersion{Major: 0, Minor: 53, Patch: 0}) {
+		t.Errorf("Version() = %v, %v, want v0.53.0", version, err)
+	}
+}
+
+func TestVersionsCompareByMajorThenMinorThenPatchNumerically(t *testing.T) {
+	for _, tt := range []struct{ older, newer SbxVersion }{
+		{older: SbxVersion{Major: 0, Minor: 99, Patch: 99}, newer: SbxVersion{Major: 1, Minor: 0, Patch: 0}},
+		{older: SbxVersion{Major: 0, Minor: 9, Patch: 9}, newer: SbxVersion{Major: 0, Minor: 10, Patch: 0}},
+		{older: SbxVersion{Major: 0, Minor: 53, Patch: 9}, newer: SbxVersion{Major: 0, Minor: 53, Patch: 10}},
+	} {
+		if tt.older.Compare(tt.newer) >= 0 || tt.newer.Compare(tt.older) <= 0 || tt.older.Compare(tt.older) != 0 {
+			t.Errorf("%v.Compare(%v) does not order them", tt.older, tt.newer)
+		}
+	}
+}

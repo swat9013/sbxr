@@ -74,6 +74,10 @@ func TestDoctorSkipsTheGlobalRuleCheckWhenSbxIsMissingAndChecksTheRest(t *testin
 		t.Errorf("sbx %q was run, want no sbx call when sbx is missing", args)
 		return nil, errors.New("no sbx")
 	})
+	lc.deps.sbxVersion = func(context.Context) (runtime.SbxVersion, error) {
+		t.Errorf("sbx version was run, want no sbx call when sbx is missing")
+		return runtime.SbxVersion{}, errors.New("no sbx")
+	}
 	repo := localRepo(t, "app", repoWithEgress)
 
 	out, err := lc.run(t, "doctor", repo)
@@ -82,6 +86,7 @@ func TestDoctorSkipsTheGlobalRuleCheckWhenSbxIsMissingAndChecksTheRest(t *testin
 		t.Errorf("doctor error = nil, want a non-zero exit for the missing sbx")
 	}
 	assertDoctorItem(t, out, "fail", "sbx")
+	assertDoctorItem(t, out, "skip", "sbx の版")
 	assertDoctorItem(t, out, "skip", "global rule")
 	for _, name := range []string{"secret ファイル", "herdr", "user 設定", "repo 宣言", "repo の egress", "git identity", "secret github"} {
 		assertDoctorItem(t, out, "ok", name)

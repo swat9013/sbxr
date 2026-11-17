@@ -30,6 +30,7 @@ fail があれば非 0 で終える。<repo> を省くと、環境と user 設�
 			d := doctor.Doctor{
 				Runtime:      deps.runtime,
 				SbxAvailable: deps.sbxAvailable,
+				SbxVersion:   deps.sbxVersion,
 				Herdr:        deps.herdr,
 				UserConfig:   userConfig,
 				SecretFile:   secretFile,
