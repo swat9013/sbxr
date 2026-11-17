@@ -273,6 +273,8 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 
 却下: plan に全件検査のモードを足す。理由: plan は最初の誤りで止まる要約で、drift のために VM の状態も読む（decision/0012）。
 
+却下: 環境の検査に host の docker の項目を足す。理由: host に docker が無ければ sbx が builder sandbox で kit を build するので、create は止まらない。止まりうるのは、docker が PATH にあり daemon に繋がらず、kit の build cache も無いときだけで、doctor は cache の有無を判定できない。検査の対象を create が止まる条件に揃えられない（decision/0012。実測は system.md の 2026-11-17 の #116）。その失敗では、sbx の error が daemon の起動を確かめるよう示す。見直し条件: 置かない（create が docker への接続で失敗した件数は、実行の記録から数えられない。見直す引き金は system.md の未実測の前提 13 に置く）
+
 ## UC9 AI に設定を書かせる
 
 - Primary Actor: 利用者（host の agent に skill `sbxr-config` で頼む）

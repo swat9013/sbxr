@@ -105,7 +105,8 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 9. `herdr machine add` が ssh 経由で起動し直す VM 内の herdr server でも、最初の workspace が VM 内の作業ツリーで始まるか（decision/0014）。2026-09-29 の実測では、sbxr の kit が起動した server は登録の前に止められ、`machine add` が起動した server の cwd は `/home/agent/workspace` だった。その cwd の決まり方と、`new_cwd` が最初の workspace に効くかは確かめていない。→ 成り立たない（下の実測。#85）
 10. Kit spec v3 の kit を使う VM でも、`/var/log/sbx-kit-startup.log` に、Sbx adapter が kit startup の完了と失敗を読む dispatcher の行（上の表の kit dispatcher の行）が今と同じ文面で出るか。herdr を有効にした create はこの行で完了を待つ。文面は v2 runtime の dispatcher（`/etc/durable-startup.d/run.sh`）のもので、v3 の `lifecycle@1` は startup hook を VM の起動のたびに走らせることだけを決め、log の場所も文面も決めていない。v3 への移行の手順（spec の `skills/migrate-kit-to-v3`）は log の path に同じ `/var/log/sbx-kit-startup.log` を案内しているが、文面が同じかは書いていない。成り立たなければ、create は完了を読めず、adapter の待ちの上限の後に失敗する（#74 の項目 2）。→ sbx v0.53.0 では成り立つ（下の 2026-11-16 の実測）
 11. env 定義から、状態ディレクトリに書いた v3 の source kit を参照して VM を作れるか。2026-11-16 の実測は `sbx create --kit` で確かめ、`sbx env create` では確かめていない。v3 の kit 名は directory 名で決まる。→ 成り立つ（下の 2026-11-17 の実測）
-12. v3 の source kit の build（`docker.io/docker/sandbox-kit:3` の pull）が、sbxr の default の global rule のもとで通るか。→ build は通る。ただし build と pull は VM ではなく host の docker が行い、sbx の proxy を通らない（下の 2026-11-17 の実測）
+12. v3 の source kit の build（`docker.io/docker/sandbox-kit:3` の pull）が、sbxr の default の global rule のもとで通るか。→ build は通る。ただし build と pull は VM ではなく host の docker が行い、sbx の proxy を通らない（下の 2026-11-17 の実測）。host に docker が無いときは、sbx の builder sandbox が build する（下の 2026-11-17 の実測の #116）
+13. host の docker が PATH にあるが daemon に繋がらず、kit の build cache も無いとき、v3 の埋め込み kit を使う `sbxr create` が kit の build で失敗するか。実装の前提ではないので、確かめずに置く。create が docker への接続で失敗した報告が 1 件出たら確かめ、doctor に注記を足す案（usecases.md の UC8 の却下）を見直す。下の #116 の実測は、descriptor に誤りのある kit と `sbx kit validate` でしか確かめていない
 
 Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/0018](decision/0018-embedded-kits-move-to-kit-spec-v3.md)。11 と 12 は、移行の実装の前に確かめる。
 
@@ -192,4 +193,13 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
      - startup は `capabilities:` の `- type: com.docker.sandbox/lifecycle@1` の `config.startup` に書く。top-level の `lifecycle@1:` は `field lifecycle@1 not found in type spec.Descriptor` で拒否される
 12. **build は通る。経路は前提と違う**
    - build は host の docker（この host では colima）が行い、`docker.io/docker/sandbox-kit:3`（`sandbox-kit 3.0.0-m.11`）を host から pull した。VM の proxy を通らないので、sbx の global rule は build に効かないと読める（global rule を sbxr の default だけにした状態では確かめていない。この host の global rule は `docker.io:443` を許可していた）
-   - v3 の source kit を使う create には、host に docker が要る。doctor はこれを検査していない
+   - v3 の source kit を使う create には、host に docker が要る。doctor はこれを検査していない → 前半は成り立たない（下の #116 の実測）。doctor に検査は足さない（usecases.md の UC8 の却下）
+
+### 実測（2026-11-17、sbx v0.53.0、#116）
+
+12 の「v3 の source kit を使う create には、host に docker が要る」を確かめた。成り立たない。`sbx kit validate <dir>` に v3 の mixin kit（`kind: mixin`、`lifecycle@1` の startup だけ）を渡し、host の docker の条件を変えた。`sbx env create` では確かめていない。
+
+- docker が PATH に無い: sbx が builder sandbox（`sbx-kit-builder`）を作って build する。出力は `building in builder sandbox sbx-kit-builder…` と `registry facade path failed (frontend image docker/sandbox-kit:3 is not in the engine store and no host docker can seed it); falling back to archive delivery`。`sbx kit builder --help` は、source-form の kit の build は、最初の build で作られる共有の builder sandbox で走ると書いている
+- docker が PATH にあり daemon に繋がらない（`DOCKER_HOST` を実在しない socket にした。`DOCKER_CONTEXT` を daemon の止まった context にした）: build は `failed to connect to the docker API at <socket>; check if the path is correct and if the daemon is running` で失敗し、builder sandbox へは切り替わらない。この 2 回は descriptor に誤りのある kit（top-level の `name:`）で試し、接続の失敗は descriptor を読む前に出た
+- build が 1 度通った後は、上のどちらの条件でも、startup の command を変えた kit と増やした kit が、build を走らせずに `valid (directory)` になる。cache の鍵と置き場は特定していない。`sbx kit inspect` は Template を `sbx-kit-src:spec-<hash>` と示す
+- v3 の descriptor には `kind:` が要る。無いと `kind must be "workload", "mixin", or "set", got ""` で失敗する
