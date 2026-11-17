@@ -30,8 +30,11 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 			[]Difference{{Path: "profile.effortLevel", Recorded: "(なし)", Current: `"high"`}}},
 		{"a list", func(d *sandboxDeclaration) { d.Init = []string{"make", "make test"} },
 			[]Difference{{Path: "init", Recorded: `["make"]`, Current: `["make","make test"]`}}},
+		{"a plugin enabled where no plugin was", func(d *sandboxDeclaration) {
+			d.Profile.EnabledPlugins = map[string]bool{"tool@claude-plugins-official": true}
+		}, []Difference{{Path: "profile.enabledPlugins.tool@claude-plugins-official", Recorded: "(なし)", Current: "true"}}},
 		{"herdr turned on", func(d *sandboxDeclaration) { d.Herdr = &herdrPin{Version: "v0.9.0"} },
-			[]Difference{{Path: "herdr", Recorded: "(なし)", Current: `{"version":"v0.9.0"}`}}},
+			[]Difference{{Path: "herdr.version", Recorded: "(なし)", Current: `"v0.9.0"`}}},
 		{"secrets and hosts in another order", func(d *sandboxDeclaration) {
 			d.Secrets = []secret.WiredSecret{{Name: "two", Key: "TWO", Hosts: []string{"c.example.com"}, Env: "TWO"}, {Name: "one", Key: "ONE", Hosts: []string{"b.example.com", "a.example.com"}, Env: "ONE"}}
 		}, nil},
@@ -50,6 +53,17 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 				t.Errorf("Drift = %v, %v, want %v", got.Differences, err, tc.want)
 			}
 		})
+	}
+}
+
+func TestDriftListsEachLeafOfAMapThatIsNoLongerDeclared(t *testing.T) {
+	recorded := sandboxDeclaration{Profile: config.Profile{EnabledPlugins: map[string]bool{"tool@claude-plugins-official": true}}}
+
+	got, err := creationRecord{Declaration: recorded}.Drift(sandboxDeclaration{})
+
+	want := []Difference{{Path: "profile.enabledPlugins.tool@claude-plugins-official", Recorded: "true", Current: "(なし)"}}
+	if err != nil || !reflect.DeepEqual(got.Differences, want) {
+		t.Errorf("Drift = %v, %v, want %v", got.Differences, err, want)
 	}
 }
 

@@ -75,11 +75,12 @@ func declarationTree(decl sandboxDeclaration) (map[string]any, error) {
 	return tree, nil
 }
 
-// compareValues は map を key ごとに降りて比べる。map 以外 (list・scalar) は値全体を 1 つの葉として比べる。
+// compareValues は map を key ごとに降りて比べる。片側が無い (nil) ならその側を空の map とみなして降りるので、
+// map ごと足した・外したときも key ごとの葉で出る。map 以外 (list・scalar) は値全体を 1 つの葉として比べる。
 func compareValues(path string, before, after any) ([]Difference, error) {
 	beforeMap, beforeIsMap := before.(map[string]any)
 	afterMap, afterIsMap := after.(map[string]any)
-	if beforeIsMap && afterIsMap {
+	if (beforeIsMap || before == nil) && (afterIsMap || after == nil) {
 		var keys []string
 		for key := range beforeMap {
 			keys = append(keys, key)
