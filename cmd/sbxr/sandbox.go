@@ -42,7 +42,7 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 		Use:   "create <repo>",
 		Short: "宣言を merge し、確認のうえ sandbox VM を作る",
 		Long: `宣言を merge し、確認のうえ sandbox VM を作る。
---yes は確認関門を省く。git URL を --yes で通したときは、人間が見ていない repo 宣言の egress を落とす。`,
+--yes は確認プロンプトを省く。git URL を --yes で通したときは、人間が見ていない repo 宣言の egress を落とす。`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
@@ -66,7 +66,7 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&yes, "yes", false, "人間の確認 (確認関門) を省く")
+	cmd.Flags().BoolVar(&yes, "yes", false, "人間の確認 (確認プロンプト) を省く")
 	return cmd
 }
 
@@ -149,7 +149,7 @@ func lifecycleFor(cmd *cobra.Command, deps dependencies) (sandbox.Lifecycle, err
 	}, nil
 }
 
-// promptGate は確認関門を端末で尋ねる。見せる内容は --yes でも表示し、--yes なら尋ねずに承認する。
+// promptGate は確認プロンプトを端末で尋ねる。見せる内容は --yes でも表示し、--yes なら尋ねずに承認する。
 type promptGate struct {
 	cmd      *cobra.Command
 	prompter prompter

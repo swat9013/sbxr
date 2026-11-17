@@ -171,9 +171,9 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// --- 確認関門 ---
+// --- 確認プロンプト ---
 
-// fakeGate は確認関門。見せられたものを覚え、決めた答えを返す。
+// fakeGate は確認プロンプト。見せられたものを覚え、決めた答えを返す。
 type fakeGate struct {
 	unattended bool
 	answer     bool
@@ -188,13 +188,13 @@ func (g *fakeGate) Approve(_ context.Context, proposal Proposal) (bool, error) {
 
 func (g *fakeGate) Unattended() bool { return g.unattended }
 
-// unattended は --yes の確認関門 (人間が見ていない)。
+// unattended は --yes の確認プロンプト (人間が見ていない)。
 func unattended() *fakeGate { return &fakeGate{unattended: true, answer: true} }
 
-// approvedByHuman は人間が承認する確認関門。
+// approvedByHuman は人間が承認する確認プロンプト。
 func approvedByHuman() *fakeGate { return &fakeGate{answer: true} }
 
-// declinedByHuman は人間が断る確認関門。
+// declinedByHuman は人間が断る確認プロンプト。
 func declinedByHuman() *fakeGate { return &fakeGate{} }
 
 // --- 実行基盤 ---

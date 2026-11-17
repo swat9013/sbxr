@@ -104,7 +104,7 @@ func (s *Sbx) RemoveGlobalEgressRule(ctx context.Context, id string) error {
 }
 
 // setSandboxSecret は secret を sandbox スコープに置く。service があれば sbx 組み込み service の secret、
-// 無ければ host 指定の custom secret (placeholder 注入) にする。値は stdin で渡す。
+// 無ければ host 指定の custom secret (credential injection) にする。値は stdin で渡す。
 // sandbox スコープの secret は sandbox の作成前にも置け、作成時に VM の環境変数へ placeholder が入る (sbx 実測)。
 func (s *Sbx) setSandboxSecret(ctx context.Context, sandbox string, secret SandboxSecret) error {
 	args := []string{"secret", "set", secret.Service, "--sandbox", sandbox}
@@ -174,7 +174,7 @@ func sbxStatus(status string) SandboxStatus {
 	return SandboxRunning
 }
 
-// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認関門が済ませているので、
+// createEnvironment は sbx env create で作る。plan の承認は sbxr の確認プロンプトが済ませているので、
 // plan を確認なしで適用する --force を渡す。
 func (s *Sbx) createEnvironment(ctx context.Context, envDir string) error {
 	_, err := s.run(ctx, nil, "env", "create", "--force", envDir)

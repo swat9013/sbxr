@@ -14,20 +14,20 @@ const GitHubName = "github"
 
 // Definition は secret 定義 (secret_defs.<name>)。default と user スコープだけが書ける (ADR 0003)。
 type Definition struct {
-	// Service は sbx 組み込み service の名前 (例: github)。空なら Hosts への placeholder 注入。
+	// Service は sbx 組み込み service の名前 (例: github)。空なら Hosts への credential injection。
 	Service string `yaml:"service"`
 	// Key は secret ファイルのキー。
 	Key string `yaml:"key"`
 	// Hosts は注入先 host。すべてが egress で許可されているときだけ配線する。
 	// sbx 組み込み service は注入先を sbx が決めるので、ここには egress で許可を確かめる host を書く。
 	Hosts []string `yaml:"hosts"`
-	// Env は placeholder を入れる VM の環境変数名。placeholder 注入だけが書く。
+	// Env は placeholder を入れる VM の環境変数名。credential injection だけが書く。
 	Env string `yaml:"env"`
 	// Vars は secret と一緒に VM へ渡す、秘密でない付随値 (環境変数名 → 値)。
 	Vars map[string]string `yaml:"vars"`
 }
 
-// InjectsPlaceholder は host 指定の placeholder 注入か (sbx 組み込み service でないか) を返す。
+// InjectsPlaceholder は host 指定の credential injection か (sbx 組み込み service でないか) を返す。
 func (d Definition) InjectsPlaceholder() bool {
 	return d.Service == ""
 }
@@ -51,9 +51,9 @@ func (d Definition) Validate() error {
 	}
 	switch {
 	case !d.InjectsPlaceholder() && d.Env != "":
-		errs = append(errs, errors.New("service と env は両方書けない (env は placeholder 注入だけが使う。service の環境変数は sbx が決める)"))
+		errs = append(errs, errors.New("service と env は両方書けない (env は credential injection だけが使う。service の環境変数は sbx が決める)"))
 	case d.InjectsPlaceholder() && !keyPattern.MatchString(d.Env):
-		errs = append(errs, fmt.Errorf("env %q は VM の環境変数名で書く (placeholder 注入には env が要る)", d.Env))
+		errs = append(errs, fmt.Errorf("env %q は VM の環境変数名で書く (credential injection には env が要る)", d.Env))
 	}
 	for _, name := range slices.Sorted(maps.Keys(d.Vars)) {
 		if !keyPattern.MatchString(name) {
@@ -63,7 +63,7 @@ func (d Definition) Validate() error {
 	return errors.Join(errs...)
 }
 
-// PlaceholderKeyForHost は host へ placeholder 注入する secret 定義の key を返す。候補が 1 つに決まらなければ止める。
+// PlaceholderKeyForHost は host へ credential injection する secret 定義の key を返す。候補が 1 つに決まらなければ止める。
 func PlaceholderKeyForHost(defs map[string]Definition, host string) (string, error) {
 	keys := map[string][]string{} // key → それを使う定義の名前
 	for _, name := range slices.Sorted(maps.Keys(defs)) {
@@ -74,7 +74,7 @@ func PlaceholderKeyForHost(defs map[string]Definition, host string) (string, err
 	}
 	switch len(keys) {
 	case 0:
-		return "", fmt.Errorf("%s へ placeholder 注入する secret 定義が無い (user 設定の secret_defs に定義してから実行する)", host)
+		return "", fmt.Errorf("%s へ credential injection する secret 定義が無い (user 設定の secret_defs に定義してから実行する)", host)
 	case 1:
 		for key := range keys {
 			return key, nil

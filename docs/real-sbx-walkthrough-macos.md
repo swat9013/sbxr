@@ -65,7 +65,7 @@ marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）
 
 ```sh
 "$WORK/sbxr" plan "$FIXTURE"
-"$WORK/sbxr" create "$FIXTURE"     # 確認関門で要約を読み、y で承認する
+"$WORK/sbxr" create "$FIXTURE"     # 確認プロンプトで要約を読み、y で承認する
 ```
 
 確認への答えは端末から 1 行読む。複数行をまとめて貼り付けると、続きの行が答えとして読まれて `中止した` で止まることがある。コマンドは 1 行ずつ実行する。

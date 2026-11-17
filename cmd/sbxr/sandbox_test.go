@@ -15,7 +15,7 @@ import (
 
 // plan・create・stop・destroy の振る舞い (状態機械の遷移と、それに伴う片付け・前提の確認) は internal/sandbox の遷移表が固定する。
 // cmd に置くのは、引数と flag の解釈と表示 (この file) と、sbx stub の上の受け入れテスト (ADR 0001):
-// 宣言の merge と egress・boot・確認関門 (acceptance_test.go)、VM の中の段と egress 自己検証が sbx stub の VM で通ること
+// 宣言の merge と egress・boot・確認プロンプト (acceptance_test.go)、VM の中の段と egress 自己検証が sbx stub の VM で通ること
 // (materialize_test.go・egresscheck_test.go)、v0.1.0 の状態ディレクトリを扱えること (compat_test.go)。
 
 const lifecycleUserConfig = "version: 1\ngit:\n  name: tester\n  email: tester@example.com\n"
@@ -191,7 +191,7 @@ func TestCreateWithHerdrStartsItsPanesAtTheWorktreeOfTheVM(t *testing.T) {
 	}
 }
 
-// --- 確認関門 (--yes と端末) ---
+// --- 確認プロンプト (--yes と端末) ---
 
 func TestCreateWithoutATerminalOrYesStopsBeforeCreating(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)

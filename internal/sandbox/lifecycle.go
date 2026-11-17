@@ -31,7 +31,7 @@ type Lifecycle struct {
 	Places     Places
 	UserConfig string
 	Clone      Cloner
-	// ReadSecrets は secret ファイルの値を読む。確認関門の後に、配線する secret があるときも無いときも呼ぶ。
+	// ReadSecrets は secret ファイルの値を読む。確認プロンプトの後に、配線する secret があるときも無いときも呼ぶ。
 	ReadSecrets func() (secret.Values, error)
 	// Output は進み具合と案内の出力先。
 	Output io.Writer
@@ -39,7 +39,7 @@ type Lifecycle struct {
 	Errors io.Writer
 }
 
-// Gate は確認関門。作る内容や撤去することを見せて、人間の承認を得る。
+// Gate は確認プロンプト。作る内容や撤去することを見せて、人間の承認を得る。
 type Gate interface {
 	// Approve は proposal を見せて承認を求める。承認しなければ false。確かめられなければ (端末が無い等) error。
 	Approve(ctx context.Context, proposal Proposal) (bool, error)
@@ -47,7 +47,7 @@ type Gate interface {
 	Unattended() bool
 }
 
-// Proposal は確認関門で見せるもの。
+// Proposal は確認プロンプトで見せるもの。
 type Proposal struct {
 	// Summary は承認を求める前に見せる内容 (作る内容、撤去で失われるもの)。
 	Summary  string
@@ -110,10 +110,10 @@ const (
 	RemoveRunning
 )
 
-// errDeclined は確認関門で承認されなかったときの error。
+// errDeclined は確認プロンプトで承認されなかったときの error。
 var errDeclined = errors.New("中止した")
 
-// approve は確認関門で承認を得る。承認されなければ errDeclined。確かめられなければ (端末が無い等)、確認を省く手順を添える。
+// approve は確認プロンプトで承認を得る。承認されなければ errDeclined。確かめられなければ (端末が無い等)、確認を省く手順を添える。
 func approve(ctx context.Context, gate Gate, proposal Proposal) error {
 	approved, err := gate.Approve(ctx, proposal)
 	if err != nil {
@@ -158,7 +158,7 @@ func (l Lifecycle) Plan(ctx context.Context, repo string) (PlanResult, error) {
 	return PlanResult{Summary: summary, Drift: &comparison}, nil
 }
 
-// Create は、未作成なら確認関門を通して sandbox VM を作る。作成済みなら作らずに drift を報告し、差分があれば error を返す。
+// Create は、未作成なら確認プロンプトを通して sandbox VM を作る。作成済みなら作らずに drift を報告し、差分があれば error を返す。
 // 作成途中・VM 消失・管理外・別出所なら、何もせずに理由と復旧手順を error で返す。
 func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateResult, error) {
 	target, err := resolveTarget(repo, l.Places.CacheRoot)
@@ -232,7 +232,7 @@ func stopResult(name string, outcome StopOutcome, err error) (StopResult, error)
 	return StopResult{Name: name, Outcome: outcome}, nil
 }
 
-// Destroy は確認関門を通して sandbox VM を撤去し、herdr machine・cache clone・状態ディレクトリを片付ける。
+// Destroy は確認プロンプトを通して sandbox VM を撤去し、herdr machine・cache clone・状態ディレクトリを片付ける。
 // 稼働中の VM は running に従う。確認の間に起動した VM に備えて、撤去の直前に状態を読み直す。
 // VM が無くても実行基盤の撤去を頼む (作成前に置いた sandbox スコープの secret を消すため。ADR 0006)。
 // VM を消せなければ、定義を残すために状態ディレクトリを消さずに止める。その後段の失敗は警告して撤去を続け、最後に error を返す。
@@ -320,7 +320,7 @@ func (l Lifecycle) remove(ctx context.Context, target sandboxTarget) error {
 	return nil
 }
 
-// createFromAbsent は未作成の sandbox VM を、確認関門を通して作る。
+// createFromAbsent は未作成の sandbox VM を、確認プロンプトを通して作る。
 // 出所を記録する前に止まったら、書きかけの状態ディレクトリと cache clone を消して未作成に戻す (decision/0011)。
 func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, gate Gate) (err error) {
 	// discardOnFailure は、失敗したら書きかけを片付けるか。出所を記録した後と、確認の間に別の create が
@@ -348,7 +348,7 @@ func (l Lifecycle) createFromAbsent(ctx context.Context, target sandboxTarget, g
 	if err != nil {
 		return err
 	}
-	if prepared.Declaration.herdrEnabled() { // 確認関門の前に止める
+	if prepared.Declaration.herdrEnabled() { // 確認プロンプトの前に止める
 		if err := requireHerdrOnHost(l.Herdr); err != nil {
 			return err
 		}
@@ -505,7 +505,7 @@ func (l Lifecycle) loadCurrentDeclaration(ctx context.Context, target sandboxTar
 }
 
 // sandboxSpec は確定した宣言と secret の値から、実行基盤に渡す作る内容を組み立てる。
-// secret の値を含むので、確認関門と plan が見せる preparation には載せず、作る直前に組み立てる。
+// secret の値を含むので、確認プロンプトと plan が見せる preparation には載せず、作る直前に組み立てる。
 func sandboxSpec(prepared preparation, values secret.Values) (runtime.SandboxSpec, error) {
 	secrets, err := prepared.Wiring.SandboxSecrets(values)
 	if err != nil {

@@ -385,7 +385,7 @@ func (d Doctor) secretSetupFix(name string, defs map[string]secret.Definition) s
 }
 
 // setupCommand は secret 定義 name の値を secret ファイルへ書く sbxr secret setup のコマンドを返す。
-// 書けるコマンドが無い定義 (github 以外の sbx 組み込み service、注入先 host から key が 1 つに決まらない placeholder 注入) は found が false。
+// 書けるコマンドが無い定義 (github 以外の sbx 組み込み service、注入先 host から key が 1 つに決まらない credential injection) は found が false。
 func setupCommand(name string, defs map[string]secret.Definition) (command string, found bool) {
 	if name == secret.GitHubName {
 		return "sbxr secret setup github", true

@@ -159,7 +159,7 @@ var transitions = []transition{
 	{from: stateRunning, event: eventDestroy, guard: "--force", act: destroyForcing, to: stateAbsent, then: removesEverything},
 	{from: stateStopped, event: eventDestroy, guard: "未 push の作業あり ∨ 検査に失敗", to: stateStopped, refused: true, unimplemented: "#9"},
 	{from: stateStopped, event: eventDestroy, guard: "未 push の作業なし ∨ 検査対象外", to: stateAbsent, then: removesEverything,
-		pending: "一時起動して未回収を検査し、止め直すのは #9 (今は検査せずに撤去する)"},
+		pending: "一時起動して未 push の作業を検査し、止め直すのは #9 (今は検査せずに撤去する)"},
 	{from: stateStopped, event: eventDestroy, guard: "--force", act: destroyForcing, to: stateAbsent, then: removesEverything},
 	{from: stateVMGone, event: eventDestroy, to: stateAbsent, then: removesEverything},
 

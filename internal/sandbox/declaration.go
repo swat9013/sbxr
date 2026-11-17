@@ -43,7 +43,7 @@ type herdrPin struct {
 	Version string `yaml:"version"`
 }
 
-// preparation は create の確認関門で見せ、承認後に作る内容。
+// preparation は create の確認プロンプトで見せ、承認後に作る内容。
 type preparation struct {
 	Target      sandboxTarget
 	Declaration sandboxDeclaration
@@ -65,7 +65,7 @@ type repoEgressPolicy int
 const (
 	// keepRepoEgress は repo の egress を sandbox スコープ rule にする。
 	keepRepoEgress repoEgressPolicy = iota
-	// dropRepoEgress は repo の egress を捨てる。人間が確認関門で見ていない untrusted な宣言から宛先を開けないため。
+	// dropRepoEgress は repo の egress を捨てる。人間が確認プロンプトで見ていない untrusted な宣言から宛先を開けないため。
 	dropRepoEgress
 )
 
@@ -201,7 +201,7 @@ func (d loadedDeclaration) drift(record creationRecord) (Comparison, error) {
 	return record.Drift(current.Declaration)
 }
 
-// summary は確認関門と plan で見せる merge 結果。
+// summary は確認プロンプトと plan で見せる merge 結果。
 func (p preparation) summary() (string, error) {
 	type skipped struct {
 		Name        string   `yaml:"name"`
