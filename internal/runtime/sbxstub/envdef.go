@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -19,6 +20,10 @@ type envDefinition struct {
 	Name string
 	// SkillsMode は sandboxOptions.skills。無ければ空 (sbx の既定の共有)。値は確かめない (作成の側で確かめる)。
 	SkillsMode string
+	// dir は env 定義のディレクトリ。kitSources の ./ で始まる source はここを基準に解決する (sbx の実測)。
+	dir string
+	// kitSources は kits の source。
+	kitSources []string
 }
 
 // readEnv は dir の env 定義を読む。env 定義が無いか、読めないか、name が無ければ error (sbx の実測)。
@@ -32,6 +37,9 @@ func readEnv(dir string) (envDefinition, error) {
 		SandboxOptions struct {
 			Skills string `yaml:"skills"`
 		} `yaml:"sandboxOptions"`
+		Kits []struct {
+			Source string `yaml:"source"`
+		} `yaml:"kits"`
 	}
 	if err := yaml.Unmarshal(data, &env); err != nil {
 		return envDefinition{}, fmt.Errorf("sbxstub: %s/%s を読めない: %w", dir, envFile, err)
@@ -39,7 +47,48 @@ func readEnv(dir string) (envDefinition, error) {
 	if env.Name == "" {
 		return envDefinition{}, fmt.Errorf("sbxstub: %s/%s の name を読めない", dir, envFile)
 	}
-	return envDefinition{Name: env.Name, SkillsMode: env.SandboxOptions.Skills}, nil
+	def := envDefinition{Name: env.Name, SkillsMode: env.SandboxOptions.Skills, dir: dir}
+	for _, kit := range env.Kits {
+		def.kitSources = append(def.kitSources, kit.Source)
+	}
+	return def, nil
+}
+
+// kitSyntax は v3 の source kit の descriptor が 1 行目に要る行。無いと build が descriptor を Dockerfile として読む
+// (sbx v0.53.0 の実測。docs/design/sbxr/system.md の 2026-11-17 の実測)。
+const kitSyntax = "# syntax=docker.io/docker/sandbox-kit:3"
+
+// checkKits は作成に使う env 定義の kit を、sbx v0.53.0 の作成と同じく確かめる。agent の claude は v3 の kit に
+// 解決されるので、v1・v2 の kit が 1 つでもあれば混在として拒む。v3 の kit は 1 行目の syntax 行が無ければ build で失敗する。
+func (env envDefinition) checkKits() error {
+	var legacy []string
+	var v3 []string
+	for _, source := range env.kitSources {
+		spec, err := os.ReadFile(filepath.Join(env.dir, source, "spec.yaml"))
+		if err != nil {
+			return fmt.Errorf("sbxstub: kit %s を読めない: %w", source, err)
+		}
+		var descriptor struct {
+			SchemaVersion string `yaml:"schemaVersion"`
+		}
+		if err := yaml.Unmarshal(spec, &descriptor); err != nil {
+			return fmt.Errorf("sbxstub: kit %s の spec.yaml を読めない: %w", source, err)
+		}
+		name := filepath.Base(source) // v3 の kit 名は directory 名から決まる
+		if descriptor.SchemaVersion != "3" {
+			legacy = append(legacy, name)
+			continue
+		}
+		v3 = append(v3, name)
+		if first, _, _ := strings.Cut(string(spec), "\n"); first != kitSyntax {
+			return fmt.Errorf("sbxstub: kit %s の build が失敗した (dockerfile parse error: unknown instruction: schemaVersion:)", name)
+		}
+	}
+	if len(legacy) > 0 {
+		return fmt.Errorf("sbxstub: resolve kits: cannot mix v3 kits with v1/v2 kits in one sandbox; compositions are single-format (v3: %s; v1/v2: %s)",
+			strings.Join(append([]string{"claude"}, v3...), ", "), strings.Join(legacy, ", "))
+	}
+	return nil
 }
 
 // envName は dir の env 定義が指す sandbox VM の名前を読む。env 定義が無ければ error (sbx の実測)。
