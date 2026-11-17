@@ -142,7 +142,7 @@ func (d Doctor) DiagnoseRepo(ctx context.Context, repo string) Report {
 
 // report は環境と user スコープの節に、入口ごとの節 (repo スコープと merge 後) を続ける。
 func (d Doctor) report(ctx context.Context, facts hostAndUser, sections ...Section) Report {
-	return Report{Sections: append([]Section{d.environment(facts), d.userScope(ctx, facts)}, sections...)}
+	return Report{Sections: append([]Section{d.environment(ctx, facts), d.userScope(ctx, facts)}, sections...)}
 }
 
 // hostAndUser は、環境と user スコープの検査の入力。どの項目も、ここにある結果だけを見て状態を決める。
@@ -166,12 +166,36 @@ func (d Doctor) readHostAndUser() hostAndUser {
 	return facts
 }
 
-func (d Doctor) environment(facts hostAndUser) Section {
+func (d Doctor) environment(ctx context.Context, facts hostAndUser) Section {
 	sbxItem := ok("sbx", "PATH にある")
 	if facts.sbxErr != nil {
 		sbxItem = failure("sbx", facts.sbxErr.Error(), "Docker Sandboxes の sbx を入れて PATH に置く (https://docs.docker.com/ai/sandboxes/)")
 	}
-	return Section{Title: "環境", Items: []Item{sbxItem, d.secretFileItem(facts), d.herdrItem(facts)}}
+	return Section{Title: "環境", Items: []Item{sbxItem, d.sbxVersionItem(ctx, facts), d.secretFileItem(facts), d.herdrItem(facts)}}
+}
+
+// outsideMeasuredNote は、実測済みの上限より新しい sbx の版に付ける注記の書き出し。
+const outsideMeasuredNote = "注記: 実測済みの範囲の外"
+
+// sbxVersionItem は sbx の版を、対応する下限と実測済みの上限に照らす (decision/0019)。
+// 上限より新しい版は壊れないことのほうが多いので fail にせず、注記を付けて ok にする。
+func (d Doctor) sbxVersionItem(ctx context.Context, facts hostAndUser) Item {
+	const name = "sbx の版"
+	if facts.sbxErr != nil {
+		return skip(name, "sbx が無いので確かめていない")
+	}
+	minimum, measured := runtime.MinSbxVersion, runtime.MeasuredSbxVersion
+	update := "sbx を " + minimum.String() + " 以上へ更新する (https://docs.docker.com/ai/sandboxes/)"
+	version, err := d.Runtime.Version(ctx)
+	switch {
+	case err != nil:
+		return failure(name, err.Error(), update)
+	case version.Compare(minimum) < 0:
+		return failure(name, fmt.Sprintf("%s は sbxr が対応する下限 %s より旧い", version, minimum), update)
+	case version.Compare(measured) > 0:
+		return ok(name, fmt.Sprintf("%s (%s %s〜%s より新しい。sbx の変更で create が壊れていても、この検査では分からない)", version, outsideMeasuredNote, minimum, measured))
+	}
+	return ok(name, fmt.Sprintf("%s (実測済みの範囲 %s〜%s にある)", version, minimum, measured))
 }
 
 func (d Doctor) secretFileItem(facts hostAndUser) Item {

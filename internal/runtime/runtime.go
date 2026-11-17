@@ -11,6 +11,9 @@ import (
 
 // Runtime は sbxr が実行基盤に求める操作。
 type Runtime interface {
+	// Version は実行基盤の版を返す。読めなければ error。
+	Version(ctx context.Context) (Version, error)
+
 	// ListGlobalEgressRules は全 sandbox VM に効く global rule のうち、sbxr が収束させてよいものを返す。
 	// 実行基盤自身が管理する rule と sandbox スコープ rule は含めない。
 	ListGlobalEgressRules(ctx context.Context) ([]EgressRule, error)

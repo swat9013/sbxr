@@ -147,7 +147,7 @@ func (s *Sbx) SandboxStatus(ctx context.Context, sandbox string) (SandboxStatus,
 	return SandboxAbsent, nil
 }
 
-// sbxOutputVersion は、Sbx adapter が読む sbx の出力の形を実測した版。版の下限は #99 で決める。
+// sbxOutputVersion は、Sbx adapter が読む sbx の出力の形を実測した版。対応する版の範囲は MinSbxVersion と MeasuredSbxVersion が持つ。
 const sbxOutputVersion = "v0.48.0"
 
 // sbxSandbox は sbx ls --json の要素のうち、sbxr が読む field。

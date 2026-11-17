@@ -3,6 +3,7 @@
 package sbxstub
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,9 +46,14 @@ type Stub struct {
 	// SandboxSecrets は sandbox スコープの secret の数。sandbox と一緒に消える。
 	SandboxSecrets map[string]int
 	// VM は sbx exec を受ける sandbox VM の中身。nil なら sbx exec は失敗する。
-	VM     *FakeVM
-	nextID int
+	VM *FakeVM
+	// Version は sbx version が出す版の欄。空なら DefaultVersion。
+	Version string
+	nextID  int
 }
+
+// DefaultVersion は Version が空のときに sbx version が出す版 (sbx stub が写した sbx の版)。
+const DefaultVersion = "v0.53.0"
 
 // GlobalAllow は scope=global・network・editable の allow rule を作る。
 func GlobalAllow(id string, resources ...string) Rule {
@@ -68,6 +74,10 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		return nil, fmt.Errorf("sbxstub: %q を失敗させた", s.FailOn)
 	}
 	switch {
+	case slices.Equal(args, []string{"version"}):
+		// sbx v0.53.0 は "sbx version <版> <revision>" の 1 行を出す
+		version := cmp.Or(s.Version, DefaultVersion)
+		return fmt.Appendf(nil, "sbx version %s 2c62838074738845f8f1096ff5f8920df61152fb\n", version), nil
 	case len(args) >= 1 && args[0] == "exec":
 		return s.exec(args[1:], input)
 	case len(args) >= 2 && args[0] == "secret" && (args[1] == "set" || args[1] == "set-custom"):

@@ -261,3 +261,35 @@ func TestSbxConnectsToTheSandboxOverTheSSHConfigSbxWrites(t *testing.T) {
 		t.Errorf("SSHTarget = %q, want app.sbx", got)
 	}
 }
+
+func TestSbxReadsTheVersionFromSbxVersion(t *testing.T) {
+	stub := &sbxstub.Stub{Version: "v0.53.1"}
+
+	version, err := NewSbx(stub.Run).Version(context.Background())
+
+	if err != nil {
+		t.Fatalf("Version() error = %v", err)
+	}
+	if want := (Version{Major: 0, Minor: 53, Patch: 1}); version != want {
+		t.Errorf("Version() = %v, want %v", version, want)
+	}
+}
+
+func TestSbxFailsOnAVersionItCannotRead(t *testing.T) {
+	for _, version := range []string{"dev", "v0.53", "v0.53.x", "0.53.0", "v0.53.0-rc.1"} {
+		t.Run(version, func(t *testing.T) {
+			stub := &sbxstub.Stub{Version: version}
+
+			if _, err := NewSbx(stub.Run).Version(context.Background()); err == nil {
+				t.Errorf("Version() error = nil, want an error for %q", version)
+			}
+		})
+	}
+}
+
+func TestVersionsCompareByMajorMinorAndPatch(t *testing.T) {
+	older, newer := Version{Major: 0, Minor: 9, Patch: 9}, Version{Major: 0, Minor: 10, Patch: 0}
+	if older.Compare(newer) >= 0 || newer.Compare(older) <= 0 || older.Compare(older) != 0 {
+		t.Errorf("%v.Compare(%v) does not order the minor numerically", older, newer)
+	}
+}
