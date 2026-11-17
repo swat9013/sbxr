@@ -22,7 +22,7 @@ type envDefinition struct {
 	SkillsMode string
 	// dir は env 定義のディレクトリ。kitSources の ./ で始まる source はここを基準に解決する (sbx の実測)。
 	dir string
-	// kitSources は kits の source。
+	// kitSources は env 定義の kits に書かれた順の source。作成のときに checkKits が kit の spec.yaml を読む。
 	kitSources []string
 }
 

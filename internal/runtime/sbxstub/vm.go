@@ -217,7 +217,7 @@ func (vm *FakeVM) Startup() {
 
 // KitStartupLog は sbx が VM 内に kit startup の経過を書く log。行の文面は sbx v0.45.1 の VM の
 // /etc/durable-startup.d/run.sh と kit sbxr-herdr に合わせる (Sbx adapter の読み方と同じ)。v3 の kit でも sbx v0.53.0 で同じ文面
-// (decision/0018)。
+// (docs/design/sbxr/system.md の 2026-11-16 の実測の 10)。
 const KitStartupLog = "/var/log/sbx-kit-startup.log"
 
 // CompleteKitStartup は kit sbxr-herdr の startup を終えた log を VM に置く。

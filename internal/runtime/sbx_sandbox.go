@@ -280,7 +280,8 @@ const herdrKitFailure = "sbxr-herdr: fail "
 
 // startupOutcome は kit startup の log の最後の実行から、完了・失敗・実行中を読む。
 // dispatcher の行の文面は sbx v0.45.1 の VM の /etc/durable-startup.d/run.sh に合わせている
-// (段の失敗は "fail <script> exit=<N>" で、そこで止まる)。v3 の kit でも sbx v0.53.0 で同じ文面だった (decision/0018)。
+// (段の失敗は "fail <script> exit=<N>" で、そこで止まる)。v3 の kit でも sbx v0.53.0 で同じ文面だった
+// (docs/design/sbxr/system.md の 2026-11-16 の実測の 10)。
 func startupOutcome(log string) startup {
 	if i := strings.LastIndex(log, "=== dispatcher run"); i >= 0 {
 		log = log[i:]
