@@ -20,31 +20,43 @@ func TestDriftListsEachChangedLeafOfTheDeclaration(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name   string
-		change func(*sandboxDeclaration)
+		change func(recorded, current *sandboxDeclaration)
 		want   []Difference
 	}{
-		{"nothing changed", func(*sandboxDeclaration) {}, nil},
-		{"a nested value", func(d *sandboxDeclaration) { d.Profile.Env = map[string]string{"A": "2"} },
+		{"nothing changed", func(_, _ *sandboxDeclaration) {}, nil},
+		{"a nested value", func(_, d *sandboxDeclaration) { d.Profile.Env = map[string]string{"A": "2"} },
 			[]Difference{{Path: "profile.env.A", Recorded: `"1"`, Current: `"2"`}}},
-		{"a value that was not set", func(d *sandboxDeclaration) { level := "high"; d.Profile.EffortLevel = &level },
+		{"a value that was not set", func(_, d *sandboxDeclaration) { level := "high"; d.Profile.EffortLevel = &level },
 			[]Difference{{Path: "profile.effortLevel", Recorded: "(なし)", Current: `"high"`}}},
-		{"a list", func(d *sandboxDeclaration) { d.Init = []string{"make", "make test"} },
+		{"a list", func(_, d *sandboxDeclaration) { d.Init = []string{"make", "make test"} },
 			[]Difference{{Path: "init", Recorded: `["make"]`, Current: `["make","make test"]`}}},
-		{"herdr turned on", func(d *sandboxDeclaration) { d.Herdr = &herdrPin{Version: "v0.9.0"} },
-			[]Difference{{Path: "herdr", Recorded: "(なし)", Current: `{"version":"v0.9.0"}`}}},
-		{"secrets and hosts in another order", func(d *sandboxDeclaration) {
+		{"a plugin enabled where no plugin was", func(_, d *sandboxDeclaration) {
+			d.Profile.EnabledPlugins = map[string]bool{"tool@claude-plugins-official": true}
+		}, []Difference{{Path: "profile.enabledPlugins.tool@claude-plugins-official", Recorded: "(なし)", Current: "true"}}},
+		{"every plugin disabled where a plugin was", func(r, _ *sandboxDeclaration) {
+			r.Profile.EnabledPlugins = map[string]bool{"tool@claude-plugins-official": true}
+		}, []Difference{{Path: "profile.enabledPlugins.tool@claude-plugins-official", Recorded: "true", Current: "(なし)"}}},
+		{"an empty entry added to a map", func(_, d *sandboxDeclaration) {
+			d.Profile.ExtraKnownMarketplaces = map[string]any{"m": map[string]any{"source": map[string]any{}}}
+		}, []Difference{{Path: "profile.extraKnownMarketplaces.m.source", Recorded: "(なし)", Current: "{}"}}},
+		{"an empty entry removed from a map", func(r, _ *sandboxDeclaration) {
+			r.Profile.ExtraKnownMarketplaces = map[string]any{"m": map[string]any{}}
+		}, []Difference{{Path: "profile.extraKnownMarketplaces.m", Recorded: "{}", Current: "(なし)"}}},
+		{"herdr turned on", func(_, d *sandboxDeclaration) { d.Herdr = &herdrPin{Version: "v0.9.0"} },
+			[]Difference{{Path: "herdr.version", Recorded: "(なし)", Current: `"v0.9.0"`}}},
+		{"secrets and hosts in another order", func(_, d *sandboxDeclaration) {
 			d.Secrets = []secret.WiredSecret{{Name: "two", Key: "TWO", Hosts: []string{"c.example.com"}, Env: "TWO"}, {Name: "one", Key: "ONE", Hosts: []string{"b.example.com", "a.example.com"}, Env: "ONE"}}
 		}, nil},
-		{"the vars of a secret", func(d *sandboxDeclaration) { d.Secrets[0].Vars = map[string]string{"HOST": "a.example.com"} },
+		{"the vars of a secret", func(_, d *sandboxDeclaration) { d.Secrets[0].Vars = map[string]string{"HOST": "a.example.com"} },
 			[]Difference{{Path: "secrets",
 				Recorded: `[{"env":"ONE","hosts":["a.example.com","b.example.com"],"key":"ONE","name":"one"},{"env":"TWO","hosts":["c.example.com"],"key":"TWO","name":"two"}]`,
 				Current:  `[{"env":"ONE","hosts":["a.example.com","b.example.com"],"key":"ONE","name":"one","vars":{"HOST":"a.example.com"}},{"env":"TWO","hosts":["c.example.com"],"key":"TWO","name":"two"}]`}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			current := base()
-			tc.change(&current)
+			recorded, current := base(), base()
+			tc.change(&recorded, &current)
 
-			got, err := creationRecord{Declaration: base()}.Drift(current)
+			got, err := creationRecord{Declaration: recorded}.Drift(current)
 
 			if err != nil || !reflect.DeepEqual(got.Differences, tc.want) {
 				t.Errorf("Drift = %v, %v, want %v", got.Differences, err, tc.want)
