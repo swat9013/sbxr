@@ -22,7 +22,7 @@ type envDefinition struct {
 	SkillsMode string
 	// dir は env 定義のディレクトリ。kitSources の ./ で始まる source はここを基準に解決する (sbx の実測)。
 	dir string
-	// kitSources は kits の source。
+	// kitSources は env 定義の kits に書かれた順の source (混在の error は kit 名をこの順に並べる)。
 	kitSources []string
 }
 
@@ -60,9 +60,10 @@ const kitSyntax = "# syntax=docker.io/docker/sandbox-kit:3"
 
 // checkKits は作成に使う env 定義の kit を、sbx v0.53.0 の作成と同じく確かめる。agent の claude は v3 の kit に
 // 解決されるので、v1・v2 の kit が 1 つでもあれば混在として拒む。v3 の kit は 1 行目の syntax 行が無ければ build で失敗する。
+// 混在の拒否は kit の解決の段で起き、build より先なので、先に返す。
 func (env envDefinition) checkKits() error {
-	var legacy []string
-	var v3 []string
+	var legacy, v3 []string
+	var buildErr error
 	for _, source := range env.kitSources {
 		spec, err := os.ReadFile(filepath.Join(env.dir, source, "spec.yaml"))
 		if err != nil {
@@ -80,15 +81,15 @@ func (env envDefinition) checkKits() error {
 			continue
 		}
 		v3 = append(v3, name)
-		if first, _, _ := strings.Cut(string(spec), "\n"); first != kitSyntax {
-			return fmt.Errorf("sbxstub: kit %s の build が失敗した (dockerfile parse error: unknown instruction: schemaVersion:)", name)
+		if first, _, _ := strings.Cut(string(spec), "\n"); first != kitSyntax && buildErr == nil {
+			buildErr = fmt.Errorf("sbxstub: kit %s の build が失敗した (dockerfile parse error: unknown instruction: schemaVersion:)", name)
 		}
 	}
 	if len(legacy) > 0 {
 		return fmt.Errorf("sbxstub: resolve kits: cannot mix v3 kits with v1/v2 kits in one sandbox; compositions are single-format (v3: %s; v1/v2: %s)",
 			strings.Join(append([]string{"claude"}, v3...), ", "), strings.Join(legacy, ", "))
 	}
-	return nil
+	return buildErr
 }
 
 // envName は dir の env 定義が指す sandbox VM の名前を読む。env 定義が無ければ error (sbx の実測)。
