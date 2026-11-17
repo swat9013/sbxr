@@ -25,6 +25,7 @@ func diagnosedSbxVersionItem(t *testing.T, stub *sbxstub.Stub, sbxAvailable func
 	d := Doctor{
 		Runtime:      runtime.NewSbx(stub.Run),
 		SbxAvailable: sbxAvailable,
+		SbxVersion:   runtime.NewSbx(stub.Run).Version,
 		Herdr:        &herdrtest.Fake{},
 		UserConfig:   filepath.Join(dir, "config.yaml"),
 		SecretFile:   filepath.Join(dir, "secrets.env"),
@@ -87,7 +88,7 @@ func TestSbxVersionThatCannotBeReadFails(t *testing.T) {
 }
 
 func TestSbxVersionWithinTheMeasuredRangeIsOKWithoutANote(t *testing.T) {
-	for _, version := range []runtime.Version{runtime.MinSbxVersion, runtime.MeasuredSbxVersion} {
+	for _, version := range []runtime.SbxVersion{runtime.MinSbxVersion, runtime.MeasuredSbxVersion} {
 		t.Run(version.String(), func(t *testing.T) {
 			item := sbxVersionItem(t, &sbxstub.Stub{Version: version.String()})
 

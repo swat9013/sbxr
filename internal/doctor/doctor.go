@@ -81,9 +81,11 @@ type Doctor struct {
 	Runtime runtime.Runtime
 	// SbxAvailable は host に sbx があるかを確かめる。無ければ error。
 	SbxAvailable func() error
-	Herdr        herdr.Client
-	UserConfig   string
-	SecretFile   string
+	// SbxVersion は host の sbx の版を読む。読めなければ error。SbxAvailable が error なら呼ばない。
+	SbxVersion func(ctx context.Context) (runtime.SbxVersion, error)
+	Herdr      herdr.Client
+	UserConfig string
+	SecretFile string
 	// Clone は git URL の repo を一時ディレクトリへ clone する。
 	Clone sandbox.Cloner
 }
@@ -186,7 +188,7 @@ func (d Doctor) sbxVersionItem(ctx context.Context, facts hostAndUser) Item {
 	}
 	minimum, measured := runtime.MinSbxVersion, runtime.MeasuredSbxVersion
 	update := "sbx を " + minimum.String() + " 以上へ更新する (https://docs.docker.com/ai/sandboxes/)"
-	version, err := d.Runtime.Version(ctx)
+	version, err := d.SbxVersion(ctx)
 	switch {
 	case err != nil:
 		// 版を読めない sbx は、下限より旧いとも上限より新しいとも決められない (decision/0019)

@@ -240,11 +240,6 @@ func (r *Runtime) SandboxFileExists(_ context.Context, sandbox, path string) (bo
 	return false, nil
 }
 
-// Version は実測済みの上限の版を返す (in-memory の実行基盤は sbxr が求める形どおりに振る舞う)。
-func (r *Runtime) Version(context.Context) (runtime.Version, error) {
-	return runtime.MeasuredSbxVersion, nil
-}
-
 func (r *Runtime) SSHTarget(sandbox string) string {
 	return sandbox + ".inmemory"
 }

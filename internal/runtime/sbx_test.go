@@ -270,7 +270,7 @@ func TestSbxReadsTheVersionFromSbxVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Version() error = %v", err)
 	}
-	if want := (Version{Major: 0, Minor: 53, Patch: 1}); version != want {
+	if want := (SbxVersion{Major: 0, Minor: 53, Patch: 1}); version != want {
 		t.Errorf("Version() = %v, want %v", version, want)
 	}
 }
@@ -294,16 +294,16 @@ func TestSbxReadsTheVersionLineAfterOtherOutput(t *testing.T) {
 
 	version, err := NewSbx(run).Version(context.Background())
 
-	if err != nil || version != (Version{Major: 0, Minor: 53, Patch: 0}) {
+	if err != nil || version != (SbxVersion{Major: 0, Minor: 53, Patch: 0}) {
 		t.Errorf("Version() = %v, %v, want v0.53.0", version, err)
 	}
 }
 
 func TestVersionsCompareByMajorThenMinorThenPatchNumerically(t *testing.T) {
-	for _, tt := range []struct{ older, newer Version }{
-		{older: Version{Major: 0, Minor: 99, Patch: 99}, newer: Version{Major: 1, Minor: 0, Patch: 0}},
-		{older: Version{Major: 0, Minor: 9, Patch: 9}, newer: Version{Major: 0, Minor: 10, Patch: 0}},
-		{older: Version{Major: 0, Minor: 53, Patch: 9}, newer: Version{Major: 0, Minor: 53, Patch: 10}},
+	for _, tt := range []struct{ older, newer SbxVersion }{
+		{older: SbxVersion{Major: 0, Minor: 99, Patch: 99}, newer: SbxVersion{Major: 1, Minor: 0, Patch: 0}},
+		{older: SbxVersion{Major: 0, Minor: 9, Patch: 9}, newer: SbxVersion{Major: 0, Minor: 10, Patch: 0}},
+		{older: SbxVersion{Major: 0, Minor: 53, Patch: 9}, newer: SbxVersion{Major: 0, Minor: 53, Patch: 10}},
 	} {
 		if tt.older.Compare(tt.newer) >= 0 || tt.newer.Compare(tt.older) <= 0 || tt.older.Compare(tt.older) != 0 {
 			t.Errorf("%v.Compare(%v) does not order them", tt.older, tt.newer)
