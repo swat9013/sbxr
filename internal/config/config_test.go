@@ -333,7 +333,7 @@ func TestTheEmptyValueCheckLeavesTheContentsOfASecretDefinitionToItsOwnValidatio
 	}
 
 	if err := checkWrittenValues(keys); err != nil {
-		t.Errorf("checkWrittenValues() = %v, want an empty service accepted as placeholder injection", err)
+		t.Errorf("checkWrittenValues() = %v, want an empty service accepted as host-specified credential injection", err)
 	}
 }
 
@@ -525,7 +525,7 @@ func TestUserMayWriteAnEmptyServiceToMeanPlaceholderInjection(t *testing.T) {
 	user := "version: 1\nsecret_defs:\n  api:\n    service: ''\n    key: API_TOKEN\n    hosts: [api.example.com]\n    env: API_TOKEN\n"
 
 	if _, err := mergeYAML(t, testDefault, user, ""); err != nil {
-		t.Errorf("merge error = %v, want an empty service accepted as placeholder injection", err)
+		t.Errorf("merge error = %v, want an empty service accepted as host-specified credential injection", err)
 	}
 }
 

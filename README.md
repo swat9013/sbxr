@@ -71,7 +71,7 @@ herdr:
 
 ## secret
 
-VM には placeholder だけが入り、実値は host 側の proxy が通信時に差し込む。secret は「定義」と「要求」に分けて書く。
+VM には placeholder だけが入り、実値は host 側の proxy が通信時に差し込む（credential injection）。secret は「定義」と「要求」に分けて書く。
 
 ```yaml
 # ~/.config/sbxr/config.yaml
@@ -120,7 +120,7 @@ gh skill install swat9013/sbxr sbxr-config --agent claude-code --scope user
 npx skills add swat9013/sbxr --skill sbxr-config --global
 ```
 
-使い方は、agent に「この repo の sbxr の設定を作って」のように頼む。agent が user 設定の項目を尋ね、repo 宣言を repo の中身から推測して書き、`sbxr doctor` が通るまで直す（手順は [SKILL.md](skills/sbxr-config/SKILL.md)）。secret の値（`sbxr secret setup`）と global rule（`sbxr policy sync`）は、agent が示すコマンドを自分で実行する。作られる内容は `sbxr plan` と `sbxr create` の確認関門で確かめる。
+使い方は、agent に「この repo の sbxr の設定を作って」のように頼む。agent が user 設定の項目を尋ね、repo 宣言を repo の中身から推測して書き、`sbxr doctor` が通るまで直す（手順は [SKILL.md](skills/sbxr-config/SKILL.md)）。secret の値（`sbxr secret setup`）と global rule（`sbxr policy sync`）は、agent が示すコマンドを自分で実行する。作られる内容は `sbxr plan` と `sbxr create` の確認プロンプトで確かめる。
 
 ## License
 

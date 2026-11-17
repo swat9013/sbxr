@@ -76,8 +76,8 @@ func newSecretSetupCustomCmd(deps dependencies) *cobra.Command {
 	var host string
 	cmd := &cobra.Command{
 		Use:   "custom --host <host>",
-		Short: "host へ placeholder 注入する secret の値を、能力を確かめずに secret ファイルへ書く",
-		Long: `host へ placeholder 注入する secret の値を、能力を確かめずに secret ファイルへ書く。
+		Short: "host 指定の credential injection の secret の値を、能力を確かめずに secret ファイルへ書く",
+		Long: `host 指定の credential injection の secret の値を、能力を確かめずに secret ファイルへ書く。
 書くキーは、user 設定か同梱の secret 定義のうち hosts に host を持つものの key。`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {

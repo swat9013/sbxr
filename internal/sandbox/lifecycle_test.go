@@ -93,7 +93,7 @@ func TestCreateRecordsTheDeclarationSoThatPlanFindsNoDrift(t *testing.T) {
 	}
 }
 
-// --- create: 確認関門 ---
+// --- create: 確認プロンプト ---
 
 func TestCreateShowsWhatItCreatesAtTheGateBeforeCreatingAnything(t *testing.T) {
 	w := newWorld(t, testUserConfig)
@@ -473,7 +473,7 @@ func TestDestroyRefusesAVMStartedWhileTheGateWasOpen(t *testing.T) {
 	}
 }
 
-// startingGate は承認を求められている間に、VM が sbxr の外で起動する確認関門。
+// startingGate は承認を求められている間に、VM が sbxr の外で起動する確認プロンプト。
 type startingGate struct {
 	*fakeGate
 	w *world
@@ -814,7 +814,7 @@ func TestCreateDoesNotTouchASandboxCreatedWhileTheGateWasOpen(t *testing.T) {
 	}
 }
 
-// creatingGate は承認を求められている間に、同じ名前の sandbox VM が別の create で作られる確認関門。
+// creatingGate は承認を求められている間に、同じ名前の sandbox VM が別の create で作られる確認プロンプト。
 type creatingGate struct {
 	*fakeGate
 	create func()

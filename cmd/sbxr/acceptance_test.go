@@ -162,7 +162,7 @@ func TestAcceptanceBootReplaysTheCreationTimeCommandsOnEveryStart(t *testing.T) 
 	}
 }
 
-// --- 5. 確認関門: merge 結果を見せてから承認を求め、承認までは何も作らない ---
+// --- 5. 確認プロンプト: merge 結果を見せてから承認を求め、承認までは何も作らない ---
 
 // gatePrompter は確認を求められた時点で、sbx への書き込みと状態ディレクトリがあったかを記録する。
 type gatePrompter struct {

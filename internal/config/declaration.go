@@ -342,7 +342,7 @@ func resolved(node *yaml.Node) *yaml.Node {
 
 // checksEmptyValue は、値の書き忘れ (null) と空文字を止める key か。宣言の型が読む key を止める。
 // 型が読まない深さの key (profile.env の変数など) の値は、空でも利用者の意図として通す。
-// secret_defs の下は止めない。中身は secret.Definition.Validate が確かめ、空の service は placeholder 注入を表す。
+// secret_defs の下は止めない。中身は secret.Definition.Validate が確かめ、空の service は host 指定の credential injection を表す。
 func (k writtenKey) checksEmptyValue() bool {
 	if k.isBelow([]string{"secret_defs"}) {
 		return false

@@ -141,14 +141,14 @@ func TestValidateRejectsIncompleteOrAmbiguousDefinitions(t *testing.T) {
 		def     Definition
 		mention string
 	}{
-		"key が無い":                 {Definition{Hosts: []string{"a.example.com"}, Env: "A"}, "key"},
-		"hosts が無い":               {Definition{Key: "A", Env: "A"}, "hosts"},
-		"placeholder 注入に env が無い": {Definition{Key: "A", Hosts: []string{"a.example.com"}}, "env"},
-		"service と env を両方書く":     {Definition{Service: "github", Key: "A", Hosts: []string{"github.com"}, Env: "A"}, "env"},
-		"host に glob":             {Definition{Key: "A", Hosts: []string{"*.example.com"}, Env: "A"}, "*.example.com"},
-		"host に port":             {Definition{Key: "A", Hosts: []string{"a.example.com:443"}, Env: "A"}, "a.example.com:443"},
-		"env が環境変数名でない":           {Definition{Key: "A", Hosts: []string{"a.example.com"}, Env: "A-B"}, "A-B"},
-		"key が secret ファイルのキーでない": {Definition{Key: "A B", Hosts: []string{"a.example.com"}, Env: "A"}, "A B"},
+		"key が無い":   {Definition{Hosts: []string{"a.example.com"}, Env: "A"}, "key"},
+		"hosts が無い": {Definition{Key: "A", Env: "A"}, "hosts"},
+		"host 指定の credential injection に env が無い": {Definition{Key: "A", Hosts: []string{"a.example.com"}}, "env"},
+		"service と env を両方書く":                     {Definition{Service: "github", Key: "A", Hosts: []string{"github.com"}, Env: "A"}, "env"},
+		"host に glob":                             {Definition{Key: "A", Hosts: []string{"*.example.com"}, Env: "A"}, "*.example.com"},
+		"host に port":                             {Definition{Key: "A", Hosts: []string{"a.example.com:443"}, Env: "A"}, "a.example.com:443"},
+		"env が環境変数名でない":                           {Definition{Key: "A", Hosts: []string{"a.example.com"}, Env: "A-B"}, "A-B"},
+		"key が secret ファイルのキーでない":                 {Definition{Key: "A B", Hosts: []string{"a.example.com"}, Env: "A"}, "A B"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			assertErrorMentions(t, tc.def.Validate(), tc.mention)

@@ -17,7 +17,7 @@ type VM interface {
 
 // Registry は sandbox VM ごとの herdr machine の登録簿: 登録・停止前の無効化・解除 (ADR 0007)。
 // 残った登録の扱いと、失敗したときの復旧手順の文面はここに置く。host に herdr があることは、呼び出し側が
-// 先に RequireOnHost で確かめる (確認関門の前に止めるため)。
+// 先に RequireOnHost で確かめる (確認プロンプトの前に止めるため)。
 type Registry struct {
 	Client Client
 	VM     VM
