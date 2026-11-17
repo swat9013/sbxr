@@ -289,7 +289,7 @@ func TestSbxFailsOnAVersionItCannotRead(t *testing.T) {
 
 func TestSbxReadsTheVersionLineAfterOtherOutput(t *testing.T) {
 	run := func(context.Context, io.Reader, ...string) ([]byte, error) {
-		return []byte("A new version of sbx is available\nsbx version v0.53.0 2c62838\n"), nil
+		return []byte("sbx version check: a new release is available\nsbx version v0.53.0 2c62838 extra\n"), nil
 	}
 
 	version, err := NewSbx(run).Version(context.Background())

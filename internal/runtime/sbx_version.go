@@ -9,7 +9,7 @@ import (
 )
 
 // SbxVersion は sbx の版 (v<major>.<minor>.<patch>)。
-// 版の範囲は sbx 固有の約束なので、Runtime port には載せず、doctor へは SbxAvailable と同じく port の外で渡す。
+// 版の範囲は sbx 固有の約束なので、Runtime port には載せない (system.md「port の切り方」)。
 type SbxVersion struct {
 	Major, Minor, Patch int
 }
@@ -37,22 +37,17 @@ func (s *Sbx) Version(ctx context.Context) (SbxVersion, error) {
 	if err != nil {
 		return SbxVersion{}, err
 	}
-	// 版の行の前に sbx が別の行 (更新の通知など) を出しても読めるよう、"sbx version " で始まる行を探す
-	var fields []string
+	// 版の行の前後に sbx が別の行 (更新の通知など) を出しても読めるよう、"sbx version <版>" と読める最初の行を使う
 	for line := range strings.Lines(string(out)) {
-		if strings.HasPrefix(line, "sbx version ") {
-			fields = strings.Fields(line)
-			break
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[0] != "sbx" || fields[1] != "version" {
+			continue
+		}
+		if version, err := parseSbxVersion(fields[2]); err == nil {
+			return version, nil
 		}
 	}
-	if len(fields) != 4 {
-		return SbxVersion{}, fmt.Errorf("sbx version の出力から版を読めない (sbxr は sbx v0.53.0 で実測した形 \"sbx version v<major>.<minor>.<patch> <revision>\" の行を読む): %q", sbxOutputHead(out))
-	}
-	version, err := parseSbxVersion(fields[2])
-	if err != nil {
-		return SbxVersion{}, fmt.Errorf("sbx version の出力から版を読めない: %w", err)
-	}
-	return version, nil
+	return SbxVersion{}, fmt.Errorf("sbx version の出力から版を読めない (sbxr は sbx v0.53.0 で実測した形 \"sbx version v<major>.<minor>.<patch> <revision>\" の行を読む): %q", sbxOutputHead(out))
 }
 
 // parseSbxVersion は v<major>.<minor>.<patch> を読む。各欄は数字だけで、先頭の 0 を持たない。

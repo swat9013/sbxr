@@ -80,8 +80,8 @@ func TestSbxVersionThatCannotBeReadFails(t *testing.T) {
 			if item.Status != Fail {
 				t.Errorf("status = %s (%s), want fail when the version cannot be read", item.Status, item.Detail)
 			}
-			if !strings.Contains(item.Fix, "sbx を "+runtime.MinSbxVersion.String()+" 以上へ更新する") {
-				t.Errorf("fix = %q, want updating sbx shown", item.Fix)
+			if !strings.Contains(item.Fix, "sbx を "+runtime.MinSbxVersion.String()+" 以上へ更新する") || !strings.Contains(item.Fix, "sbx version が") {
+				t.Errorf("fix = %q, want updating sbx and checking the output of sbx version shown", item.Fix)
 			}
 		})
 	}
