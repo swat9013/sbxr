@@ -36,9 +36,16 @@ func (s *Sbx) Version(ctx context.Context) (Version, error) {
 	if err != nil {
 		return Version{}, err
 	}
-	fields := strings.Fields(string(out))
-	if len(fields) < 3 || fields[0] != "sbx" || fields[1] != "version" {
-		return Version{}, fmt.Errorf("sbx version の出力から版を読めない (sbxr は sbx %s の出力の形 \"sbx version v<major>.<minor>.<patch> <revision>\" を読む): %q", MeasuredSbxVersion, sbxOutputHead(out))
+	// 版の行の前に sbx が別の行 (更新の通知など) を出しても読めるよう、"sbx version " で始まる行を探す
+	var fields []string
+	for line := range strings.Lines(string(out)) {
+		if strings.HasPrefix(line, "sbx version ") {
+			fields = strings.Fields(line)
+			break
+		}
+	}
+	if len(fields) != 4 {
+		return Version{}, fmt.Errorf("sbx version の出力から版を読めない (sbxr は sbx v0.53.0 で実測した形 \"sbx version v<major>.<minor>.<patch> <revision>\" の行を読む): %q", sbxOutputHead(out))
 	}
 	version, err := parseVersion(fields[2])
 	if err != nil {
@@ -55,8 +62,9 @@ func parseVersion(text string) (Version, error) {
 	}
 	var numbers [3]int
 	for i, part := range parts {
+		// Atoi は符号 (+1・-0) を受けるので、数字だけの欄に限る
 		n, err := strconv.Atoi(part)
-		if err != nil || n < 0 {
+		if err != nil || part == "" || strings.Trim(part, "0123456789") != "" || (len(part) > 1 && part[0] == '0') {
 			return Version{}, fmt.Errorf("版 %q が v<major>.<minor>.<patch> の形でない", text)
 		}
 		numbers[i] = n

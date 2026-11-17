@@ -189,7 +189,8 @@ func (d Doctor) sbxVersionItem(ctx context.Context, facts hostAndUser) Item {
 	version, err := d.Runtime.Version(ctx)
 	switch {
 	case err != nil:
-		return failure(name, err.Error(), update)
+		// 版を読めない sbx は、下限より旧いとも上限より新しいとも決められない (decision/0019)
+		return failure(name, err.Error(), "sbx version が動き、v<major>.<minor>.<patch> の版を出すかを確かめる。出なければ "+update)
 	case version.Compare(minimum) < 0:
 		return failure(name, fmt.Sprintf("%s は sbxr が対応する下限 %s より旧い", version, minimum), update)
 	case version.Compare(measured) > 0:

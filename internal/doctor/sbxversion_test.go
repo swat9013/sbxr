@@ -12,13 +12,19 @@ import (
 	"github.com/swat9013/sbxr/internal/runtime/sbxstub"
 )
 
-// sbxVersionItem は sbx stub が sbxVersion を版として返すときの、項目「sbx の版」の結果。
+// sbxVersionItem は sbx stub の上で Diagnose した結果から、項目「sbx の版」を取り出す。
 func sbxVersionItem(t *testing.T, stub *sbxstub.Stub) Item {
+	t.Helper()
+	return diagnosedSbxVersionItem(t, stub, func() error { return nil })
+}
+
+// diagnosedSbxVersionItem は、host に sbx があるかを sbxAvailable で決めて Diagnose した結果から、項目「sbx の版」を取り出す。
+func diagnosedSbxVersionItem(t *testing.T, stub *sbxstub.Stub, sbxAvailable func() error) Item {
 	t.Helper()
 	dir := t.TempDir()
 	d := Doctor{
 		Runtime:      runtime.NewSbx(stub.Run),
-		SbxAvailable: func() error { return nil },
+		SbxAvailable: sbxAvailable,
 		Herdr:        &herdrtest.Fake{},
 		UserConfig:   filepath.Join(dir, "config.yaml"),
 		SecretFile:   filepath.Join(dir, "secrets.env"),
@@ -96,16 +102,9 @@ func TestSbxVersionWithinTheMeasuredRangeIsOKWithoutANote(t *testing.T) {
 }
 
 func TestSbxVersionIsSkippedWhenSbxIsMissing(t *testing.T) {
-	dir := t.TempDir()
-	d := Doctor{
-		Runtime:      runtime.NewSbx((&sbxstub.Stub{FailOn: "version"}).Run),
-		SbxAvailable: func() error { return errors.New("sbx が PATH に無い") },
-		Herdr:        &herdrtest.Fake{},
-		UserConfig:   filepath.Join(dir, "config.yaml"),
-		SecretFile:   filepath.Join(dir, "secrets.env"),
-	}
+	stub := &sbxstub.Stub{FailOn: "version"}
 
-	item := d.sbxVersionItem(context.Background(), d.readHostAndUser())
+	item := diagnosedSbxVersionItem(t, stub, func() error { return errors.New("sbx が PATH に無い") })
 
 	if item.Status != Skip {
 		t.Errorf("status = %s (%s), want skip when sbx is missing", item.Status, item.Detail)

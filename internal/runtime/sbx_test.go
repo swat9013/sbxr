@@ -276,7 +276,7 @@ func TestSbxReadsTheVersionFromSbxVersion(t *testing.T) {
 }
 
 func TestSbxFailsOnAVersionItCannotRead(t *testing.T) {
-	for _, version := range []string{"dev", "v0.53", "v0.53.x", "0.53.0", "v0.53.0-rc.1"} {
+	for _, version := range []string{"dev", "v0.53", "v0.53.x", "0.53.0", "v0.53.0-rc.1", "v0.+53.0", "v-0.53.0", "v0.053.0"} {
 		t.Run(version, func(t *testing.T) {
 			stub := &sbxstub.Stub{Version: version}
 
@@ -287,9 +287,26 @@ func TestSbxFailsOnAVersionItCannotRead(t *testing.T) {
 	}
 }
 
-func TestVersionsCompareByMajorMinorAndPatch(t *testing.T) {
-	older, newer := Version{Major: 0, Minor: 9, Patch: 9}, Version{Major: 0, Minor: 10, Patch: 0}
-	if older.Compare(newer) >= 0 || newer.Compare(older) <= 0 || older.Compare(older) != 0 {
-		t.Errorf("%v.Compare(%v) does not order the minor numerically", older, newer)
+func TestSbxReadsTheVersionLineAfterOtherOutput(t *testing.T) {
+	run := func(context.Context, io.Reader, ...string) ([]byte, error) {
+		return []byte("A new version of sbx is available\nsbx version v0.53.0 2c62838\n"), nil
+	}
+
+	version, err := NewSbx(run).Version(context.Background())
+
+	if err != nil || version != (Version{Major: 0, Minor: 53, Patch: 0}) {
+		t.Errorf("Version() = %v, %v, want v0.53.0", version, err)
+	}
+}
+
+func TestVersionsCompareByMajorThenMinorThenPatchNumerically(t *testing.T) {
+	for _, tt := range []struct{ older, newer Version }{
+		{older: Version{Major: 0, Minor: 99, Patch: 99}, newer: Version{Major: 1, Minor: 0, Patch: 0}},
+		{older: Version{Major: 0, Minor: 9, Patch: 9}, newer: Version{Major: 0, Minor: 10, Patch: 0}},
+		{older: Version{Major: 0, Minor: 53, Patch: 9}, newer: Version{Major: 0, Minor: 53, Patch: 10}},
+	} {
+		if tt.older.Compare(tt.newer) >= 0 || tt.newer.Compare(tt.older) <= 0 || tt.older.Compare(tt.older) != 0 {
+			t.Errorf("%v.Compare(%v) does not order them", tt.older, tt.newer)
+		}
 	}
 }
