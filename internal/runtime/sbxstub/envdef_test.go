@@ -31,6 +31,8 @@ func TestEnvCreateRefusesKitsThatSbxRefuses(t *testing.T) {
 	}{
 		{"a v2 kit mixed with the v3 claude", "schemaVersion: \"2\"\nkind: mixin\n",
 			"cannot mix v3 kits with v1/v2 kits in one sandbox; compositions are single-format (v3: claude; v1/v2: probe)"},
+		{"a v1 kit mixed with the v3 claude", "schemaVersion: \"1\"\n",
+			"cannot mix v3 kits with v1/v2 kits in one sandbox; compositions are single-format (v3: claude; v1/v2: probe)"},
 		{"a v3 kit without the syntax line", "schemaVersion: \"3\"\nkind: mixin\n", "kit probe の build が失敗した"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
