@@ -148,7 +148,7 @@ func (s SandboxStatus) String() string {
 
 // SandboxSecret は sandbox VM に配線する secret。VM には placeholder だけが入り、実値は host 側の proxy が差し込む。
 type SandboxSecret struct {
-	// Service は実行基盤の組み込み service の名前 (例: github)。空なら Hosts と Env による credential injection。
+	// Service は実行基盤の組み込み service の名前 (例: github)。空なら Hosts と Env による host 指定の credential injection。
 	Service string
 	// Hosts は credential injection で実値を差し込む宛先。
 	Hosts []string

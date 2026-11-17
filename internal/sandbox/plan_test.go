@@ -92,7 +92,7 @@ func TestChangingTheHostsOfASecretDefinitionIsDrift(t *testing.T) {
 	}
 }
 
-// gitlabSecret は vars を持つ credential injection の secret を配線する user 設定。defs は secret_defs.gitlab の中身。
+// gitlabSecret は vars を持つ host 指定の credential injection の secret を配線する user 設定。defs は secret_defs.gitlab の中身。
 func gitlabSecret(defs string) string {
 	return testUserConfig + "secrets: [gitlab]\negress:\n  gitlab:\n    rationale: GitLab\n    allow: [gitlab.example.com:443]\n" +
 		"secret_defs:\n  gitlab:\n    hosts: [gitlab.example.com]\n    env: GITLAB_TOKEN\n" + defs

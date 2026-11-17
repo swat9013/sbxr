@@ -71,7 +71,7 @@ herdr:
 
 ## secret
 
-VM には placeholder だけが入り、実値は host 側の proxy が通信時に差し込む。secret は「定義」と「要求」に分けて書く。
+VM には placeholder だけが入り、実値は host 側の proxy が通信時に差し込む（credential injection）。secret は「定義」と「要求」に分けて書く。
 
 ```yaml
 # ~/.config/sbxr/config.yaml
