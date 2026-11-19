@@ -16,8 +16,8 @@ func guideSections() map[string][]string {
 	heading := ""
 	for line := range strings.Lines(guide.Text) {
 		line = strings.TrimSuffix(line, "\n")
-		if strings.HasPrefix(line, "## ") {
-			heading = strings.TrimPrefix(line, "## ")
+		if after, ok := strings.CutPrefix(line, "## "); ok {
+			heading = after
 			continue
 		}
 		sections[heading] = append(sections[heading], line)
