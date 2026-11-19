@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -83,10 +84,15 @@ type embeddedKit struct {
 	args map[string]string
 }
 
-// source は env 定義から kit を指す相対 path。
-func (k embeddedKit) source() string { return "./" + kitsDir + "/" + k.name }
+// kitDir は、startup を走らせる順で order 番目 (0 始まり) の kit を置く、状態ディレクトリの中の相対 path。
+// sbx v0.53.0 は kit の startup を、env 定義の kits の順ではなく source の path の辞書順に走らせる
+// (docs/design/sbxr/system.md の 2026-11-19 の実測の #152)。順の番号のディレクトリの下に置き、辞書順を kits の順に合わせる。
+// kit 名は directory 名から決まるので、番号は kit 名に入れない。
+func kitDir(order int, name string) string {
+	return path.Join(kitsDir, fmt.Sprintf("%02d", order), name)
+}
 
-// kits は env 定義に入れる埋め込みの kit。herdr と boot の再生は、作る内容が求めるときだけ入れる。
+// kits は env 定義に入れる埋め込みの kit を、startup を走らせる順に返す。herdr と boot の再生は、作る内容が求めるときだけ入れる。
 // herdr を先に置く (順序の理由は ADR 0007)。
 func kits(spec SandboxSpec) []embeddedKit {
 	var list []embeddedKit
@@ -102,9 +108,9 @@ func kits(spec SandboxSpec) []embeddedKit {
 // herdrWorktreeOK は、herdr の kit が VM 内の作業ツリーの path を運べるかを確かめる。kit は path を bash の
 // 単一引用符の中へ差し込み、TOML の文字列 (UTF-8 に限る) として書くので、単一引用符・制御文字・UTF-8 でない byte を
 // 含む path は運べない。
-func herdrWorktreeOK(path string) error {
-	if !utf8.ValidString(path) || strings.ContainsFunc(path, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) {
-		return fmt.Errorf("herdr 連携は、単一引用符・制御文字・UTF-8 でない byte を含む path の repo (%q) を扱えない。repo を別の path に置くか、user 設定で herdr.enabled: false にする", path)
+func herdrWorktreeOK(worktree string) error {
+	if !utf8.ValidString(worktree) || strings.ContainsFunc(worktree, func(r rune) bool { return r == '\'' || unicode.IsControl(r) }) {
+		return fmt.Errorf("herdr 連携は、単一引用符・制御文字・UTF-8 でない byte を含む path の repo (%q) を扱えない。repo を別の path に置くか、user 設定で herdr.enabled: false にする", worktree)
 	}
 	return nil
 }
@@ -118,8 +124,8 @@ func (s *Sbx) DefineSandbox(stateDir string, spec SandboxSpec) error {
 	}
 	selected := kits(spec)
 	var refs []envKit
-	for _, kit := range selected {
-		refs = append(refs, envKit{Source: kit.source(), Args: kit.args})
+	for order, kit := range selected {
+		refs = append(refs, envKit{Source: "./" + kitDir(order, kit.name), Args: kit.args})
 	}
 	env, err := yaml.Marshal(envDefinition{
 		SchemaVersion:  "1",
@@ -137,10 +143,10 @@ func (s *Sbx) DefineSandbox(stateDir string, spec SandboxSpec) error {
 	if err := os.RemoveAll(filepath.Join(stateDir, kitsDir)); err != nil {
 		return fmt.Errorf("状態ディレクトリの kit を書き直せない: %w", err)
 	}
-	for _, kit := range selected {
+	for order, kit := range selected {
 		sub, err := fs.Sub(assets.Kits(), kit.name)
 		if err == nil {
-			err = os.CopyFS(filepath.Join(stateDir, kitsDir, kit.name), sub)
+			err = os.CopyFS(filepath.Join(stateDir, filepath.FromSlash(kitDir(order, kit.name))), sub)
 		}
 		if err != nil {
 			return fmt.Errorf("状態ディレクトリに kit %s を書けない: %w", kit.name, err)
@@ -226,10 +232,10 @@ func (s *Sbx) DefinedWithHerdr(stateDir string) (bool, error) {
 	return env.carriesKit(herdrKit), nil
 }
 
-// carriesKit は env 定義が埋め込みの kit name を参照しているかを返す。
+// carriesKit は env 定義が埋め込みの kit name を参照しているかを返す。kit 名は source の directory 名で読む。
+// 前の版が書いた env 定義 (kit を ./kits/<name> で指す) も同じく読める。
 func (env envDefinition) carriesKit(name string) bool {
-	source := embeddedKit{name: name}.source()
-	return slices.ContainsFunc(env.Kits, func(kit envKit) bool { return kit.Source == source })
+	return slices.ContainsFunc(env.Kits, func(kit envKit) bool { return path.Base(kit.Source) == name })
 }
 
 // kitStartupLog は sbx が VM 内に kit startup の経過を書く log (VM の /etc/durable-startup.d/run.sh が決める)。

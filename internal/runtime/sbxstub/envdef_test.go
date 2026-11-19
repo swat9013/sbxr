@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -45,6 +46,34 @@ func TestEnvCreateRefusesKitsThatSbxRefuses(t *testing.T) {
 				t.Errorf("env create = %v, sandboxes = %v, want %q and no sandbox", err, stub.Sandboxes, tc.want)
 			}
 		})
+	}
+}
+
+// 期待値は sbx v0.53.0 の実測の組 (docs/design/sbxr/system.md の 2026-11-19 の実測の #152) をそのまま写す。
+func TestTheVMRunsKitStartupsInTheOrderOfTheirSourcePaths(t *testing.T) {
+	dir := t.TempDir()
+	sources := []string{"./p1/probe-y", "./p0/probe-z", "./p3/aaa-probe", "./p2/probe-x"}
+	env := "schemaVersion: \"1\"\nname: app\nkits:\n"
+	for _, source := range sources {
+		env += "  - source: " + source + "\n"
+		if err := os.MkdirAll(filepath.Join(dir, source), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, source, "spec.yaml"), []byte(kitSyntax+"\nschemaVersion: \"3\"\nkind: mixin\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, envFile), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stub := &Stub{}
+
+	if _, err := stub.Run(context.Background(), nil, "env", "create", "--force", dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := stub.KitStartupOrders["app"], []string{"probe-z", "probe-y", "probe-x", "aaa-probe"}; !slices.Equal(got, want) {
+		t.Errorf("kit startup order = %q, want %q", got, want)
 	}
 }
 
