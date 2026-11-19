@@ -1,0 +1,34 @@
+name: sbx stable watch
+
+# sbx の新しい stable が実測済みの上限 (MeasuredSbxVersion) より新しければ、実 sbx の 1 周を求める issue を立てる
+# (CONTRIBUTING.md「sbx の新しい版への追従」)。判定は scripts/sbx_stable_watch.py が持つ
+on:
+  schedule:
+    - cron: "0 0 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # releases/latest は prerelease と draft を除いた最新の release を返す
+      - run: gh api repos/docker/sbx-releases/releases/latest --jq .tag_name > "$RUNNER_TEMP/latest-tag"
+      # 同じ版の issue は open でも closed でも立て直さないので、state=all の題名を全件渡す
+      - run: gh api --paginate "repos/${GITHUB_REPOSITORY}/issues?state=all&per_page=100" --jq '.[].title' > "$RUNNER_TEMP/titles"
+      - run: |
+          title=$(python3 scripts/sbx_stable_watch.py \
+            --latest-tag "$(cat "$RUNNER_TEMP/latest-tag")" \
+            --version-file internal/runtime/sbx_version.go \
+            --existing-titles "$RUNNER_TEMP/titles" \
+            --body-out "$RUNNER_TEMP/body.md")
+          if [ -z "$title" ]; then
+            echo "立てる issue は無い"
+            exit 0
+          fi
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --label needs-triage --body-file "$RUNNER_TEMP/body.md"
