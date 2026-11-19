@@ -44,7 +44,7 @@ package "集約: template (出所ごとの cache 層の snapshot)" as AggTemplat
     {field} 出所 : repo の絶対 path | git URL
     {field} tag : sbxr-<小文字の名前>-<出所の hash>:<cache 層の hash>
     {field} cache 層の hash : run と inputs の内容から
-    {field} 作成日時
+    {field} 作成日時 : 実行基盤の一覧から読む
   }
   class BuildVM <<build 用 VM>> {
     {field} 名前 : sbxr-build-<出所の hash>
@@ -109,7 +109,7 @@ class HerdrMachine <<herdr machine>> {
 }
 
 class UnpushedWork <<未 push の作業>> {
-  {field} 未 push の commit : origin から到達できない local branch の commit
+  {field} 未 push の commit : origin から到達できない、local branch か HEAD の commit
   {field} 未 commit の変更 : tracked の変更・ignored でない untracked
   {field} stash
 }
@@ -171,7 +171,8 @@ note top of Template
   (消せなければ残して警告)。destroy では消さない。
   期限切れの作り直しは同じ tag を新しい image に付け替える。
   実値の secret を含まない (credential injectionなので)。
-  記録は状態ディレクトリとは別の置き場に置く (destroy の後も残る)。
+  記録は持たない。有無と作成日時は実行基盤の一覧から読む (decision/0020)。
+  VM 内の作業ツリーの path には何も残さない (decision/0022)。
 end note
 
 note right of BuildVM

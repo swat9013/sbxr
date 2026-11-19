@@ -68,7 +68,7 @@ repo を sandbox VM へ渡す方式。clone（VM 内の clone）・copy（`.git`
 _Avoid_: workspace mode（sbx の用語と紛れる）
 
 **cache 層**:
-repo の source を渡す前に走らせ、template に焼くコマンド列。宣言の `template`（`run`・`inputs`）で書く。（prebuild に当たる）
+repo の source を渡す前に走らせ、template に焼くコマンド列。宣言の `template`（`run`・`inputs`）で書く。VM 内の作業ツリーの中に作ったものは template に残らない。（prebuild に当たる）
 _Avoid_: init の前半
 
 ### egress
@@ -130,7 +130,7 @@ sandbox VM の起動ごとに VM 内で走るコマンド列。起動で消え�
 _Avoid_: startup（sbx kit の用語）, resume hook
 
 **未 push の作業**:
-destroy で失われる VM 内の作業。origin から到達できない local branch の commit（unpushed commits）、未 commit の変更、stash。投入方式が clone か copy の VM だけが持つ。
+destroy で失われる VM 内の作業。origin から到達できない、local branch か HEAD の commit（unpushed commits）、未 commit の変更、stash。投入方式が clone か copy の VM だけが持つ。
 _Avoid_: 未回収（旧称。decision/ と ADR の既存 file に残る）, dirty（未 commit の変更だけを指す）
 
 **一時起動**:

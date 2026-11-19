@@ -49,7 +49,7 @@ sbxr が達成したい状態は次の 4 つである。
 path の repo `/Users/u/src/app` の宣言は `template: {inputs: [.mise.toml], run: [mise install]}`。投入方式は clone。
 
 1. `sbxr create /Users/u/src/app`
-   - sandbox VM `app` は未作成で、出所 `/Users/u/src/app`（hash `1a2b`）の template の記録は無い
+   - sandbox VM `app` は未作成で、出所 `/Users/u/src/app`（hash `1a2b`）の template は無い
    - build 用 VM `sbxr-build-1a2b`（状態ディレクトリに build の印と出所）に `.mise.toml` だけを置いて `mise install` を走らせ、template `sbxr-app-1a2b:3f9a`（作成日時 2026-10-01）を作る
    - `sbxr-build-1a2b` を撤去する
 2. VM `app` を `sbxr-app-1a2b:3f9a` から作る
