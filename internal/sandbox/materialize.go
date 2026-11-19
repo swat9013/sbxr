@@ -97,7 +97,8 @@ func stageError(stage Stage, err error) error {
 }
 
 // setUpInside は作った VM の中を宣言どおりにし、egress と、agent と Docker が使えることを確かめる:
-// materialize → read-back → init → boot → egress 自己検証 → agent と Docker の確認 (create 時の 1 回)。
+// materialize → read-back → init → boot → egress 自己検証 (VM 直下) → agent と Docker の確認
+// → egress 自己検証 (VM の中の container) (create 時の 1 回)。
 func setUpInside(ctx context.Context, rt runtime.Runtime, prepared preparation, progress io.Writer) error {
 	v, err := openVM(ctx, rt, prepared.Target.Name)
 	if err != nil {
@@ -121,10 +122,15 @@ func setUpInside(ctx context.Context, rt runtime.Runtime, prepared preparation, 
 	if err := stageError(StageBoot, runBoot(ctx, v, prepared.Target.Repo, decl.Boot, progress)); err != nil {
 		return err
 	}
-	if err := stageError(StageEgressCheck, checkEgress(ctx, v, prepared, progress)); err != nil {
+	targets := probeTargetsOf(prepared)
+	if err := stageError(StageEgressCheck, checkEgressFromVM(ctx, v, targets, progress)); err != nil {
 		return err
 	}
-	return stageError(StageDevTools, checkDevTools(ctx, rt, prepared.Target.Name, progress))
+	// container からの確認は VM の中の Docker を使うので、Docker を確かめた後に行う (decision/0031)
+	if err := stageError(StageDevTools, checkDevTools(ctx, rt, prepared.Target.Name, progress)); err != nil {
+		return err
+	}
+	return stageError(StageEgressCheck, checkEgressFromContainer(ctx, v, targets, progress))
 }
 
 func logf(w io.Writer, format string, args ...any) {

@@ -19,7 +19,7 @@
 | UC6 | secret の値を登録する | `sbxr secret setup` |
 | UC7 | 宣言の変更を反映する | `sbxr plan` → `sbxr recreate` |
 | UC8 | 設定と host の前提を診断する | `sbxr doctor` |
-| UC9 | AI に設定を書かせる | skill `sbxr-config` → `sbxr doctor` |
+| UC9 | AI に設定を書かせる | `sbxr guide` → `sbxr doctor` |
 | UC10 | 止めた sandbox VM を起こし直す | `sbxr start` |
 
 sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケースにしない。状態機械の外部起動として扱う。
@@ -65,7 +65,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 5. sbxr が cache 層の template を用意する（hash に合う template が無いか期限を過ぎていれば、build 用 VM で作って snapshot し、旧いものを消す）
 6. sbxr が sandbox スコープの secret を置いてから template で sandbox VM を作り、repo を投入方式で渡し、作った後に sandbox スコープ rule を足す
 7. sbxr が VM の中を宣言どおりにする（materialize → init → boot）
-8. sbxr が VM 内から egress 自己検証を行い、VM の中で agent と Docker が使えることを確かめる
+8. sbxr が VM 直下から egress 自己検証を行い、VM の中で agent と Docker が使えることを確かめ、続けて VM の中の container からも egress 自己検証を行う（container は固定の tag の image を pull して作る。decision/0031）
 9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）。最後に、宣言の run を VM 内の作業ツリーで裏で始め、始めたことと、出力が残る VM 内の log の場所を示す（decision/0028）
 
 ### Extensions
@@ -89,10 +89,11 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 6a. 状態ディレクトリに出所を記録する前（実行基盤の定義か作成の最初の記録を書けない。herdr 連携を有効にして、kit へ渡せない path の repo を作ろうとした場合を含む。decision/0015）に失敗した: sbxr は書きかけの状態ディレクトリと git URL の cache clone を消し、未作成に戻して止まる（sbx の側にはまだ何も置いていない。decision/0011）
 - 6b. secret を置けないか、VM を作れない: sbxr は状態ディレクトリを残して止まる（UC4 で片付ける）
 - 7a. VM の中の段（sandbox スコープ rule・kit の startup・materialize・init・boot）が失敗した: sbxr は VM を調べられるよう稼働したまま残し、復旧手順（`sbxr recreate`）を示して止まる
-- 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と、body の 1 行目の `Approval required for <宛先>.` か `Blocked by local rule for <宛先>`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007・0016）
+- 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と、body の 1 行目の `Approval required for <宛先>.` か `Blocked by local rule for <宛先>`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007・0016）。container からの通信は proxy を使わないので、curl の exit 6・35・52（名前解決の拒否・TLS の切断・空の応答）も「届かない」とみなす（decision/0031）
 - 8b. 許可集合に、glob を含まず 443 を通す宛先が無い: sbxr は許可先の確認を省いたことを示し、許可外の確認だけを行う
 - 8c. 許可外の候補（`example.com`・`example.net`・`example.org`）がすべて許可されている: sbxr は許可外の確認を省いたことを示し、許可先の確認だけを行う
-- 8d. VM の中で agent か Docker が使えない: 7a と同じく止まる
+- 8d. VM の中で agent か Docker が使えない: 7a と同じく止まる（container からの egress 自己検証は行わない）
+- 8e. container に使う image を pull できない（user 設定の egress が Docker Hub を許さないなど）: container からの確認が成り立たなかったものとして、8a と同じく止まる。理由に、VM の中の Docker が pull するには egress の `docker-registry` group が要ることを示す
 - 9a. herdr machine の登録に失敗した: VM は作成済みとして残り、sbxr は登録し直す手順を示して非 0 で終える
 - 9b. 同じ `<名前>.sbx` の登録が既にある: sbxr はその登録に触れずに止まり、解除してから登録し直す手順を示す
 - 9c. 最初の workspace を VM 内の作業ツリーで開き直せない: VM と herdr machine の登録は残り、sbxr は VM 内で開き直す手順を示して非 0 で終える
@@ -292,32 +293,35 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 
 ## UC9 AI に設定を書かせる
 
-- Primary Actor: 利用者（host の agent に skill `sbxr-config` で頼む）
+- Primary Actor: 利用者（host の agent に頼む）
 - Scope: sbxr
 - Level: user-goal
 - Trigger: 利用者が、repo 宣言か user 設定を手で書かずに sbxr を始めたい
-- 事前条件: host の agent に skill `sbxr-config` が入っている
+- 事前条件: host に sbxr が入っている
 - 成功保証: 書いた設定が UC8 の診断を通る。既存のファイルは、利用者が差分を承認したときだけ書き換わっている
 
 ### Main Success Scenario
 
-1. 利用者が、host の agent に repo 宣言か user 設定を作るよう頼む
-2. agent が、user 設定があるかを確かめる
-3. agent が、user 設定が無ければ、利用者に聞いて書く（git identity・使う secret・herdr を使うか・base 固定の profile）
-4. agent が、repo の中身（lockfile・Makefile・CI 設定など）から推測して repo 宣言を書く（egress は最小にし、group ごとに理由を書く）
-5. agent が、sbxr に診断を求め（UC8）、fail の直し方に従って直す
-6. 診断が通り、利用者が UC1 で作られる内容を確かめる
+1. 利用者が、host の agent に、sbxr の案内を読んで repo 宣言か user 設定を作るよう頼む
+2. agent が、sbxr に案内を求め、案内の手順と key の一覧に従う
+3. agent が、user 設定があるかを確かめる
+4. agent が、user 設定が無ければ、利用者に聞いて書く（git identity・使う secret・herdr を使うか・base 固定の profile）
+5. agent が、repo の中身（lockfile・Makefile・CI 設定など）から推測して repo 宣言を書く（egress は最小にし、group ごとに理由を書く）
+6. agent が、sbxr に診断を求め（UC8）、fail の直し方に従って直す
+7. 診断が通り、利用者が UC1 で作られる内容を確かめる
 
 ### Extensions
 
-- 1a. user 設定だけを頼まれた: agent は 3 と 5 を行って終える（user 設定があれば、3a に従って直す）
-- 3a. / 4a. 既存のファイルがある: agent は既存の内容を読み、差分を利用者に見せて承認を得てから書く。承認されなければ書かない
-- 4b. repo が git URL: agent は書かない（生成先はローカル path の repo だけ）
-- 5a. 人手の要る fail（secret の値、global rule の収束、sbx・herdr の導入）: agent は利用者に実行するコマンドを示し、利用者が実行してから 5 をやり直す
-- 5b. 直しても同じ fail が続く: agent は止まり、残った fail・書き換えたファイル・利用者が次にやることを示す
-- 5c. 推測が誤っていたが診断は通った: UC2 の確認プロンプトで利用者が止める
+- 1a. user 設定だけを頼まれた: agent は 2・4・6 を行って終える（user 設定があれば、4a に従って直す）
+- 4a. / 5a. 既存のファイルがある: agent は既存の内容を読み、差分を利用者に見せて承認を得てから書く。承認されなければ書かない
+- 5b. repo が git URL: agent は書かない（生成先はローカル path の repo だけ）
+- 6a. 人手の要る fail（secret の値、global rule の収束、sbx・herdr の導入）: agent は利用者に実行するコマンドを示し、利用者が実行してから 6 をやり直す
+- 6b. 直しても同じ fail が続く: agent は止まり、残った fail・書き換えたファイル・利用者が次にやることを示す
+- 6c. 推測が誤っていたが診断は通った: UC2 の確認プロンプトで利用者が止める
 
 却下: sbxr が agent を呼んで設定を生成する（`sbxr init` など）。理由: 汎用 CLI が agent を subprocess で呼ぶのは標準的でなく、どの agent をどの権限で呼ぶかを CLI が決めることになる（decision/0013）。
+
+却下: 案内を skill として repo に置き、利用者が別に入れる。理由: binary だけでは agent が設定の書き方を知れず、skill の版が binary の schema とずれうる（decision/0030）。
 
 ## UC10 止めた sandbox VM を起こし直す
 

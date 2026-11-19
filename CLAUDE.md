@@ -4,7 +4,7 @@
 
 repo の追跡対象 file を変更する作業は、`main` の checkout で始まったセッションなら最初の編集の前に EnterWorktree tool で worktree に入り、その中だけで編集・commit する（既に worktree で始まったセッションはそのまま続ける）。tool が付ける branch 名 `worktree-<name>` は、入った直後に `git branch -m` で `<type>/<issue 番号>-<slug>`（例: `fix/34-vm-vanished`。issue が無ければ `<type>/<slug>`）へ直す。完了したら push して PR を作るところまで確認なしで進める。`main` の checkout は並行する worktree の起点なので、常に clean に保つ。
 
-設計ドキュメント（`docs/design/sbxr/README.md` の索引が挙げる正本）に書かれた構造を変える・足す実装は、同じ PR の中で、実装の commit より前に次を済ませる。
+設計ドキュメント（`docs/design/sbxr/README.md` の索引が挙げる正本）に書かれた構造を変える・足す実装は、実装の commit より前に次を済ませる。置き場は、実装と同じ PR の中の実装より前の commit か、実装の PR より先に merge する設計だけの PR にする。設計だけの PR は、深掘りで決めた設計を実装する側が `main` から読めるようにするときに使う。本文には `Closes` ではなく `Refs #<issue 番号>` を書き、PR を作った時点で止める（issue は実装の PR が閉じる）。
 
 - `docs/design/sbxr/decision/` へ決定ごとに 1 file を足す。既存の file は残す（README の索引のとおり不変）
 - 索引が挙げる正本の file を直す
