@@ -197,7 +197,7 @@ func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateRe
 	case stateIncompleteStopped, stateIncompleteRunning:
 		return CreateResult{}, halfCreatedError(observed.state, name, repo)
 	case stateVMGone:
-		return CreateResult{}, fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(name, repo), repo)
+		return CreateResult{}, vanishedRecreateError(name, repo)
 	case stateUnmanaged:
 		return CreateResult{}, unmanagedError(name)
 	case stateOtherSource:
@@ -220,11 +220,13 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 	}
 	name := target.Name
 	switch observed.state {
-	case stateRunning, stateIncompleteRunning:
+	case stateRunning:
+		return stopResult(name, Stopped, l.stopRunning(ctx, name, viaStart(repo)))
+	case stateIncompleteRunning:
 		// 作成途中の VM の herdr machine は未登録だが、同じ名前の前の VM の登録が残っていれば無効にする
-		return stopResult(name, Stopped, l.stopRunning(ctx, name, repo))
+		return stopResult(name, Stopped, l.stopRunning(ctx, name, byHand))
 	case stateStopped:
-		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name, repo))
+		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name, viaStart(repo)))
 	case stateIncompleteStopped:
 		return StopResult{Name: name, Outcome: AlreadyStopped}, nil
 	case stateAbsent:
@@ -269,7 +271,7 @@ func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) 
 	case stateIncompleteStopped, stateIncompleteRunning:
 		return StartResult{}, halfCreatedError(observed.state, name, repo)
 	case stateVMGone:
-		return StartResult{}, fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(name, repo), repo)
+		return StartResult{}, vanishedRecreateError(name, repo)
 	case stateUnmanaged:
 		return StartResult{}, unmanagedError(name)
 	case stateOtherSource:
@@ -613,9 +615,15 @@ func halfCreatedError(s state, name, repo string) error {
 	return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo)
 }
 
-// vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の create・stop・start を止める error。
+// vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の stop を止める error
+// (create と start は、作り直す手順まで添える vanishedRecreateError)。
 func vanishedError(name, repo string) error {
 	return fmt.Errorf("sandbox VM %s は sbxr の外で撤去されている (状態ディレクトリだけが残っている)。sbxr destroy %s で片付ける", name, repo)
+}
+
+// vanishedRecreateError は VM 消失の create と start を止める error。片付けた後に作り直す手順まで添える。
+func vanishedRecreateError(name, repo string) error {
+	return fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(name, repo), repo)
 }
 
 // unmanagedError は、管理外 (状態機械の外) の VM に触らない理由を error で返す。

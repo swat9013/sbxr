@@ -34,8 +34,8 @@ func requireHerdrOnHost(client herdr.Client) error {
 
 // stopRunning は稼働中の sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする
 // (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。host に herdr が無ければ、VM に触れずに止まる。
-// repo は、有効に戻す手順 (sbxr start) に添える利用者の <repo>。
-func (l Lifecycle) stopRunning(ctx context.Context, name, repo string) error {
+// guide は、無効にした herdr machine を有効に戻す手順。
+func (l Lifecycle) stopRunning(ctx context.Context, name string, guide enableGuide) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
 		return err
@@ -47,13 +47,13 @@ func (l Lifecycle) stopRunning(ctx context.Context, name, repo string) error {
 	if err != nil {
 		return err
 	}
-	l.reportDisabled(name, repo, enable)
+	l.reportDisabled(name, enable, guide)
 	return nil
 }
 
 // disableHerdrMachine は止まっている sandbox VM の herdr machine を、VM に触れずに無効にする (decision/0010)。
 // herdr 連携を有効にせずに作った VM では何もしない。
-func (l Lifecycle) disableHerdrMachine(ctx context.Context, name, repo string) error {
+func (l Lifecycle) disableHerdrMachine(ctx context.Context, name string, guide enableGuide) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil || !enabled {
 		return err
@@ -62,17 +62,30 @@ func (l Lifecycle) disableHerdrMachine(ctx context.Context, name, repo string) e
 	if err != nil {
 		return err
 	}
-	l.reportDisabled(name, repo, enable)
+	l.reportDisabled(name, enable, guide)
 	return nil
 }
 
-// reportDisabled は無効にした herdr machine と、VM と一緒に有効に戻すコマンド (sbxr start。decision/0025) を示す。
-// 無効にしなかったら (enable が空) 何も出さない。
-func (l Lifecycle) reportDisabled(name, repo, enable string) {
+// reportDisabled は無効にした herdr machine と、有効に戻す手順を示す。無効にしなかったら (enable が空) 何も出さない。
+func (l Lifecycle) reportDisabled(name, enable string, guide enableGuide) {
 	if enable != "" {
-		logf(l.Output, "herdr: %s の herdr machine を無効にした (sbxr start %s で VM を起こすと有効に戻る)\n", name, repo)
+		logf(l.Output, "herdr: %s の herdr machine を無効にした (%s)\n", name, guide(enable))
 	}
 }
+
+// enableGuide は、stop が無効にした herdr machine を有効に戻す手順を、手で戻す herdr のコマンド enable から組み立てる。
+type enableGuide func(enable string) string
+
+// viaStart は作成が終わった VM の手順: sbxr start が VM を起こして有効に戻す (decision/0025)。
+// sbxr start が herdr machine の前で止まったとき (host に herdr が無い等) に備えて、手で戻すコマンドも添える。
+func viaStart(repo string) enableGuide {
+	return func(enable string) string {
+		return fmt.Sprintf("sbxr start %s で VM を起こすと有効に戻る。手で戻すなら %s", repo, enable)
+	}
+}
+
+// byHand は作成途中の VM の手順: sbxr start は作成途中の VM を拒むので、手で戻すコマンドだけを示す。
+func byHand(enable string) string { return enable + " で有効に戻す" }
 
 // startStopped は停止中の sandbox VM を起こし、herdr 連携を有効にして作った VM なら herdr machine を有効に戻す。
 // host に herdr が無ければ、VM に触れずに止まる。herdr machine は VM を起こせた後に有効に戻す
@@ -98,10 +111,13 @@ func (l Lifecycle) startStopped(ctx context.Context, name string) error {
 // herdr 連携を有効にせずに作った VM では何もしない。host に herdr が無ければ error。
 func (l Lifecycle) enableHerdrMachine(ctx context.Context, name string) error {
 	enabled, err := l.herdrRequired(name)
-	if err != nil || !enabled {
-		return err
+	if err == nil && enabled {
+		err = l.registry().Enable(ctx, name, l.Output)
 	}
-	return l.registry().Enable(ctx, name, l.Output)
+	if err != nil {
+		return fmt.Errorf("%w\nsandbox VM %s は動いている (VM には触れていない)", err, name)
+	}
+	return nil
 }
 
 // removeHerdrMachine は herdr 連携を有効にして作った VM の herdr machine を解除する。登録が無ければ何もしない。
