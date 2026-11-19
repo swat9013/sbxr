@@ -75,7 +75,7 @@ v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/R
 |---|---|
 | 隔離 | create の確認プロンプトが、VM に入る設定と VM から通信できる宛先をすべて示す。egress 自己検証が、許可先に届くことと、許可外が proxy に拒否されることの両方を通す。VM の中の container からも、許可外の宛先に届かない |
 | VM の中で開発できる | create の後と start の後に、VM の中で agent を起動でき、`docker run` が通る。herdr 連携の VM では、herdr の pane で agent が動く |
-| 手軽 | README の手順だけで、install から create・stop・start・destroy までを通せる。宣言の run が create と start の後に VM の中で始まり、`--attach` で agent の対話 session に入れる。宣言を変えると plan が drift を示し、作り直した後に drift が無くなる。herdr 連携を有効にした VM も、同じ名前で作り直せる |
+| 手軽 | README の手順だけで、install から create・stop・start・destroy までを通せる。宣言の run が create と start の後に VM の中で始まり、`--attach` で agent の対話 session に入れる。宣言を変えると plan が drift を示し、作り直した後に drift が無くなる。herdr 連携を有効にした VM も、同じ名前で作り直せる。host の agent に `sbxr guide` を読ませて頼むだけで、agent が user 設定と repo 宣言を書き、`sbxr doctor` が通る |
 
 対応する OS は macOS とする。Linux は binary を配るが、実機で確かめていない。
 
@@ -84,7 +84,7 @@ v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/R
 ### v1.0.0 からの互換
 
 - 互換を保つのは、宣言の schema（repo 宣言と user 設定の key と意味）、CLI（subcommand・flag・終了 code が 0 か非 0 か）、状態ディレクトリの記録（ADR 0006）。これを壊す変更は major を上げる
-- 出力の文面、`internal/` の package、skill `sbxr-config` の文面は互換の対象にしない
+- 出力の文面（`sbxr guide` が出す案内を含む）と `internal/` の package は互換の対象にしない
 - 対応する sbx の版の下限を上げる変更は minor で出し、release notes に書く
 
 ### sbx の新しい版への追従
