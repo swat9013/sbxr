@@ -51,6 +51,7 @@ egress:
       - docker.io:443
       - "**.docker.io:443"
       - production.cloudflare.docker.com:443
+      - production.cloudfront.docker.com:443
       - download.docker.com:443
   ubuntu-apt:
     rationale: VM (Ubuntu aarch64) の apt。叩くのは ports.ubuntu.com だけで、80 は apt の既定経路
