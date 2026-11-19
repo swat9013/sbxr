@@ -37,4 +37,5 @@ herdr 連携は、sandbox VM に herdr を入れ、host の herdr から VM 内�
 
 ## 改訂（2026-11-19、#156）
 
-- `sbxr start` は VM を起こした回の失敗を読んで止まる（[decision/0033](../design/sbxr/decision/0033-start-reads-startup-outcome-of-the-boot-it-caused.md)）。上の「実装で決めたこと」の「2 回目以降の起動での失敗は、boot と同じく log に残るだけになる」のうち、log に残るだけになるのは `sbxr start` を通さない起動
+- `sbxr start` は VM を起こした回の失敗を読んで止まる（[decision/0033](../design/sbxr/decision/0033-start-reads-startup-outcome-of-the-boot-it-caused.md)）。上の「実装で決めたこと」の「2 回目以降の起動での失敗は、boot と同じく log に残るだけになる」のうち、log に残るだけになるのは `sbxr start` を通さない起動で、次に `sbxr start` を打つまで
+- 起動時の処理が失敗して止まった start は、herdr machine を有効に戻さない（decision/0033）。上の改訂（2026-11-19）の「start 後に有効化」は、start が成功したときに限る

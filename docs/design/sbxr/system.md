@@ -77,7 +77,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →start→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
 
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
-- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることと、start で起動時の処理の失敗を示すことは、遷移の action として書く
+- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることと、start で起動時の処理の失敗か時間切れを示すことは、遷移の action として書く
 - recreate は新しいイベントにせず、stop → destroy → create を続けて起こすものとして扱う（decision/0026）
 - plan・policy sync・secret setup・doctor は VM の状態を変えないので、イベントに含めない
 
