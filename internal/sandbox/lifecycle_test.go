@@ -12,6 +12,7 @@ import (
 
 	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
+	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 	"github.com/swat9013/sbxr/internal/secret"
 )
 
@@ -281,23 +282,84 @@ func TestCreateFailureAfterTheVMAsksToStopBeforeDestroying(t *testing.T) {
 	}
 }
 
-func TestCreateChecksTheAgentAndDockerInTheVMAfterTheEgressCheck(t *testing.T) {
+func TestCreateChecksTheAgentAndDockerInTheVMBeforeTheEgressCheck(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	repo := localRepo(t, "app", "")
 
 	w.mustCreate(repo)
 
-	lastProbe, firstCheck := -1, -1
+	firstProbe, lastCheck := -1, -1
 	for i, command := range w.vms.Commands {
-		if slices.Contains(command.Args, probeScript) {
-			lastProbe = i
+		if _, _, ok := probedURL(command.SandboxCommand); ok && firstProbe < 0 {
+			firstProbe = i
 		}
-		if firstCheck < 0 && slices.Equal(command.Args, devChecks[0].command) {
-			firstCheck = i
+		if slices.Equal(command.Args, devChecks[len(devChecks)-1].command) {
+			lastCheck = i
 		}
 	}
-	if got := w.devChecksRan(); !slices.Equal(got, []string{"claude", "docker"}) || lastProbe < 0 || firstCheck < lastProbe {
-		t.Errorf("checks = %v (first at %d, last probe at %d), want the agent and Docker checked after the egress check", got, firstCheck, lastProbe)
+	if got := w.devChecksRan(); !slices.Equal(got, []string{"claude", "docker"}) || lastCheck < 0 || firstProbe < lastCheck {
+		t.Errorf("checks = %v (last at %d, first probe at %d), want the agent and Docker checked before the egress check", got, lastCheck, firstProbe)
+	}
+}
+
+func TestCreateChecksTheEgressFromAContainerInTheVM(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", "")
+
+	w.mustCreate(repo)
+
+	var fromContainer []string
+	for _, command := range w.vms.Commands {
+		if url, container, ok := probedURL(command.SandboxCommand); ok && container {
+			fromContainer = append(fromContainer, url)
+		}
+	}
+	if len(fromContainer) != 2 || !pulled(w.vms.Commands) {
+		t.Errorf("probes from a container = %q, want the allowed and the disallowed host probed after pulling the image", fromContainer)
+	}
+}
+
+func TestCreateKeepsTheVMWithoutRecordingTheDeclarationWhenTheContainerReachesADisallowedHost(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	answers := w.vms.Respond
+	w.vms.Respond = func(sandbox string, command runtime.SandboxCommand) ([]byte, error) {
+		if url, container, ok := probedURL(command); ok && container && url == "https://example.com/" {
+			return []byte("0 200\n<html>\n"), nil
+		}
+		return answers(sandbox, command)
+	}
+	repo := localRepo(t, "app", "")
+
+	_, err := w.create(repo, unattended())
+
+	var stageErr *StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != StageEgressCheck || !strings.Contains(err.Error(), "VM の中の container から、許可外の example.com:443 に届いた") {
+		t.Errorf("Create() error = %v, want the egress self-check to stop on the container reaching example.com", err)
+	}
+	if got := w.stateOf(repo); got != stateIncompleteRunning {
+		t.Errorf("state = %s, want the VM left running without the declaration recorded", got)
+	}
+}
+
+func TestCreateKeepsTheVMWithoutRecordingTheDeclarationWhenTheContainerImageCannotBePulled(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	answers := w.vms.Respond
+	w.vms.Respond = func(sandbox string, command runtime.SandboxCommand) ([]byte, error) {
+		if pullsImage(command) {
+			return nil, errors.New("pull access denied")
+		}
+		return answers(sandbox, command)
+	}
+	repo := localRepo(t, "app", "")
+
+	_, err := w.create(repo, unattended())
+
+	var stageErr *StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != StageEgressCheck || !strings.Contains(err.Error(), "docker-registry group") {
+		t.Errorf("Create() error = %v, want the egress self-check to stop naming the docker-registry group", err)
+	}
+	if got := w.stateOf(repo); got != stateIncompleteRunning {
+		t.Errorf("state = %s, want the VM left running without the declaration recorded", got)
 	}
 }
 
@@ -584,6 +646,26 @@ func TestStartChecksTheAgentAndDockerInTheVM(t *testing.T) {
 
 			if got := w.devChecksRan(); err != nil || !slices.Equal(got, []string{"claude", "docker"}) {
 				t.Errorf("Start() error = %v, checks = %v, want the agent and Docker checked", err, got)
+			}
+		})
+	}
+}
+
+func TestStartDoesNotCheckTheEgressFromTheVMOrAContainer(t *testing.T) {
+	for _, from := range []state{stateStopped, stateRunning} {
+		t.Run(from.String(), func(t *testing.T) {
+			w := newWorld(t, testUserConfig)
+			w.arrive(from)
+			w.vms.Commands = nil
+
+			_, err := w.start(w.repo())
+
+			probed := pulled(w.vms.Commands) || slices.ContainsFunc(w.vms.Commands, func(command inmemory.Command) bool {
+				_, _, ok := probedURL(command.SandboxCommand)
+				return ok
+			})
+			if err != nil || probed {
+				t.Errorf("Start() error = %v, egress probed or image pulled = %t, want neither (decision/0030)", err, probed)
 			}
 		})
 	}

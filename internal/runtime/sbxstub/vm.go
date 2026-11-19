@@ -99,6 +99,17 @@ func (vm *FakeVM) probe(url string) []byte {
 	return []byte("0 " + result.Code + "\n" + result.Body)
 }
 
+// containerProbe は VM の中の container から送った probe の script の出力を再現する。HTTP は見ない。
+// container は proxy を使わないので、IANA の予約 domain そのものは proxy が名前解決を拒否して curl が exit 6 で終わり、
+// それ以外は 200 を返す (sbx v0.53.0 の実測。docs/design/sbxr/system.md の #135 の実測)。
+func containerProbe(url string) []byte {
+	host := strings.TrimSuffix(strings.TrimPrefix(url, "https://"), "/")
+	if slices.Contains([]string{"example.com", "example.net", "example.org"}, host) {
+		return []byte("6 000\ncurl: (6) Could not resolve host: " + host + "\n")
+	}
+	return []byte("0 200\nok\n")
+}
+
 // Home は VM の agent user の home。
 const Home = "/home/agent"
 
@@ -171,6 +182,11 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 		return []byte("2.0.0 (Claude Code)\n"), nil
 	case slices.Equal(args, []string{"docker", "info", "--format", "{{.ServerVersion}}"}):
 		return []byte("28.0.0\n"), nil
+	case len(args) == 3 && args[0] == "docker" && args[1] == "pull": // egress 自己検証の container の image
+		return nil, nil
+	case len(args) == 10 && slices.Equal(args[:3], []string{"docker", "run", "--rm"}) && args[8] == "sh" && strings.HasPrefix(args[9], "https://"):
+		// docker run --rm --entrypoint sh <image> -c '<probe の script>' sh <url> (VM の中の container からの egress 自己検証)
+		return containerProbe(args[9]), nil
 	case slices.Equal(args, []string{"pgrep", "-x", "apt-get"}):
 		vm.AptPolls++
 		if vm.AptPolls <= vm.AptBusyPolls {
