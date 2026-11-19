@@ -188,6 +188,16 @@ func (r *Runtime) StopSandbox(_ context.Context, sandbox string) error {
 	return nil
 }
 
+// StartSandbox は止まっている VM を稼働中にする。稼働中の VM はそのまま。VM が無ければ error。
+func (r *Runtime) StartSandbox(_ context.Context, sandbox string) error {
+	sb, ok := r.Sandboxes[sandbox]
+	if !ok || sb.Status == runtime.SandboxAbsent {
+		return fmt.Errorf("inmemory: sandbox %s が無い", sandbox)
+	}
+	sb.Status = runtime.SandboxRunning
+	return nil
+}
+
 func (r *Runtime) ExecInSandbox(_ context.Context, sandbox string, command runtime.SandboxCommand) ([]byte, error) {
 	if _, err := r.running(sandbox); err != nil {
 		return nil, err

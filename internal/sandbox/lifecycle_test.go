@@ -354,6 +354,7 @@ func TestEveryEntryLeavesASandboxSbxrDidNotCreateAlone(t *testing.T) {
 	for name, act := range map[string]func(w *world, repo string) error{
 		"create":  func(w *world, repo string) error { _, err := w.create(repo, unattended()); return err },
 		"stop":    func(w *world, repo string) error { _, err := w.stop(repo); return err },
+		"start":   func(w *world, repo string) error { _, err := w.start(repo); return err },
 		"destroy": func(w *world, repo string) error { return w.destroy(repo, RemoveRunning) },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -373,6 +374,7 @@ func TestEveryEntryLeavesASandboxOfAnotherRepoAlone(t *testing.T) {
 	for name, act := range map[string]func(w *world, repo string) error{
 		"create":  func(w *world, repo string) error { _, err := w.create(repo, unattended()); return err },
 		"stop":    func(w *world, repo string) error { _, err := w.stop(repo); return err },
+		"start":   func(w *world, repo string) error { _, err := w.start(repo); return err },
 		"destroy": func(w *world, repo string) error { return w.destroy(repo, RemoveRunning) },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -441,6 +443,102 @@ func TestStopOfAVanishedVMAsksToDestroyWithoutCallingTheRuntimeOrHerdr(t *testin
 
 	if err == nil || !strings.Contains(err.Error(), "sbxr destroy "+w.repo()) || len(w.stops) != 0 || len(w.herdr.Calls) != 0 {
 		t.Errorf("Stop() error = %v, stops = %v, herdr calls = %v, want destroy suggested and nothing touched", err, w.stops, w.herdr.Calls)
+	}
+}
+
+// --- start ---
+
+func TestStartOfAStoppedVMStartsItAndSaysSo(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.arrive(stateStopped)
+
+	outcome, err := w.start(w.repo())
+
+	if err != nil || outcome != Started || w.stateOf(w.repo()) != stateRunning {
+		t.Errorf("Start() = %v, %v, state = %s, want the VM started", outcome, err, w.stateOf(w.repo()))
+	}
+}
+
+func TestStartOfARunningVMSaysItIsRunningWithoutTouchingIt(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.arrive(stateRunning)
+
+	outcome, err := w.start(w.repo())
+
+	if err != nil || outcome != AlreadyRunning || len(w.starts) != 0 {
+		t.Errorf("Start() = %v, %v, sbx starts = %v, want it reported as running without touching the VM", outcome, err, w.starts)
+	}
+}
+
+func TestStartOfAnAbsentVMAsksToCreate(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+
+	_, err := w.start(w.repo())
+
+	if err == nil || !strings.Contains(err.Error(), "sbxr create "+w.repo()) {
+		t.Errorf("Start() error = %v, want create suggested", err)
+	}
+}
+
+func TestStartOfAHalfCreatedOrVanishedVMAsksToDestroyWithoutCallingHerdr(t *testing.T) {
+	for _, from := range []state{stateIncompleteStopped, stateIncompleteRunning, stateVMGone} {
+		t.Run(from.String(), func(t *testing.T) {
+			w := newWorld(t, herdrUserConfig)
+			w.arrive(from)
+			w.herdr.Calls = nil
+
+			_, err := w.start(w.repo())
+
+			if err == nil || !strings.Contains(err.Error(), "sbxr destroy "+w.repo()) || len(w.herdr.Calls) != 0 {
+				t.Errorf("Start() error = %v, herdr calls = %v, want destroy suggested and herdr untouched", err, w.herdr.Calls)
+			}
+		})
+	}
+}
+
+func TestStartWithoutHerdrOnTheHostLeavesTheVMStopped(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	w.arrive(stateStopped)
+	w.herdr.Missing = true
+
+	_, err := w.start(w.repo())
+
+	if err == nil || !strings.Contains(err.Error(), "PATH に herdr を入れる") || len(w.starts) != 0 || w.stateOf(w.repo()) != stateStopped {
+		t.Errorf("Start() error = %v, sbx starts = %v, want how to put herdr on the host with the VM left stopped", err, w.starts)
+	}
+}
+
+func TestStartThatCannotStartTheVMSaysItIsStillStopped(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.arrive(stateStopped)
+	w.failStart = true
+
+	_, err := w.start(w.repo())
+
+	if err == nil || !strings.Contains(err.Error(), "止まったまま") {
+		t.Errorf("Start() error = %v, want the VM reported as still stopped", err)
+	}
+}
+
+func TestStartReportsTheVMStartedWhenTheHerdrMachineCannotBeEnabled(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	w.arrive(stateStopped)
+	w.herdr.FailEnable = true
+
+	_, err := w.start(w.repo())
+
+	if err == nil || !strings.Contains(err.Error(), "herdr machine enable id1") || w.stateOf(w.repo()) != stateRunning {
+		t.Errorf("Start() error = %v, state = %s, want the VM running and how to enable the machine by hand", err, w.stateOf(w.repo()))
+	}
+}
+
+func TestStartOfAVMCreatedWithoutHerdrDoesNotCallHerdr(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.arrive(stateStopped)
+	w.herdr.Missing = true // 呼べば error になる
+
+	if _, err := w.start(w.repo()); err != nil || len(w.herdr.Calls) != 0 {
+		t.Errorf("Start() error = %v, herdr calls = %v, want herdr left alone", err, w.herdr.Calls)
 	}
 }
 
@@ -748,7 +846,7 @@ func TestStopDisablesTheHerdrMachineBeforeStoppingAndShowsHowToEnableIt(t *testi
 
 	outcome, err := w.stop(w.repo())
 
-	if err != nil || outcome != Stopped || w.herdr.Machines[0].Enabled || !strings.Contains(w.out.String(), "herdr machine enable id1") {
+	if err != nil || outcome != Stopped || w.herdr.Machines[0].Enabled || !strings.Contains(w.out.String(), "sbxr start "+w.repo()) {
 		t.Errorf("Stop() = %v, %v, machines = %v, output = %q, want the machine disabled and how to enable it", outcome, err, w.herdr.Machines, w.out.String())
 	}
 }
@@ -764,7 +862,7 @@ func TestStopOfAVMStoppedOutsideSbxrDisablesItsHerdrMachineWithoutTouchingTheVM(
 	if err != nil || outcome != AlreadyStopped || w.herdr.Machines[0].Enabled || len(w.stops) != 0 {
 		t.Errorf("Stop() = %v, %v, machines = %v, sbx stops = %v, want the machine disabled and the VM untouched", outcome, err, w.herdr.Machines, w.stops)
 	}
-	if !strings.Contains(w.out.String(), "herdr machine enable id1") {
+	if !strings.Contains(w.out.String(), "sbxr start "+w.repo()) {
 		t.Errorf("output = %q, want how to enable the machine again", w.out.String())
 	}
 }

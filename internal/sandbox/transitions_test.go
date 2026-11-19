@@ -56,6 +56,14 @@ type transition struct {
 func failDefine(w *world)         { w.failDefine = true }
 func failEnvCreate(w *world)      { w.failEnvCreate = true }
 func failAfterCreatedVM(w *world) { w.failAfterCreated = runtime.CreatedStepSandboxEgress }
+func failStart(w *world)          { w.failStart = true }
+
+// disableTheHerdrMachine は herdr machine を無効にする (外部起動の前に sbxr stop した VM の形)。
+func disableTheHerdrMachine(w *world) {
+	for i := range w.herdr.Machines {
+		w.herdr.Machines[i].Enabled = false
+	}
+}
 
 func destroyForcing(w *world) error { return w.destroy(w.repo(), RemoveRunning) }
 
@@ -87,8 +95,8 @@ func keepsTheStateDir(t *testing.T, w *world) {
 }
 
 func touchesNoVM(t *testing.T, w *world) {
-	if len(w.stops) != 0 {
-		t.Errorf("sbx stops = %v, want the VM untouched", w.stops)
+	if len(w.stops) != 0 || len(w.starts) != 0 {
+		t.Errorf("sbx stops = %v, starts = %v, want the VM untouched", w.stops, w.starts)
 	}
 }
 
@@ -114,6 +122,32 @@ func disablesTheHerdrMachineAndStops(t *testing.T, w *world) {
 func disablesTheHerdrMachineWithoutTouchingTheVM(t *testing.T, w *world) {
 	disablesTheHerdrMachine(t, w)
 	touchesNoVM(t, w)
+}
+
+func enablesTheHerdrMachine(t *testing.T, w *world) {
+	if len(w.herdr.Machines) != 1 || !w.herdr.Machines[0].Enabled {
+		t.Errorf("herdr machines = %v, want the machine enabled", w.herdr.Machines)
+	}
+}
+
+func enablesTheHerdrMachineWithoutTouchingTheVM(t *testing.T, w *world) {
+	enablesTheHerdrMachine(t, w)
+	touchesNoVM(t, w)
+}
+
+func startsTheVMAndEnablesTheHerdrMachine(t *testing.T, w *world) {
+	enablesTheHerdrMachine(t, w)
+	if len(w.starts) != 1 {
+		t.Errorf("sbx starts = %v, want the VM started once", w.starts)
+	}
+}
+
+// leavesTheHerdrMachineDisabled は、起こせなかった VM の herdr machine を有効に戻さないことを確かめる
+// (有効に戻すと herdr が繋ぎ直して VM を起こしうる)。
+func leavesTheHerdrMachineDisabled(t *testing.T, w *world) {
+	if len(w.herdr.Machines) != 1 || w.herdr.Machines[0].Enabled {
+		t.Errorf("herdr machines = %v, want the machine left disabled", w.herdr.Machines)
+	}
 }
 
 // removesEverything は VM と sandbox スコープの secret・rule (実行基盤の entry ごと)、herdr machine、状態ディレクトリが無いことを確かめる。
@@ -151,14 +185,16 @@ var transitions = []transition{
 	{from: stateStopped, event: eventStop, to: stateStopped, then: disablesTheHerdrMachineWithoutTouchingTheVM},
 	{from: stateVMGone, event: eventStop, to: stateVMGone, refused: true, then: touchesNoVM},
 
-	// --- start (decision/0025。sbxr start は #133 が足す) ---
-	{from: stateAbsent, event: eventStart, to: stateAbsent, refused: true, unimplemented: "#133"},
-	{from: stateIncompleteStopped, event: eventStart, to: stateIncompleteStopped, refused: true, unimplemented: "#133"},
-	{from: stateIncompleteRunning, event: eventStart, to: stateIncompleteRunning, refused: true, unimplemented: "#133"},
-	{from: stateRunning, event: eventStart, to: stateRunning, unimplemented: "#133"},
-	{from: stateStopped, event: eventStart, guard: "VM を起こせた", to: stateRunning, unimplemented: "#133"},
-	{from: stateStopped, event: eventStart, guard: "VM を起こせない", to: stateStopped, refused: true, unimplemented: "#133"},
-	{from: stateVMGone, event: eventStart, to: stateVMGone, refused: true, unimplemented: "#133"},
+	// --- start (decision/0025) ---
+	{from: stateAbsent, event: eventStart, to: stateAbsent, refused: true, then: touchesNoVM},
+	{from: stateIncompleteStopped, event: eventStart, to: stateIncompleteStopped, refused: true, then: touchesNoVM},
+	{from: stateIncompleteRunning, event: eventStart, to: stateIncompleteRunning, refused: true, then: touchesNoVM},
+	{from: stateRunning, event: eventStart, arrange: disableTheHerdrMachine, to: stateRunning, then: enablesTheHerdrMachineWithoutTouchingTheVM,
+		pending: "VM の中を確かめるのは #134"},
+	{from: stateStopped, event: eventStart, guard: "VM を起こせた", to: stateRunning, then: startsTheVMAndEnablesTheHerdrMachine,
+		pending: "VM の中を確かめるのは #134、run を始めるのは #137"},
+	{from: stateStopped, event: eventStart, guard: "VM を起こせない", arrange: failStart, to: stateStopped, refused: true, then: leavesTheHerdrMachineDisabled},
+	{from: stateVMGone, event: eventStart, to: stateVMGone, refused: true, then: touchesNoVM},
 
 	// --- destroy ---
 	{from: stateAbsent, event: eventDestroy, to: stateAbsent, refused: true},
@@ -350,7 +386,7 @@ func (w *world) arrive(s state) {
 	if got := w.stateOf(repo); got != s {
 		w.t.Fatalf("arrived at %s, want %s", got, s)
 	}
-	w.stops = nil
+	w.stops, w.starts = nil, nil
 	w.definitionsAtArrival = len(w.vms.Definitions)
 }
 
@@ -363,8 +399,8 @@ func (w *world) defaultAct(e event) func(w *world) error {
 		return func(w *world) error { _, err := w.create(w.repo(), unattended()); return err }
 	case eventStop:
 		return func(w *world) error { _, err := w.stop(w.repo()); return err }
-	case eventStart: // sbxr start は #133 が足す。表の行は unimplemented で、ここへ来る前に skip する
-		w.t.Fatal("start は未実装 (#133)")
+	case eventStart:
+		return func(w *world) error { _, err := w.start(w.repo()); return err }
 	case eventDestroy:
 		return func(w *world) error { return w.destroy(w.repo(), RefuseRunning) }
 	case eventStartOutside:

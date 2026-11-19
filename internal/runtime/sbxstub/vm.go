@@ -107,6 +107,8 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 	switch {
 	case slices.Equal(args, []string{"printenv", "HOME"}):
 		return []byte(Home + "\n"), nil
+	case slices.Equal(args, []string{"true"}): // sbxr start が sandbox を起こすのに走らせる
+		return nil, nil
 	case len(args) == 5 && args[0] == "sh" && args[1] == "-c" && args[3] == "sh" && strings.HasPrefix(args[4], "https://"):
 		// sh -c '<$1 へ GET を送り、1 行目に curl の exit code と状態コード、続けて body を出す script>' sh <url>
 		return vm.probe(args[4]), nil

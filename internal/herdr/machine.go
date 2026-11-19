@@ -15,7 +15,7 @@ type VM interface {
 	StopSandbox(ctx context.Context, sandbox string) error
 }
 
-// Registry は sandbox VM ごとの herdr machine の登録簿: 登録・停止前の無効化・解除 (ADR 0007)。
+// Registry は sandbox VM ごとの herdr machine の登録簿: 登録・停止前の無効化・起こした後の有効化・解除 (ADR 0007・decision/0025)。
 // 残った登録の扱いと、失敗したときの復旧手順の文面はここに置く。host に herdr があることは、呼び出し側が
 // 先に RequireOnHost で確かめる (確認プロンプトの前に止めるため)。
 type Registry struct {
@@ -115,6 +115,28 @@ func (r Registry) Disable(ctx context.Context, sandbox string, progress io.Write
 		return "", err
 	}
 	return enableCommand(machine.ID), nil
+}
+
+// Enable は、起こした (か動いている) sandbox VM の無効な herdr machine を有効に戻す (decision/0025)。VM には触れない。
+// 有効なら何もしない。登録が無ければ警告して成功にする。有効に戻せなければ、手で戻すコマンドを添えた error。
+func (r Registry) Enable(ctx context.Context, sandbox string, progress io.Writer) error {
+	target := r.VM.SSHTarget(sandbox)
+	machine, found, err := r.find(ctx, target)
+	if err != nil {
+		return fmt.Errorf("herdr machine を有効に戻せない: %w", err)
+	}
+	if !found {
+		logf(progress, "herdr: 警告 %s の登録が無い (有効に戻すものが無い)\n", target)
+		return nil
+	}
+	if machine.Enabled {
+		return nil
+	}
+	if err := r.Client.Enable(ctx, machine.ID); err != nil {
+		return fmt.Errorf("herdr machine %s を有効に戻せない (%s で戻す): %w", machine.Target, enableCommand(machine.ID), err)
+	}
+	logf(progress, "herdr: %s を有効に戻した\n", machine.Target)
+	return nil
 }
 
 // disable は sandbox VM の有効な herdr machine を無効にする。disabled は sbxr が無効にしたか

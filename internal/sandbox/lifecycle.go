@@ -21,7 +21,7 @@ type Places struct {
 	CacheRoot string
 }
 
-// Lifecycle は sandbox VM を状態機械 (docs/design/sbxr/statechart.puml) どおりに plan・create・stop・destroy する。
+// Lifecycle は sandbox VM を状態機械 (docs/design/sbxr/statechart.puml) どおりに plan・create・stop・start・destroy する。
 // 入口はどれも、利用者が打った <repo> (path か git URL) を受け取る。状態の調べ・宣言の確定・前提の確認・片付けは
 // 入口の内側で行い、失敗には復旧手順を添える (手順には受け取った <repo> をそのまま使う)。
 type Lifecycle struct {
@@ -84,6 +84,22 @@ type StopResult struct {
 	Name    string
 	Outcome StopOutcome
 }
+
+// StartResult は start の結果。
+type StartResult struct {
+	Name    string
+	Outcome StartOutcome
+}
+
+// StartOutcome は start が VM を起こしたか、VM が動いていたか。
+type StartOutcome int
+
+const (
+	// Started は止まっていた VM を起こした。
+	Started StartOutcome = iota + 1
+	// AlreadyRunning は VM が動いていた (VM には触れていない)。
+	AlreadyRunning
+)
 
 // DestroyResult は destroy の結果。
 type DestroyResult struct {
@@ -178,10 +194,8 @@ func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateRe
 		return CreateResult{Name: name, Outcome: Created}, nil
 	case stateRunning, stateStopped:
 		return l.reportCreated(ctx, target, observed.record)
-	case stateIncompleteStopped:
-		return CreateResult{}, fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo)
-	case stateIncompleteRunning:
-		return CreateResult{}, fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている (VM は稼働している)。sbxr stop %s → sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo, repo)
+	case stateIncompleteStopped, stateIncompleteRunning:
+		return CreateResult{}, halfCreatedError(observed.state, name, repo)
 	case stateVMGone:
 		return CreateResult{}, fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(name, repo), repo)
 	case stateUnmanaged:
@@ -208,9 +222,9 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 	switch observed.state {
 	case stateRunning, stateIncompleteRunning:
 		// 作成途中の VM の herdr machine は未登録だが、同じ名前の前の VM の登録が残っていれば無効にする
-		return stopResult(name, Stopped, l.stopRunning(ctx, name))
+		return stopResult(name, Stopped, l.stopRunning(ctx, name, repo))
 	case stateStopped:
-		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name))
+		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name, repo))
 	case stateIncompleteStopped:
 		return StopResult{Name: name, Outcome: AlreadyStopped}, nil
 	case stateAbsent:
@@ -230,6 +244,45 @@ func stopResult(name string, outcome StopOutcome, err error) (StopResult, error)
 		return StopResult{}, err
 	}
 	return StopResult{Name: name, Outcome: outcome}, nil
+}
+
+// Start は停止中の sandbox VM を起こし、herdr 連携を有効にして作った VM なら herdr machine を有効に戻す (decision/0025)。
+// 稼働中の VM には触れずに、無効な herdr machine だけを有効に戻す。確認プロンプトは通さない。
+// 作成途中・VM 消失・未作成・管理外・別出所なら、何もせずに理由と復旧手順を error で返す。
+func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) {
+	target, err := resolveTarget(repo, l.Places.CacheRoot)
+	if err != nil {
+		return StartResult{}, err
+	}
+	observed, err := l.inspect(ctx, target)
+	if err != nil {
+		return StartResult{}, err
+	}
+	name := target.Name
+	switch observed.state {
+	case stateStopped:
+		return startResult(name, Started, l.startStopped(ctx, name))
+	case stateRunning:
+		return startResult(name, AlreadyRunning, l.enableHerdrMachine(ctx, name))
+	case stateAbsent:
+		return StartResult{}, fmt.Errorf("sandbox VM %s は無い。sbxr create %s で作る", name, repo)
+	case stateIncompleteStopped, stateIncompleteRunning:
+		return StartResult{}, halfCreatedError(observed.state, name, repo)
+	case stateVMGone:
+		return StartResult{}, fmt.Errorf("%w。その後 sbxr create %s で作り直す", vanishedError(name, repo), repo)
+	case stateUnmanaged:
+		return StartResult{}, unmanagedError(name)
+	case stateOtherSource:
+		return StartResult{}, otherSourceError(name, observed.recordedSource)
+	}
+	return StartResult{}, unexpectedState(name, observed.state, "start")
+}
+
+func startResult(name string, outcome StartOutcome, err error) (StartResult, error) {
+	if err != nil {
+		return StartResult{}, err
+	}
+	return StartResult{Name: name, Outcome: outcome}, nil
 }
 
 // Destroy は確認プロンプトを通して sandbox VM を撤去し、herdr machine・cache clone・状態ディレクトリを片付ける。
@@ -552,7 +605,15 @@ func discardClone(places Places, target sandboxTarget) error {
 	return nil
 }
 
-// vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の create と stop を止める error。
+// halfCreatedError は作成途中の VM の create と start を止める error。片付けてから作り直す手順を添える。
+func halfCreatedError(s state, name, repo string) error {
+	if s == stateIncompleteRunning { // destroy は稼働中の VM を拒むので、先に止める
+		return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている (VM は稼働している)。sbxr stop %s → sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo, repo)
+	}
+	return fmt.Errorf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo)
+}
+
+// vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の create・stop・start を止める error。
 func vanishedError(name, repo string) error {
 	return fmt.Errorf("sandbox VM %s は sbxr の外で撤去されている (状態ディレクトリだけが残っている)。sbxr destroy %s で片付ける", name, repo)
 }

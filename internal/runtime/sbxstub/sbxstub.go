@@ -192,7 +192,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 }
 
 // Start は止まった sandbox の起動 (sbx exec や sbx run による再起動) を再現する。sandbox を running にし、
-// VM があれば kit の startup を走らせる。sbx の起動コマンドの引数は再現しない (受け入れテストが起動の後だけを見るため)。
+// VM があれば kit の startup を走らせる。sbx exec は止まった sandbox をこれで起こす。
 func (s *Stub) Start(name string) error {
 	if _, ok := s.Sandboxes[name]; !ok {
 		return fmt.Errorf("sbxstub: sandbox %s が無い", name)
@@ -220,6 +220,12 @@ func (s *Stub) exec(args []string, input string) ([]byte, error) {
 	}
 	if len(args) < 3 || args[1] != "--" {
 		return nil, fmt.Errorf("sbxstub: exec の引数 %q が <sandbox> -- <command> の形でない", args)
+	}
+	// 実 sbx と同じく、止まった sandbox は先に起動する (sbx exec --help)
+	if s.Sandboxes[args[0]] == "stopped" {
+		if err := s.Start(args[0]); err != nil {
+			return nil, err
+		}
 	}
 	if status, ok := s.Sandboxes[args[0]]; !ok || status != "running" {
 		return nil, fmt.Errorf("sbxstub: sandbox %s が動いていない", args[0])
