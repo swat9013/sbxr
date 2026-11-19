@@ -34,21 +34,16 @@ func requireHerdrOnHost(client herdr.Client) error {
 
 // stopRunning は稼働中の sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする
 // (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。host に herdr が無ければ、VM に触れずに止まる。
-// repo は、有効に戻す手順 (sbxr start) に添える利用者の <repo>。
-func (l Lifecycle) stopRunning(ctx context.Context, name, repo string) error {
+// 無効にした herdr machine を手で有効に戻すコマンドを返す (無効にしなかったら空)。後の案内は、VM が作成途中かで呼び出し側が選ぶ。
+func (l Lifecycle) stopRunning(ctx context.Context, name string) (enable string, err error) {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !enabled {
-		return l.Runtime.StopSandbox(ctx, name)
+		return "", l.Runtime.StopSandbox(ctx, name)
 	}
-	enable, err := l.registry().DisableAndStop(ctx, name, l.Output)
-	if err != nil {
-		return err
-	}
-	l.reportDisabled(name, repo, enable)
-	return nil
+	return l.registry().DisableAndStop(ctx, name, l.Output)
 }
 
 // disableHerdrMachine は止まっている sandbox VM の herdr machine を、VM に触れずに無効にする (decision/0010)。

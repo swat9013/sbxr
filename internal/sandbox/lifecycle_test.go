@@ -1044,6 +1044,38 @@ func TestStopOfAHalfCreatedVMDisablesALeftoverHerdrMachine(t *testing.T) {
 	}
 }
 
+// start は作成途中の VM を拒むので、止めた後は start でなく destroy を示す。herdr の状態に依らない (decision/0029)。
+func TestStopOfAHalfCreatedVMShowsHowToDestroyItInsteadOfStart(t *testing.T) {
+	tests := map[string]struct {
+		userConfig string
+		machines   func(w *world) []herdr.Machine
+	}{
+		"herdr 連携なし":          {userConfig: testUserConfig},
+		"herdr machine の登録なし": {userConfig: herdrUserConfig},
+		"前の VM の登録が残っている": {userConfig: herdrUserConfig, machines: func(w *world) []herdr.Machine {
+			return []herdr.Machine{{ID: "old", Target: w.vms.SSHTarget("app"), Enabled: true}}
+		}},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, tt.userConfig)
+			w.arrive(stateIncompleteRunning)
+			if tt.machines != nil {
+				w.herdr.Machines = tt.machines(w)
+			}
+
+			outcome, err := w.stop(w.repo())
+
+			if err != nil || outcome != Stopped {
+				t.Fatalf("Stop() = %v, %v, want the VM stopped", outcome, err)
+			}
+			if out := w.out.String(); !strings.Contains(out, "sbxr destroy "+w.repo()) || strings.Contains(out, "sbxr start") {
+				t.Errorf("output = %q, want how to destroy the VM and no sbxr start", out)
+			}
+		})
+	}
+}
+
 func TestCreateDoesNotTouchASandboxCreatedWhileTheGateWasOpen(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	repo := localRepo(t, "app", "")
