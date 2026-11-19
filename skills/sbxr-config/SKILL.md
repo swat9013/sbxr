@@ -66,7 +66,7 @@ repo 宣言は untrusted な入力として扱われ、書ける key が限ら�
 - `version: 1`
 - `profile.model` / `profile.effortLevel` / `profile.enabledPlugins` (値は `true` だけ)
 - `egress.<group>.rationale` / `egress.<group>.allow`
-- `init` / `boot` (シェルのコマンドの list)
+- `init` / `boot` / `run` (シェルのコマンドの list)
 - `secrets` (user 設定か同梱で定義された secret の名前)
 
 `git.name` / `git.email` も repo 宣言に書けるが、個人の値なので user 設定に置く。
@@ -75,7 +75,8 @@ repo 宣言は untrusted な入力として扱われ、書ける key が限ら�
 
 - **init** (作成時に 1 回、repo root で走る): ツールチェーンの定義 (`.mise.toml`・`.tool-versions`) とロックファイル (`package-lock.json`・`go.sum`・`uv.lock` など) から、依存を入れるコマンドを並べる。Makefile・CI の setup の step が同じことをしていれば、それに揃える
 - **boot** (VM の起動ごとに走る): 起動で消えるもの (daemon など) を戻すコマンドだけ。無ければ書かない
-- **egress** は最小にする。全 sandbox VM に効く宛先 (`sbxr plan <repo>` の `global_egress`) は書かない。init と boot が届く必要があり、そこに無い宛先だけを、用途ごとに 1 group にまとめ、group ごとに `rationale` へ許可する理由を書く。宛先は `host:port` (小文字、例 `api.example.com:443`) で書く
+- **run** (create と、止めた VM を起こした start の終わりに、VM 内の作業ツリーで裏で始まる。終わりは待たない): 人が頼んだ長く走る作業 (agent の非対話の実行 `claude -p '<指示>'`・開発 server など) だけ。repo から推測して書かず、頼まれなければ書かない。出力は VM 内の `~/.local/state/sbxr/run.log` に残る。対話の session に入りたいときは run ではなく `sbxr create --attach` / `sbxr start --attach` を使う
+- **egress** は最小にする。全 sandbox VM に効く宛先 (`sbxr plan <repo>` の `global_egress`) は書かない。init・boot・run が届く必要があり、そこに無い宛先だけを、用途ごとに 1 group にまとめ、group ごとに `rationale` へ許可する理由を書く。宛先は `host:port` (小文字、例 `api.example.com:443`) で書く
 
 ```yaml
 version: 1

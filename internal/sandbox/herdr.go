@@ -76,10 +76,10 @@ func (l Lifecycle) reportDisabled(name, repo, enable string) {
 }
 
 // startStopped は停止中の sandbox VM を起こし、VM の中を確かめてから、herdr 連携を有効にして作った VM なら
-// herdr machine を有効に戻す。host に herdr が無ければ、VM に触れずに止まる。herdr machine は VM を起こせた後に有効に戻す
-// (起こせなかった VM の machine を有効にすると、herdr が繋ぎ直して VM を起こしうる)。
+// herdr machine を有効に戻し、最後に run (作成時の宣言のもの) を worktree で始める。host に herdr が無ければ、VM に触れずに止まる。
+// herdr machine は VM を起こせた後に有効に戻す (起こせなかった VM の machine を有効にすると、herdr が繋ぎ直して VM を起こしうる)。
 // repo は、確かめ直す手順 (sbxr start) に添える利用者の <repo>。
-func (l Lifecycle) startStopped(ctx context.Context, name, repo string) error {
+func (l Lifecycle) startStopped(ctx context.Context, name, repo, worktree string, run []string) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
 		return err
@@ -88,7 +88,11 @@ func (l Lifecycle) startStopped(ctx context.Context, name, repo string) error {
 		return fmt.Errorf("sandbox VM %s を起こせない (VM は止まったまま): %w", name, err)
 	}
 	if err := l.readyStarted(ctx, name, repo, enabled); err != nil {
-		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
+		// VM は稼働中になったので、確かめ直す start は run を始めない。run を始めるには起こし直す
+		return fmt.Errorf("%w\nsandbox VM %s は起こした%s", err, name, runNotStarted(repo, run))
+	}
+	if err := startRun(ctx, l.Runtime, name, worktree, run, l.Output); err != nil {
+		return fmt.Errorf("%w\nsandbox VM %s は起こした。%s", err, name, restartRun(repo))
 	}
 	return nil
 }

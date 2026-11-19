@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,15 +38,19 @@ func newPlanCmd(deps dependencies) *cobra.Command {
 }
 
 func newCreateCmd(deps dependencies) *cobra.Command {
-	var yes bool
+	var yes, attach bool
 	cmd := &cobra.Command{
 		Use:   "create <repo>",
 		Short: "宣言を merge し、確認のうえ sandbox VM を作る",
-		Long: `宣言を merge し、確認のうえ sandbox VM を作る。
---yes は確認プロンプトを省く。git URL を --yes で通したときは、人間が見ていない repo 宣言の egress を落とす。`,
+		Long: `宣言を merge し、確認のうえ sandbox VM を作る。最後に、宣言の run を VM 内の作業ツリーで裏で始める (終わるのを待たない)。
+--yes は確認プロンプトを省く。git URL を --yes で通したときは、人間が見ていない repo 宣言の egress を落とす。
+--attach は最後に、VM 内の作業ツリーで agent の対話 session に入る。抜けても VM は動いたまま。端末が要る。`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
+			if err := requireTerminalToAttach(deps, attach); err != nil { // VM に触れる前に止める
+				return err
+			}
 			lc, err := lifecycleFor(cmd, deps)
 			if err != nil {
 				return err
@@ -60,14 +65,34 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 			switch result.Outcome {
 			case sandbox.Created:
 				printf(cmd, "sandbox VM %s を作った\n", result.Name)
-			case sandbox.AlreadyCreated:
+				if attach {
+					return lc.Attach(cmd.Context(), args[0])
+				}
+			case sandbox.AlreadyCreated: // 作っていないので、--attach でも session に入らない
 				printf(cmd, "sandbox VM %s は既にある\n", result.Name)
+				if attach {
+					printf(cmd, "--attach: 作った VM ではないので agent の対話 session に入らない。入るなら sbxr start %s --attach\n", args[0])
+				}
 			}
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&yes, "yes", false, "人間の確認 (確認プロンプト) を省く")
+	cmd.Flags().BoolVar(&attach, attachFlag, false, attachUsage)
 	return cmd
+}
+
+const (
+	attachFlag  = "attach"
+	attachUsage = "最後に、VM 内の作業ツリーで agent の対話 session に入る (抜けても VM は動いたまま)"
+)
+
+// requireTerminalToAttach は、--attach なのに端末が無ければ error を返す (VM に触れる前に呼ぶ)。
+func requireTerminalToAttach(deps dependencies, attach bool) error {
+	if attach && !deps.terminal() {
+		return errors.New("--attach には端末が要る (stdin か stdout が端末でない)")
+	}
+	return nil
 }
 
 func newDestroyCmd(deps dependencies) *cobra.Command {
@@ -128,14 +153,20 @@ func newStopCmd(deps dependencies) *cobra.Command {
 }
 
 func newStartCmd(deps dependencies) *cobra.Command {
-	return &cobra.Command{
+	var attach bool
+	cmd := &cobra.Command{
 		Use:   "start <repo>",
 		Short: "止めた sandbox VM を起こす",
 		Long: `止めた sandbox VM を起こす。herdr 連携を有効にして作った VM なら、herdr machine も有効に戻す。
-動いている VM には触れず、herdr machine が無効なら有効に戻す。`,
+最後に、作成時の宣言の run を VM 内の作業ツリーで裏で始める (終わるのを待たない)。
+動いている VM には触れず、herdr machine が無効なら有効に戻す (run は始めない)。
+--attach は最後に、VM 内の作業ツリーで agent の対話 session に入る。抜けても VM は動いたまま。端末が要る。`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
+			if err := requireTerminalToAttach(deps, attach); err != nil { // VM に触れる前に止める
+				return err
+			}
 			lc, err := lifecycleFor(cmd, deps)
 			if err != nil {
 				return err
@@ -150,9 +181,14 @@ func newStartCmd(deps dependencies) *cobra.Command {
 			case sandbox.AlreadyRunning:
 				printf(cmd, "sandbox VM %s は動いている\n", result.Name)
 			}
+			if attach {
+				return lc.Attach(cmd.Context(), args[0])
+			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&attach, attachFlag, false, attachUsage)
+	return cmd
 }
 
 // lifecycleFor は subcommand の入出力と dependencies で lifecycle を組み立てる。

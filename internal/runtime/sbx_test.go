@@ -271,6 +271,26 @@ func TestSbxStartsTheSandboxByExecutingANoOpInIt(t *testing.T) {
 	}
 }
 
+func TestSbxAttachesTheCommandToTheTerminalWithExecIt(t *testing.T) {
+	var got []string
+	onTerminal := func(_ context.Context, args ...string) error {
+		got = args
+		return nil
+	}
+
+	err := NewSbx(nil).OnTerminal(onTerminal).AttachSandbox(context.Background(), "app", SandboxCommand{Args: []string{"claude"}, Dir: "/src/app"})
+
+	if want := []string{"exec", "-it", "-w", "/src/app", "app", "--", "claude"}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("AttachSandbox = %v, sbx args = %q, want %q", err, got, want)
+	}
+}
+
+func TestSbxCannotAttachWithoutATerminalRunner(t *testing.T) {
+	if err := NewSbx(nil).AttachSandbox(context.Background(), "app", SandboxCommand{Args: []string{"claude"}}); err == nil {
+		t.Errorf("AttachSandbox without a terminal runner = nil, want an error")
+	}
+}
+
 func TestSbxConnectsToTheSandboxOverTheSSHConfigSbxWrites(t *testing.T) {
 	if got := NewSbx(nil).SSHTarget("app"); got != "app.sbx" {
 		t.Errorf("SSHTarget = %q, want app.sbx", got)

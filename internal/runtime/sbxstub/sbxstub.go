@@ -47,6 +47,8 @@ type Stub struct {
 	SandboxSecrets map[string]int
 	// VM は sbx exec を受ける sandbox VM の中身。nil なら sbx exec は失敗する。
 	VM *FakeVM
+	// Sessions は端末に繋いで実行した sbx のコマンド (RunOnTerminal。引数を空白で連結したもの)。
+	Sessions []string
 	// Version は sbx version が出す版の欄。空なら DefaultVersion。
 	Version string
 	nextID  int
@@ -201,6 +203,31 @@ func (s *Stub) Start(name string) error {
 	if s.VM != nil {
 		s.VM.Startup()
 	}
+	return nil
+}
+
+// RunOnTerminal は端末に繋いだ sbx exec -it [-w dir] <sandbox> -- <args> を再現する。実 sbx と同じく止まった sandbox は
+// 先に起動し、無い sandbox には繋げない。VM の中のコマンドは走らせず、利用者がすぐに抜けたものとして記録する。
+func (s *Stub) RunOnTerminal(_ context.Context, args ...string) error {
+	if len(args) < 2 || !slices.Equal(args[:2], []string{"exec", "-it"}) {
+		return fmt.Errorf("sbxstub: 端末に繋ぐ想定外の引数 %q", args)
+	}
+	rest := args[2:]
+	if len(rest) > 1 && rest[0] == "-w" {
+		rest = rest[2:]
+	}
+	if len(rest) < 3 || rest[1] != "--" {
+		return fmt.Errorf("sbxstub: exec の引数 %q が <sandbox> -- <command> の形でない", rest)
+	}
+	if s.Sandboxes[rest[0]] == "stopped" {
+		if err := s.Start(rest[0]); err != nil {
+			return err
+		}
+	}
+	if status, ok := s.Sandboxes[rest[0]]; !ok || status != "running" {
+		return fmt.Errorf("sbxstub: sandbox %s が動いていない", rest[0])
+	}
+	s.Sessions = append(s.Sessions, strings.Join(args, " "))
 	return nil
 }
 

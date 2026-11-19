@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -16,14 +18,36 @@ import (
 // secret の値は argv に載せると process 一覧から見えるので、stdin で渡す。
 type CommandRunner func(ctx context.Context, stdin io.Reader, args ...string) ([]byte, error)
 
+// TerminalRunner は sbx を引数付きで、利用者の端末 (stdin・stdout・stderr) に繋いで実行し、終わるまで待つ。
+type TerminalRunner func(ctx context.Context, args ...string) error
+
 // Sbx は Docker Sandboxes (sbx CLI) による Runtime の実装。
 type Sbx struct {
 	run CommandRunner
+	// onTerminal は端末に繋ぐ sbx の実行 (AttachSandbox が使う)。nil なら AttachSandbox は error。
+	onTerminal TerminalRunner
 }
 
 // NewSbx は run で sbx を呼ぶ Runtime を返す。本番では ExecSbx を渡す。
 func NewSbx(run CommandRunner) *Sbx {
 	return &Sbx{run: run}
+}
+
+// OnTerminal は、端末に繋ぐ sbx の実行に onTerminal を使う Runtime を返す。本番では ExecSbxOnTerminal を渡す。
+func (s *Sbx) OnTerminal(onTerminal TerminalRunner) *Sbx {
+	attached := *s
+	attached.onTerminal = onTerminal
+	return &attached
+}
+
+// ExecSbxOnTerminal は PATH 上の sbx を、この process の stdin・stdout・stderr を引き継いで実行する。
+func ExecSbxOnTerminal(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "sbx", args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("sbx %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
 }
 
 // ExecSbx は PATH 上の sbx を子プロセスとして実行する。
@@ -222,6 +246,18 @@ func (s *Sbx) ExecInSandbox(ctx context.Context, sandbox string, command Sandbox
 	}
 	args = append(append(args, sandbox, "--"), command.Args...)
 	return s.run(ctx, stdin, args...)
+}
+
+// AttachSandbox は sbx exec -it で、VM 内のコマンドに端末を繋ぐ。
+func (s *Sbx) AttachSandbox(ctx context.Context, sandbox string, command SandboxCommand) error {
+	if s.onTerminal == nil {
+		return errors.New("sbx を端末に繋いで実行する手段が無い (sbxr の不具合)")
+	}
+	args := []string{"exec", "-it"}
+	if command.Dir != "" {
+		args = append(args, "-w", command.Dir)
+	}
+	return s.onTerminal(ctx, append(append(args, sandbox, "--"), command.Args...)...)
 }
 
 // writeFileScript は stdin を $1 へ書き、$2 があれば mode にする。ディレクトリが無ければ作る。

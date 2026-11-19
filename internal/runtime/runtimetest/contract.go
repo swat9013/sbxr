@@ -106,6 +106,23 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		assertStatus(t, h, "app", runtime.SandboxAbsent)
 	})
 
+	t.Run("稼働中の VM の中のコマンドに端末を繋げる", func(t *testing.T) {
+		h := newHarness(t)
+		create(t, h, spec("app"))
+
+		must(t, h.Runtime.AttachSandbox(ctx, "app", runtime.SandboxCommand{Args: []string{"claude"}, Dir: "/src/app"}))
+
+		assertStatus(t, h, "app", runtime.SandboxRunning)
+	})
+
+	t.Run("無い VM には端末を繋げない", func(t *testing.T) {
+		h := newHarness(t)
+
+		if err := h.Runtime.AttachSandbox(ctx, "app", runtime.SandboxCommand{Args: []string{"claude"}}); err == nil {
+			t.Errorf("AttachSandbox of an absent VM = nil, want an error")
+		}
+	})
+
 	t.Run("撤去した VM は absent", func(t *testing.T) {
 		h := newHarness(t)
 		dir := create(t, h, spec("app"))

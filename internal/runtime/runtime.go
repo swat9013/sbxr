@@ -44,6 +44,9 @@ type Runtime interface {
 	StartSandbox(ctx context.Context, sandbox string) error
 	// ExecInSandbox は sandbox VM 内でコマンドを実行し、stdout を返す。0 以外で終われば error。
 	ExecInSandbox(ctx context.Context, sandbox string, command SandboxCommand) ([]byte, error)
+	// AttachSandbox は sandbox VM 内でコマンドを、利用者の端末 (stdin・stdout・stderr) に繋いで実行し、コマンドが終わるまで待つ
+	// (agent の対話 session。decision/0028)。コマンドが終わっても VM は止めない。0 以外で終われば error。
+	AttachSandbox(ctx context.Context, sandbox string, command SandboxCommand) error
 	// ReadSandboxFile は sandbox VM 内の path (絶対 path) の中身を返す。無ければ error。
 	ReadSandboxFile(ctx context.Context, sandbox, path string) ([]byte, error)
 	// WriteSandboxFile は sandbox VM 内の path (絶対 path) に data を書く。親ディレクトリが無ければ作る。

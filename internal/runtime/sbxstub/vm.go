@@ -39,6 +39,8 @@ type FakeVM struct {
 	ShellRuns []ShellRun
 	// Executed は path で直接実行されたファイル (boot script など)。
 	Executed []string
+	// Started は裏で始めた script の path (run の開始)。
+	Started []string
 	// FailShell はこの文字列の bash -c コマンドを失敗させる。
 	FailShell string
 	// FailExecute はこの path のファイルの実行を失敗させる。
@@ -55,8 +57,8 @@ type FakeVM struct {
 	HTTP map[string]HTTPResult
 	// HerdrServer は VM 内の herdr server。nil なら最初の herdr のコマンドで、herdr machine add が起動した直後の server を置く。
 	HerdrServer *servertest.Server
-	// Events は bash -c の実行 ("shell <command>")・ファイルの実行 ("exec <path>")・herdr server の停止 ("stop herdr server")・
-	// https の probe ("probe <url>") を起きた順に並べる。
+	// Events は bash -c の実行 ("shell <command>")・ファイルの実行 ("exec <path>")・裏で始めた script ("start <path>")・
+	// herdr server の停止 ("stop herdr server")・https の probe ("probe <url>") を起きた順に並べる。
 	Events []string
 }
 
@@ -184,6 +186,14 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 		}
 	case len(args) == 3 && args[0] == "sh" && args[1] == "-c" && strings.HasPrefix(args[2], "pkill -x herdr"):
 		vm.Events = append(vm.Events, "stop herdr server")
+		return nil, nil
+	case len(args) == 6 && args[0] == "bash" && args[1] == "-c" && args[3] == "bash":
+		// bash -c '<$1 を裏で始め、出力を $2 へ足していく script>' bash <script> <log> (sbxr の run の開始)
+		if _, ok := vm.Files[args[4]]; !ok {
+			return nil, fmt.Errorf("%s: No such file or directory", args[4])
+		}
+		vm.Started = append(vm.Started, args[4])
+		vm.Events = append(vm.Events, "start "+args[4])
 		return nil, nil
 	case len(args) == 3 && args[0] == "bash" && args[1] == "-c":
 		vm.ShellRuns = append(vm.ShellRuns, ShellRun{Dir: command.Dir, Command: args[2]})

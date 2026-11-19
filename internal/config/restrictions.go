@@ -50,6 +50,8 @@ var repoScopeTable = map[string]repoAccess{
 	"egress.*.enabled": repoCannotWrite,
 	"init":             repoWritesSubtree,
 	"boot":             repoWritesSubtree,
+	// run は VM の中でだけ走るので、untrusted な repo に書かせても隔離は弱まらない (decision/0028)
+	"run": repoWritesSubtree,
 	// 注入先 host を repo に指定させない (ADR 0003)
 	"secret_defs": repoCannotWrite,
 	"secrets":     repoWritesSubtree,
