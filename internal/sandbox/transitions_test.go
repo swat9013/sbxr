@@ -15,12 +15,13 @@ import (
 // 状態機械 (docs/design/sbxr/statechart.puml) の遷移を 1 行ずつ並べた表。状態 × イベントの組み合わせは、遷移か
 // 「起きない」(uncovered) のどちらかで全部を埋める。行が statechart.puml と 1 対 1 に対応することは TestTheTableHasExactlyTheLinesOfTheStatechart が確かめる。
 
-// event は状態機械のイベント。sbxr が起こす 3 つと、sbxr の外で起きる 3 つ。
+// event は状態機械のイベント。sbxr が起こす 4 つと、sbxr の外で起きる 3 つ。
 type event string
 
 const (
 	eventCreate        event = "create"
 	eventStop          event = "stop"
+	eventStart         event = "start"
 	eventDestroy       event = "destroy"
 	eventStartOutside  event = "外部起動"
 	eventStopOutside   event = "外部停止"
@@ -29,7 +30,7 @@ const (
 
 var (
 	machineStates = []state{stateAbsent, stateIncompleteStopped, stateIncompleteRunning, stateRunning, stateStopped, stateVMGone}
-	machineEvents = []event{eventCreate, eventStop, eventDestroy, eventStartOutside, eventStopOutside, eventRemoveOutside}
+	machineEvents = []event{eventCreate, eventStop, eventStart, eventDestroy, eventStartOutside, eventStopOutside, eventRemoveOutside}
 )
 
 // transition は表の 1 行。
@@ -150,6 +151,15 @@ var transitions = []transition{
 	{from: stateStopped, event: eventStop, to: stateStopped, then: disablesTheHerdrMachineWithoutTouchingTheVM},
 	{from: stateVMGone, event: eventStop, to: stateVMGone, refused: true, then: touchesNoVM},
 
+	// --- start (decision/0025。sbxr start は #133 が足す) ---
+	{from: stateAbsent, event: eventStart, to: stateAbsent, refused: true, unimplemented: "#133"},
+	{from: stateIncompleteStopped, event: eventStart, to: stateIncompleteStopped, refused: true, unimplemented: "#133"},
+	{from: stateIncompleteRunning, event: eventStart, to: stateIncompleteRunning, refused: true, unimplemented: "#133"},
+	{from: stateRunning, event: eventStart, to: stateRunning, unimplemented: "#133"},
+	{from: stateStopped, event: eventStart, guard: "VM を起こせた", to: stateRunning, unimplemented: "#133"},
+	{from: stateStopped, event: eventStart, guard: "VM を起こせない", to: stateStopped, refused: true, unimplemented: "#133"},
+	{from: stateVMGone, event: eventStart, to: stateVMGone, refused: true, unimplemented: "#133"},
+
 	// --- destroy ---
 	{from: stateAbsent, event: eventDestroy, to: stateAbsent, refused: true},
 	{from: stateIncompleteStopped, event: eventDestroy, to: stateAbsent, then: removesEverything},
@@ -157,10 +167,7 @@ var transitions = []transition{
 	{from: stateIncompleteRunning, event: eventDestroy, guard: "--force", act: destroyForcing, to: stateAbsent, then: removesEverything},
 	{from: stateRunning, event: eventDestroy, guard: "--force 無し", to: stateRunning, refused: true, then: keepsTheStateDir},
 	{from: stateRunning, event: eventDestroy, guard: "--force", act: destroyForcing, to: stateAbsent, then: removesEverything},
-	{from: stateStopped, event: eventDestroy, guard: "未 push の作業あり ∨ 検査に失敗", to: stateStopped, refused: true, unimplemented: "#9"},
-	{from: stateStopped, event: eventDestroy, guard: "未 push の作業なし ∨ 検査対象外", to: stateAbsent, then: removesEverything,
-		pending: "一時起動して未 push の作業を検査し、止め直すのは #9 (今は検査せずに撤去する)"},
-	{from: stateStopped, event: eventDestroy, guard: "--force", act: destroyForcing, to: stateAbsent, then: removesEverything},
+	{from: stateStopped, event: eventDestroy, to: stateAbsent, then: removesEverything},
 	{from: stateVMGone, event: eventDestroy, to: stateAbsent, then: removesEverything},
 
 	// --- sbxr の外で起きること ---
