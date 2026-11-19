@@ -68,6 +68,14 @@ jobs:
           version: "~> v2"
           args: check
 
+  # sbx-stable-watch.yml の判定を、週 1 回の実行を待たずに確かめる
+  scripts-test:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 -m unittest discover -s scripts -p '*_test.py'
+
   decision-immutable:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -88,7 +96,7 @@ jobs:
   # ruleset はこの job だけを必須にする。job を足したら needs にも足す
   ci-ok:
     if: always()
-    needs: [test, lint, vulncheck, goreleaser-check, decision-immutable]
+    needs: [test, lint, vulncheck, goreleaser-check, scripts-test, decision-immutable]
     runs-on: ubuntu-latest
     steps:
       # skipped は対象外のイベントで走らなかった job なので通す。failure と cancelled だけを落とす
