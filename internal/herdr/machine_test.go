@@ -252,14 +252,14 @@ func TestEnableLeavesAnEnabledMachineAlone(t *testing.T) {
 	}
 }
 
-func TestEnableWithoutARegistrationWarnsAndSucceeds(t *testing.T) {
+// 利用者が手で解除した等で登録が無ければ、登録し直す手順を示して失敗する (UC10 の 5b)。
+func TestEnableWithoutARegistrationFailsWithHowToRegisterAgain(t *testing.T) {
 	rt := runningApp()
-	var progress strings.Builder
 
-	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.Enable(context.Background(), "app", &progress)
+	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.Enable(context.Background(), "app", io.Discard)
 
-	if err != nil || !strings.Contains(progress.String(), "警告") {
-		t.Errorf("Enable() = %v, progress = %q, want a warning", err, progress.String())
+	if err == nil || !strings.Contains(err.Error(), "pkill -x herdr を実行してから herdr machine add app.inmemory --label app") {
+		t.Errorf("Enable() error = %v, want how to register the machine again", err)
 	}
 }
 

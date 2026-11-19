@@ -639,6 +639,48 @@ func TestStartThatFailsTheCheckShowsHowToCheckAgain(t *testing.T) {
 	}
 }
 
+// 利用者が herdr machine を手で解除していたら、登録し直す手順を示して非 0 で終える (UC10 の 5b)。
+func TestStartWithoutAHerdrRegistrationShowsHowToRegisterAgain(t *testing.T) {
+	for _, from := range []state{stateStopped, stateRunning} {
+		t.Run(from.String(), func(t *testing.T) {
+			w := newWorld(t, herdrUserConfig)
+			w.arrive(from)
+			w.herdr.Machines = nil
+
+			_, err := w.start(w.repo())
+
+			if err == nil || !strings.Contains(err.Error(), "herdr machine add app.inmemory --label app") || w.stateOf(w.repo()) != stateRunning {
+				t.Errorf("Start() error = %v, state = %s, want the VM running and how to register the machine again", err, w.stateOf(w.repo()))
+			}
+		})
+	}
+}
+
+func TestStartOfARunningVMWithoutHerdrOnTheHostLeavesItRunning(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	w.arrive(stateRunning)
+	w.herdr.Missing = true
+
+	_, err := w.start(w.repo())
+
+	if err == nil || !strings.Contains(err.Error(), "PATH に herdr を入れる") || w.stateOf(w.repo()) != stateRunning {
+		t.Errorf("Start() error = %v, want how to put herdr on the host with the VM left running", err)
+	}
+}
+
+func TestStartOfARunningVMThatCannotEnableTheHerdrMachineSaysTheVMIsRunning(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	w.arrive(stateRunning)
+	disableTheHerdrMachine(w)
+	w.herdr.FailEnable = true
+
+	_, err := w.start(w.repo())
+
+	if err == nil || !strings.Contains(err.Error(), "herdr machine enable id1") || !strings.Contains(err.Error(), "動いている") {
+		t.Errorf("Start() error = %v, want how to enable by hand with the VM said to be running", err)
+	}
+}
+
 func TestStartOfAVMCreatedWithoutHerdrDoesNotCallHerdr(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	w.arrive(stateStopped)
@@ -953,7 +995,7 @@ func TestStopDisablesTheHerdrMachineBeforeStoppingAndShowsHowToEnableIt(t *testi
 
 	outcome, err := w.stop(w.repo())
 
-	if err != nil || outcome != Stopped || w.herdr.Machines[0].Enabled || !strings.Contains(w.out.String(), "sbxr start "+w.repo()) {
+	if err != nil || outcome != Stopped || w.herdr.Machines[0].Enabled || !strings.Contains(w.out.String(), "sbxr start "+w.repo()) || strings.Contains(w.out.String(), "herdr machine enable") {
 		t.Errorf("Stop() = %v, %v, machines = %v, output = %q, want the machine disabled and how to enable it", outcome, err, w.herdr.Machines, w.out.String())
 	}
 }

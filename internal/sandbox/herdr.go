@@ -67,7 +67,8 @@ func (l Lifecycle) disableHerdrMachine(ctx context.Context, name, repo string) e
 }
 
 // reportDisabled は無効にした herdr machine と、VM と一緒に有効に戻すコマンド (sbxr start。decision/0025) を示す。
-// 無効にしなかったら (enable が空) 何も出さない。
+// 無効にしなかったら (enable が空) 何も出さない。手で有効に戻すコマンドは示さない (VM が止まったまま有効にすると、
+// herdr が繋ぎ直して sbxr の外で VM を起こす)。
 func (l Lifecycle) reportDisabled(name, repo, enable string) {
 	if enable != "" {
 		logf(l.Output, "herdr: %s の herdr machine を無効にした (sbxr start %s で VM を起こすと有効に戻る)\n", name, repo)
@@ -99,7 +100,10 @@ func (l Lifecycle) startRunning(ctx context.Context, name, repo string) error {
 	if err != nil {
 		return err
 	}
-	return l.readyStarted(ctx, name, repo, enabled)
+	if err := l.readyStarted(ctx, name, repo, enabled); err != nil {
+		return fmt.Errorf("%w\nsandbox VM %s は動いている (VM には触れていない)", err, name)
+	}
+	return nil
 }
 
 // readyStarted は稼働中の sandbox VM の中で agent と Docker が使えることを確かめ (decision/0027)、
