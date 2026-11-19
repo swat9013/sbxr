@@ -13,6 +13,7 @@ import (
 	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/secret"
+	"github.com/swat9013/sbxr/internal/shell"
 )
 
 // 遷移表 (transitions_test.go) が見ない、遷移に伴う action と、状態機械の外 (管理外・別出所) の振る舞い。
@@ -616,6 +617,172 @@ func TestStartOfAVMCreatedWithoutHerdrDoesNotCallHerdr(t *testing.T) {
 
 	if _, err := w.start(w.repo()); err != nil || len(w.herdr.Calls) != 0 {
 		t.Errorf("Start() error = %v, herdr calls = %v, want herdr left alone", err, w.herdr.Calls)
+	}
+}
+
+// --- run (decision/0028) ---
+
+const repoWithRun = "version: 1\nrun:\n  - claude -p 'fix the build'\n  - make watch\n"
+
+func TestCreateStartsTheRunInTheWorktreeInTheBackgroundLastAndShowsTheLog(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+
+	w.mustCreate(repo)
+
+	last := w.vms.Commands[len(w.vms.Commands)-1]
+	if w.runsStarted() != 1 || !isRunLaunch(last.SandboxCommand) || len(w.herdr.Machines) != 1 {
+		t.Errorf("runs started = %d, last command = %q, herdr machines = %v, want the run started once after the herdr machine was registered", w.runsStarted(), last.Args, w.herdr.Machines)
+	}
+	script := w.runScriptInVM()
+	for _, want := range []string{"cd " + shell.Quote(repo), "bash -c " + shell.Quote("claude -p 'fix the build'"), "bash -c 'make watch'"} {
+		if !strings.Contains(script, want) {
+			t.Errorf("run script = %q, want it to contain %q", script, want)
+		}
+	}
+	if out := w.out.String(); !strings.Contains(out, "run: 2 件") || !strings.Contains(out, "/home/agent/"+runLogRelPath) {
+		t.Errorf("output = %q, want the run and its log in the VM shown", out)
+	}
+}
+
+func TestCreateWithoutARunStartsNothing(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+
+	w.mustCreate(localRepo(t, "app", ""))
+
+	if w.runsStarted() != 0 || strings.Contains(w.out.String(), "run:") {
+		t.Errorf("runs started = %d, output = %q, want nothing started", w.runsStarted(), w.out.String())
+	}
+}
+
+func TestCreateThatCannotStartTheRunKeepsTheCreatedVMAndFails(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.failRun = true
+	repo := localRepo(t, "app", repoWithRun)
+
+	_, err := w.create(repo, unattended())
+
+	if err == nil || !strings.Contains(err.Error(), "run を始められない") || !strings.Contains(err.Error(), "sandbox VM app は作った") {
+		t.Errorf("Create() error = %v, want the run failure with the VM reported as created", err)
+	}
+	if got := w.stateOf(repo); got != stateRunning {
+		t.Errorf("state = %s, want the VM created and running", got)
+	}
+}
+
+func TestCreateShowsTheRunAtTheGate(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	gate := approvedByHuman()
+
+	if _, err := w.create(localRepo(t, "app", repoWithRun), gate); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(gate.proposals) != 1 || !strings.Contains(gate.proposals[0].Summary, "make watch") {
+		t.Errorf("proposals = %+v, want the run shown at the gate", gate.proposals)
+	}
+}
+
+func TestAChangedRunShowsAsDrift(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	w.mustCreate(repo)
+	if err := os.WriteFile(filepath.Join(repo, repoDeclarationFile), []byte("version: 1\nrun: [make serve]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := w.plan(repo)
+
+	if err != nil || result.Drift == nil || len(result.Drift.Differences) != 1 || result.Drift.Differences[0].Path != "run" {
+		t.Errorf("Plan() = %+v, %v, want the run as the only drift", result.Drift, err)
+	}
+}
+
+func TestStartOfAStoppedVMStartsTheRunRecordedAtCreation(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	w.mustCreate(repo)
+	w.mustStop(repo)
+	if err := os.WriteFile(filepath.Join(repo, repoDeclarationFile), []byte("version: 1\nrun: [make serve]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	w.vms.Commands = nil
+
+	if _, err := w.start(repo); err != nil {
+		t.Fatal(err)
+	}
+
+	if script := w.runScriptInVM(); w.runsStarted() != 1 || !strings.Contains(script, "make watch") || strings.Contains(script, "make serve") {
+		t.Errorf("runs started = %d, run script = %q, want the run recorded at creation started once", w.runsStarted(), script)
+	}
+}
+
+func TestStartOfARunningVMDoesNotStartTheRunAgain(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	w.mustCreate(repo)
+	w.vms.Commands = nil
+
+	if _, err := w.start(repo); err != nil || w.runsStarted() != 0 {
+		t.Errorf("Start() error = %v, runs started = %d, want the running run left alone", err, w.runsStarted())
+	}
+}
+
+func TestStartThatCannotStartTheRunFailsWithTheVMRunning(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	w.mustCreate(repo)
+	w.mustStop(repo)
+	w.failRun = true
+
+	_, err := w.start(repo)
+
+	if err == nil || !strings.Contains(err.Error(), "run を始められない") || w.stateOf(repo) != stateRunning {
+		t.Errorf("Start() error = %v, state = %s, want the run failure with the VM running", err, w.stateOf(repo))
+	}
+}
+
+func TestStartThatFindsTheAgentUnusableDoesNotStartTheRun(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	w.mustCreate(repo)
+	w.mustStop(repo)
+	w.unusableInVM = []string{"claude"}
+	w.vms.Commands = nil
+
+	if _, err := w.start(repo); err == nil || w.runsStarted() != 0 {
+		t.Errorf("Start() error = %v, runs started = %d, want it stopped before the run", err, w.runsStarted())
+	}
+}
+
+// --- attach (decision/0028) ---
+
+func TestAttachEntersTheAgentSessionInTheWorktree(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", "")
+	w.mustCreate(repo)
+
+	err := w.attach(repo)
+
+	want := []string{"claude"}
+	if err != nil || len(w.vms.Sessions) != 1 || !slices.Equal(w.vms.Sessions[0].Args, want) || w.vms.Sessions[0].Dir != repo {
+		t.Errorf("Attach() error = %v, sessions = %+v, want claude in the worktree %s", err, w.vms.Sessions, repo)
+	}
+	if got := w.stateOf(repo); got != stateRunning {
+		t.Errorf("state = %s, want the VM left running", got)
+	}
+}
+
+func TestAttachToAVMThatIsNotRunningLeavesItAlone(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", "")
+	w.mustCreate(repo)
+	w.mustStop(repo)
+
+	err := w.attach(repo)
+
+	if err == nil || len(w.vms.Sessions) != 0 || w.stateOf(repo) != stateStopped {
+		t.Errorf("Attach() error = %v, sessions = %+v, want it refused with the VM left stopped", err, w.vms.Sessions)
 	}
 }
 

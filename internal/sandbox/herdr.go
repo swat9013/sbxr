@@ -75,9 +75,9 @@ func (l Lifecycle) reportDisabled(name, repo, enable string) {
 }
 
 // startStopped は停止中の sandbox VM を起こし、VM の中を確かめてから、herdr 連携を有効にして作った VM なら
-// herdr machine を有効に戻す。host に herdr が無ければ、VM に触れずに止まる。herdr machine は VM を起こせた後に有効に戻す
-// (起こせなかった VM の machine を有効にすると、herdr が繋ぎ直して VM を起こしうる)。
-func (l Lifecycle) startStopped(ctx context.Context, name string) error {
+// herdr machine を有効に戻し、最後に run (作成時の宣言のもの) を worktree で始める。host に herdr が無ければ、VM に触れずに止まる。
+// herdr machine は VM を起こせた後に有効に戻す (起こせなかった VM の machine を有効にすると、herdr が繋ぎ直して VM を起こしうる)。
+func (l Lifecycle) startStopped(ctx context.Context, name, worktree string, run []string) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
 		return err
@@ -86,6 +86,9 @@ func (l Lifecycle) startStopped(ctx context.Context, name string) error {
 		return fmt.Errorf("sandbox VM %s を起こせない (VM は止まったまま): %w", name, err)
 	}
 	if err := l.readyStarted(ctx, name, enabled); err != nil {
+		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
+	}
+	if err := startRun(ctx, l.Runtime, name, worktree, run, l.Output); err != nil {
 		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
 	}
 	return nil

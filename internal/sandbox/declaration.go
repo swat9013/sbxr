@@ -25,6 +25,8 @@ type sandboxDeclaration struct {
 	} `yaml:"git"`
 	Init []string `yaml:"init"`
 	Boot []string `yaml:"boot"`
+	// Run は create と start の終わりに VM 内の作業ツリーで裏で始めるコマンド列 (decision/0028)。
+	Run []string `yaml:"run"`
 	// SandboxEgress は sandbox スコープ rule にする宛先 (repo の egress)。
 	SandboxEgress []string `yaml:"sandbox_egress"`
 	// Secrets は配線する secret。形は配線の結果が決める。
@@ -183,7 +185,7 @@ func (l loadedDeclaration) prepare(repoEgress repoEgressPolicy) (preparation, er
 	decl := &prepared.Declaration
 	decl.Profile = cfg.Profile
 	decl.Git.Name, decl.Git.Email = l.identity.Name, l.identity.Email
-	decl.Init, decl.Boot = cfg.Init, cfg.Boot
+	decl.Init, decl.Boot, decl.Run = cfg.Init, cfg.Boot, cfg.Run
 	decl.SandboxEgress = sandboxEgress
 	if cfg.Herdr.Enabled {
 		decl.Herdr = &herdrPin{Version: cfg.Herdr.Version}

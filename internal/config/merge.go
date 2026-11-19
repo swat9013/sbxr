@@ -21,9 +21,11 @@ type Config struct {
 	SandboxEgress []string
 	Init          []string
 	Boot          []string
-	SecretDefs    map[string]secret.Definition
-	Secrets       []string
-	Herdr         Herdr
+	// Run は create と start の終わりに VM 内の作業ツリーで裏で始めるコマンド列 (decision/0028)。
+	Run        []string
+	SecretDefs map[string]secret.Definition
+	Secrets    []string
+	Herdr      Herdr
 }
 
 // Herdr は merge 後の herdr 連携。Enabled なら Version は空でない。
@@ -67,6 +69,7 @@ func merge(defaultDecl, userDecl, repoDecl Declaration) (Config, error) {
 		cfg.git = GitDeclaration{Name: override(cfg.git.Name, decl.Git.Name), Email: override(cfg.git.Email, decl.Git.Email)}
 		cfg.Init = append(cfg.Init, decl.Init...)
 		cfg.Boot = append(cfg.Boot, decl.Boot...)
+		cfg.Run = append(cfg.Run, decl.Run...)
 		// secret 定義は層ごとに丸ごと置き換える (field ごとには重ねない)。定義はファイルごとの検証で揃っている
 		cfg.SecretDefs = additive(cfg.SecretDefs, decl.SecretDefs)
 		for _, name := range decl.Secrets {

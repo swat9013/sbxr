@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,6 +30,8 @@ type lifecycle struct {
 	places     sandbox.Places
 	userConfig string
 	prompter   *fakePrompter
+	// noTerminal なら、利用者の端末に繋がっていない (--attach が止まる)。
+	noTerminal bool
 	// clonedRepoDecl は fake clone が作る repo に置く repo 宣言。空なら置かない。
 	clonedRepoDecl string
 	clones         []string
@@ -50,7 +54,8 @@ func newLifecycle(t *testing.T, userConfig string) *lifecycle {
 		t.Fatal(err)
 	}
 	lc.deps = dependencies{
-		runtime:        runtime.NewSbx(lc.stub.Run),
+		runtime:        runtime.NewSbx(lc.stub.Run).OnTerminal(lc.stub.RunOnTerminal),
+		terminal:       func() bool { return !lc.noTerminal },
 		userConfigPath: fixedPath(lc.userConfig),
 		secretFilePath: fixedPath(filepath.Join(root, "secrets.env")),
 		prompter:       lc.prompter,
@@ -192,6 +197,80 @@ func TestCreateWithHerdrStartsItsPanesAtTheWorktreeOfTheVM(t *testing.T) {
 
 	if server := lc.stub.VM.HerdrServer; server == nil || len(server.Workspaces) != 1 || server.Workspaces[0].Cwd != repo {
 		t.Errorf("herdr server in the VM = %+v, want only one workspace at %s", server, repo)
+	}
+}
+
+// --- run と --attach (decision/0028) ---
+
+const repoWithRun = "version: 1\nrun: [make watch]\n"
+
+func TestCreateStartsTheRunAndAttachEntersTheAgentSessionInTheWorktree(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+
+	out := lc.mustRun(t, "create", repo, "--yes", "--attach")
+
+	if want := []string{"exec -it -w " + repo + " app -- claude"}; !slices.Equal(lc.stub.Sessions, want) {
+		t.Errorf("sessions = %q, want %q", lc.stub.Sessions, want)
+	}
+	if len(lc.stub.VM.Started) != 1 || !strings.Contains(out, "run: 1 件") || lc.stub.Sandboxes["app"] != "running" {
+		t.Errorf("started = %q, output = %q, sandboxes = %v, want the run started and the VM left running", lc.stub.VM.Started, out, lc.stub.Sandboxes)
+	}
+}
+
+func TestAttachWithoutATerminalStopsBeforeTouchingTheVM(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		arrive func(lc *lifecycle, repo string)
+		args   []string
+		want   map[string]string
+	}{
+		{"create", func(*lifecycle, string) {}, []string{"create", "--yes", "--attach"}, nil},
+		{"start", func(lc *lifecycle, repo string) {
+			lc.mustRun(t, "create", repo, "--yes")
+			lc.mustRun(t, "stop", repo)
+		}, []string{"start", "--attach"}, map[string]string{"app": "stopped"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lc := newLifecycle(t, lifecycleUserConfig)
+			repo := localRepo(t, "app", repoWithRun)
+			tt.arrive(lc, repo)
+			lc.noTerminal = true
+			writes := len(lc.stub.Writes)
+
+			_, err := lc.run(t, append(tt.args, repo)...)
+
+			if err == nil || !strings.Contains(err.Error(), "--attach には端末が要る") {
+				t.Errorf("error = %v, want it stopped for the missing terminal", err)
+			}
+			if len(lc.stub.Writes) != writes || !maps.Equal(lc.stub.Sandboxes, tt.want) || len(lc.stub.Sessions) != 0 {
+				t.Errorf("sbx writes = %q, sandboxes = %v, sessions = %q, want the VM untouched", lc.stub.Writes[writes:], lc.stub.Sandboxes, lc.stub.Sessions)
+			}
+		})
+	}
+}
+
+func TestStartStartsTheRecordedRunOnlyWhenItStartsTheVMAndAttachEntersEitherWay(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	lc.mustRun(t, "create", repo, "--yes")
+	lc.mustRun(t, "stop", repo)
+
+	lc.mustRun(t, "start", repo, "--attach")
+	lc.mustRun(t, "start", repo, "--attach") // 動いている VM: run は二重に始めない
+
+	if len(lc.stub.VM.Started) != 2 || len(lc.stub.Sessions) != 2 {
+		t.Errorf("started = %q, sessions = %q, want the run started by create and the first start only, and two sessions", lc.stub.VM.Started, lc.stub.Sessions)
+	}
+}
+
+func TestPlanShowsTheRun(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+
+	out := lc.mustRun(t, "plan", localRepo(t, "app", repoWithRun))
+
+	if !strings.Contains(out, "run:\n        - make watch") {
+		t.Errorf("output = %q, want the run in the summary", out)
 	}
 }
 

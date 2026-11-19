@@ -247,8 +247,8 @@ func stopResult(name string, outcome StopOutcome, err error) (StopResult, error)
 }
 
 // Start は停止中の sandbox VM を起こし、VM の中で agent と Docker が使えることを確かめ (decision/0027)、
-// herdr 連携を有効にして作った VM なら herdr machine を有効に戻す (decision/0025)。
-// 稼働中の VM は起こさずに、VM の中を確かめて無効な herdr machine を有効に戻す。確認プロンプトは通さない。
+// herdr 連携を有効にして作った VM なら herdr machine を有効に戻し (decision/0025)、作成時の宣言の run を始める (decision/0028)。
+// 稼働中の VM は起こさずに、VM の中を確かめて無効な herdr machine を有効に戻す (run は始めない)。確認プロンプトは通さない。
 // 作成途中・VM 消失・未作成・管理外・別出所なら、何もせずに理由と復旧手順を error で返す。
 func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) {
 	target, err := resolveTarget(repo, l.Places.CacheRoot)
@@ -262,8 +262,9 @@ func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) 
 	name := target.Name
 	switch observed.state {
 	case stateStopped:
-		return startResult(name, Started, l.startStopped(ctx, name))
-	case stateRunning:
+		// run は作成時の宣言のものを始め、宣言を読み直さない (boot と同じ。decision/0028)
+		return startResult(name, Started, l.startStopped(ctx, name, target.Repo, observed.record.Declaration.Run))
+	case stateRunning: // 動いている run を二重に始めないよう、run は始めない
 		return startResult(name, AlreadyRunning, l.startRunning(ctx, name))
 	case stateAbsent:
 		return StartResult{}, fmt.Errorf("sandbox VM %s は無い。sbxr create %s で作る", name, repo)
@@ -284,6 +285,26 @@ func startResult(name string, outcome StartOutcome, err error) (StartResult, err
 		return StartResult{}, err
 	}
 	return StartResult{Name: name, Outcome: outcome}, nil
+}
+
+// Attach は稼働中の sandbox VM の、VM 内の作業ツリーで agent の対話 session に入り、利用者が抜けるまで待つ (decision/0028)。
+// 抜けても VM は止めない。稼働中でなければ VM に触れずに error を返す (VM を起こすのは create と start の役目)。
+func (l Lifecycle) Attach(ctx context.Context, repo string) error {
+	target, err := resolveTarget(repo, l.Places.CacheRoot)
+	if err != nil {
+		return err
+	}
+	observed, err := l.inspect(ctx, target)
+	if err != nil {
+		return err
+	}
+	if observed.state != stateRunning {
+		return fmt.Errorf("sandbox VM %s が %s なので agent の対話 session に入らない", target.Name, observed.state)
+	}
+	if err := l.Runtime.AttachSandbox(ctx, target.Name, runtime.SandboxCommand{Args: agentSession, Dir: target.Repo}); err != nil {
+		return fmt.Errorf("agent の対話 session が失敗した (sandbox VM %s は動いたまま): %w", target.Name, err)
+	}
+	return nil
 }
 
 // Destroy は確認プロンプトを通して sandbox VM を撤去し、herdr machine・cache clone・状態ディレクトリを片付ける。
@@ -463,7 +484,7 @@ func (l Lifecycle) build(ctx context.Context, prepared preparation, values secre
 }
 
 // createRecorded は出所を記録した後の段: VM を作り、中を宣言どおりにし、作成時の宣言を書いて herdr machine を登録し、
-// herdr の最初の workspace を VM 内の作業ツリーから始め直す。
+// herdr の最初の workspace を VM 内の作業ツリーから始め直し、最後に run を始める。
 func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spec runtime.SandboxSpec) error {
 	rt := l.Runtime
 	name, repo := prepared.Target.Name, prepared.Target.Input
@@ -484,16 +505,27 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 	if err := dir.writeRecord(creationRecord{Declaration: prepared.Declaration, RepoEgress: prepared.RepoEgress}); err != nil {
 		return leftRunning(err)
 	}
-	if !prepared.Declaration.herdrEnabled() {
-		return nil
+	if prepared.Declaration.herdrEnabled() {
+		if err := l.setUpHerdr(ctx, name, spec.Worktree()); err != nil {
+			return err
+		}
 	}
+	// run は VM の中の確認と herdr machine の登録の後に始める (decision/0028)
+	if err := startRun(ctx, rt, name, spec.Worktree(), prepared.Declaration.Run, l.Output); err != nil {
+		return fmt.Errorf("%w\nsandbox VM %s は作った", err, name)
+	}
+	return nil
+}
+
+// setUpHerdr は作り終えた sandbox VM の herdr machine を登録し、herdr の最初の workspace を VM 内の作業ツリーから始め直す。
+func (l Lifecycle) setUpHerdr(ctx context.Context, name, worktree string) error {
 	if err := l.registry().Register(ctx, name, l.Output); err != nil {
 		if registration, ok := errors.AsType[*herdr.RegistrationError](err); ok { // VM は作り終えている
 			return fmt.Errorf("%w\nsandbox VM %s は作った。復旧: %s", err, name, registration.Recovery)
 		}
 		return err
 	}
-	if err := herdr.StartAtWorktree(ctx, l.Runtime, name, spec.Worktree()); err != nil {
+	if err := herdr.StartAtWorktree(ctx, l.Runtime, name, worktree); err != nil {
 		if start, ok := errors.AsType[*herdr.WorktreeStartError](err); ok {
 			return fmt.Errorf("%w\nsandbox VM %s は作り、herdr machine も登録した。復旧: %s", err, name, start.Recovery)
 		}

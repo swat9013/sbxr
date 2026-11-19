@@ -48,6 +48,8 @@ type world struct {
 	// failCreationRecord なら、定義を書いた後に状態ディレクトリを書き込めなくする (作成の最初の記録を書けない)。
 	failCreationRecord bool
 	failAfterCreated   runtime.CreatedStep
+	// failRun なら run を裏で始めるコマンドを失敗させる。
+	failRun bool
 	// unusableInVM は VM の中で使えないコマンド (claude・docker)。その確認 (devChecks) を失敗させる。
 	unusableInVM []string
 	// stops は StopSandbox を呼ばれた VM (arrive が着いた後から数える)。
@@ -262,12 +264,39 @@ func (r worldRuntime) StartSandbox(ctx context.Context, sandbox string) error {
 // ExecInSandbox は、unusableInVM に挙げたコマンドの確認 (devChecks) を、走らせた記録を残して失敗させる。
 func (r worldRuntime) ExecInSandbox(ctx context.Context, sandbox string, command runtime.SandboxCommand) ([]byte, error) {
 	out, err := r.Runtime.ExecInSandbox(ctx, sandbox, command)
+	if err == nil && r.w.failRun && isRunLaunch(command) {
+		return nil, errors.New("setsid: command not found")
+	}
 	for _, check := range devChecks {
 		if err == nil && slices.Equal(command.Args, check.command) && slices.Contains(r.w.unusableInVM, check.command[0]) {
 			return nil, fmt.Errorf("%s: command not found", check.command[0])
 		}
 	}
 	return out, err
+}
+
+func isRunLaunch(command runtime.SandboxCommand) bool {
+	return len(command.Args) == 6 && command.Args[2] == launchScript
+}
+
+// runsStarted は VM の中で run を裏で始めた回数 (arrive の後に Commands を空にすれば、その後から数える)。
+func (w *world) runsStarted() int {
+	n := 0
+	for _, command := range w.vms.Commands {
+		if isRunLaunch(command.SandboxCommand) {
+			n++
+		}
+	}
+	return n
+}
+
+// runScriptInVM は VM に書いた run script の中身。
+func (w *world) runScriptInVM() string {
+	return string(w.vms.Sandbox("app").Files["/home/agent/"+runScriptRelPath].Data)
+}
+
+func (w *world) attach(repo string) error {
+	return w.lifecycle().Attach(context.Background(), repo)
 }
 
 // devChecksRan は VM の中で走った devChecks のコマンド (先頭の語) を、起きた順に返す。
