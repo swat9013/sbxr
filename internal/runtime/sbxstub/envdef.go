@@ -75,7 +75,7 @@ func (env envDefinition) checkKits() error {
 		if err := yaml.Unmarshal(spec, &descriptor); err != nil {
 			return fmt.Errorf("sbxstub: kit %s の spec.yaml を読めない: %w", source, err)
 		}
-		name := filepath.Base(source) // v3 の kit 名は directory 名から決まる
+		name := kitName(source)
 		if descriptor.SchemaVersion != "3" {
 			legacy = append(legacy, name)
 			continue
@@ -98,10 +98,13 @@ func (env envDefinition) kitStartupOrder() []string {
 	sources := slices.Sorted(slices.Values(env.kitSources))
 	names := make([]string, len(sources))
 	for i, source := range sources {
-		names[i] = filepath.Base(source) // v3 の kit 名は directory 名から決まる
+		names[i] = kitName(source)
 	}
 	return names
 }
+
+// kitName は source が指す kit の名前。v3 の kit 名は directory 名から決まる (sbx の実測)。
+func kitName(source string) string { return filepath.Base(source) }
 
 // envName は dir の env 定義が指す sandbox VM の名前を読む。env 定義が無ければ error (sbx の実測)。
 func envName(dir string) (string, error) {
