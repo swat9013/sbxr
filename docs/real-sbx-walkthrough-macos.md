@@ -74,7 +74,7 @@ marker は VM 内の repo root（VM 内の path は host と同じ `$FIXTURE`）
 
 - 要約に git identity・init・boot が出てから、確認を求められる
 - 出力に `init[1]: echo init >> .sbxr-init-marker` と `boot: 1 件を VM の ~/.config/sbxr/boot.sh に書いた` が出る。続いて egress 自己検証の `許可先 astral.sh:443 に届いた` と `許可外の example.com:443 は proxy が拒否した` が出る。VM の中で agent と Docker を使えることを確かめた行の後に、`VM の中の container に使う image curlimages/curl:8.11.1 を pull する`、`VM の中の container から、許可先 astral.sh:443 に届いた`、`VM の中の container から、許可外の example.com:443 は proxy が拒否した (curl の exit 6)` が出て、最後に `sandbox VM sbxr-fixture を作った` で終わる（user 設定の egress で許可先が変わっていれば、`astral.sh` は別の宛先になる）。自己検証は global rule が宣言に揃っている前提で通る。揃っていなければ `許可先 … に届かない` で止まるので、この手順では global rule を変えずに中断し、揃っていないことを記録する（`sbxr policy sync --check` で確かめられる）。container の image は VM の中の Docker が Docker Hub から pull するので、user 設定の egress で `docker-registry` group を外していると、`image curlimages/curl:8.11.1 を pull できない` で止まる
-- `ls "$XDG_STATE_HOME/sbxr/sandboxes/sbxr-fixture/"` に `sbxenv.yaml`・`source`・`declaration.yaml`・`kits/sbxr-boot/` がある
+- `ls "$XDG_STATE_HOME/sbxr/sandboxes/sbxr-fixture/"` に `sbxenv.yaml`・`source`・`declaration.yaml`・`kits/00/sbxr-boot/` がある（kit は `kits/<startup の順の 2 桁の番号>/<kit 名>` に置かれる。この手順では herdr 連携が無効なので、boot の kit だけが `00` に入る）
 
 ```sh
 sbx exec -w "$FIXTURE" sbxr-fixture -- wc -l .sbxr-init-marker .sbxr-boot-marker   # init 1 行、boot 1 行
