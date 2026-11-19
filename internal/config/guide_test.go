@@ -63,7 +63,10 @@ func guideKeyRows(t *testing.T) []guideKeyRow {
 			continue
 		}
 		cells := strings.Split(strings.Trim(line, "|"), "|")
-		repoCell := strings.TrimSpace(cells[len(cells)-1])
+		if len(cells) != 3 {
+			t.Fatalf("the guide key table row has %d cells, want key・意味・repo 宣言 (a | in a cell shifts the columns): %s", len(cells), line)
+		}
+		repoCell := strings.TrimSpace(cells[2])
 		rows = append(rows, guideKeyRow{
 			key:           strings.Trim(strings.TrimSpace(cells[0]), "`"),
 			repoCanWrite:  repoCell == "書ける",
