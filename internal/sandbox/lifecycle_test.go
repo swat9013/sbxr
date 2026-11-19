@@ -547,6 +547,41 @@ func TestStopOfAStoppedVMLeavesTheVMAlone(t *testing.T) {
 	}
 }
 
+// 既に止まっている作成途中の VM にも、勧める操作は destroy だけである (decision/0035)。
+func TestStopOfAStoppedHalfCreatedVMShowsHowToDestroyItWithoutTouchingTheVM(t *testing.T) {
+	for name, arrive := range map[string]func(w *world){
+		"作成途中・停止":     func(w *world) { w.arrive(stateIncompleteStopped) },
+		"作成途中・VM が無い": arriveHalfCreatedWithoutAVM,
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t, testUserConfig)
+			arrive(w)
+
+			result, err := w.lifecycle().Stop(context.Background(), w.repo())
+
+			if err != nil || result.Outcome != AlreadyStopped || len(w.stops) != 0 {
+				t.Fatalf("Stop() = %v, %v, sbx stops = %v, want it reported as stopped without touching the VM", result, err, w.stops)
+			}
+			want := "sbxr destroy " + w.repo() + " で片付けてから sbxr create " + w.repo() + " で作る"
+			if !strings.Contains(result.Guidance, want) || strings.Contains(result.Guidance, "sbxr start") {
+				t.Errorf("guidance = %q, want how to destroy and create the VM again and no sbxr start", result.Guidance)
+			}
+		})
+	}
+}
+
+// 作成済みで止まっている VM の表示は変えない (decision/0035)。
+func TestStopOfAStoppedCreatedVMAddsNoGuidance(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.arrive(stateStopped)
+
+	result, err := w.lifecycle().Stop(context.Background(), w.repo())
+
+	if err != nil || result.Outcome != AlreadyStopped || result.Guidance != "" {
+		t.Errorf("Stop() = %v, %v, want it reported as stopped without guidance", result, err)
+	}
+}
+
 // arriveHalfCreatedWithoutAVM は、sbx の env create が secret を置いた後に VM を作れなかった作成途中の状態にする。
 func arriveHalfCreatedWithoutAVM(w *world) {
 	w.t.Helper()
@@ -1379,14 +1414,18 @@ func TestStopOfAHalfCreatedVMShowsHowToDestroyItInsteadOfStart(t *testing.T) {
 				w.herdr.Machines = tt.machines(w)
 			}
 
-			outcome, err := w.stop(w.repo())
+			result, err := w.lifecycle().Stop(context.Background(), w.repo())
 
-			if err != nil || outcome != Stopped {
-				t.Fatalf("Stop() = %v, %v, want the VM stopped", outcome, err)
+			if err != nil || result.Outcome != Stopped {
+				t.Fatalf("Stop() = %v, %v, want the VM stopped", result, err)
 			}
 			out := w.out.String()
-			if !strings.Contains(out, "sbxr destroy "+w.repo()+" で片付けてから sbxr create "+w.repo()+" で作る") || strings.Contains(out, "sbxr start") {
-				t.Errorf("output = %q, want how to destroy and create the VM again and no sbxr start", out)
+			// 案内は、呼び出し側が「止めた」の行の後に出せるよう、結果で返す
+			if !strings.Contains(result.Guidance, "sbxr destroy "+w.repo()+" で片付けてから sbxr create "+w.repo()+" で作る") || strings.Contains(out, "sbxr destroy") {
+				t.Errorf("guidance = %q, output = %q, want how to destroy and create the VM again in the result, not in the output", result.Guidance, out)
+			}
+			if strings.Contains(result.Guidance+out, "sbxr start") {
+				t.Errorf("guidance = %q, output = %q, want no sbxr start", result.Guidance, out)
 			}
 			if got := strings.Contains(out, "herdr machine を無効にした"); got != tt.wantDisabled {
 				t.Errorf("output = %q, says the herdr machine was disabled: %v, want %v", out, got, tt.wantDisabled)

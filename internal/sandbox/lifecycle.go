@@ -83,6 +83,8 @@ const (
 type StopResult struct {
 	Name    string
 	Outcome StopOutcome
+	// Guidance は、結果の行の後に示す次の操作の案内 (作成途中の VM を片付けてから作り直す手順。decision/0029・0035)。無ければ空。
+	Guidance string
 }
 
 // StartResult は start の結果。
@@ -209,6 +211,8 @@ func (l Lifecycle) Create(ctx context.Context, repo string, gate Gate) (CreateRe
 // Stop は sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする (ADR 0007)。
 // 停止中の VM は、止めずに herdr machine を無効にする (外部停止の後に herdr が VM を起こし直さないように。decision/0010)。
 // 作成途中・停止の VM には触れない (VM が無いこともある)。
+// 作成途中の VM は、止めたときも止まっていたときも、start でなく destroy で片付けてから create で作る手順を
+// StopResult.Guidance で返す (start は作成途中の VM を拒む。decision/0029・0035)。
 func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 	target, err := resolveTarget(repo, l.Places.CacheRoot)
 	if err != nil {
@@ -228,15 +232,19 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 		return stopResult(name, Stopped, err)
 	case stateIncompleteRunning:
 		// 作成途中の VM の herdr machine は未登録だが、同じ名前の前の VM の登録が残っていれば無効にする
+		// 無効にしたことだけを示し、有効に戻す sbxr start は示さない
 		disabled, err := l.stopRunning(ctx, name)
-		if err == nil {
-			l.reportHalfCreatedStopped(name, repo, disabled)
+		if err != nil {
+			return StopResult{}, err
 		}
-		return stopResult(name, Stopped, err)
+		if disabled {
+			logf(l.Output, "%s\n", disabledNotice(name))
+		}
+		return StopResult{Name: name, Outcome: Stopped, Guidance: halfCreatedStoppedGuidance(name, repo)}, nil
 	case stateStopped:
 		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name, repo))
 	case stateIncompleteStopped:
-		return StopResult{Name: name, Outcome: AlreadyStopped}, nil
+		return StopResult{Name: name, Outcome: AlreadyStopped, Guidance: halfCreatedStoppedGuidance(name, repo)}, nil
 	case stateAbsent:
 		return StopResult{}, fmt.Errorf("sandbox VM %s は無い", name)
 	case stateVMGone: // 止める VM が無い。herdr machine にも触れない
@@ -676,16 +684,6 @@ func halfCreatedError(s state, name, repo string) error {
 // halfCreatedStoppedGuidance は、止まっている作成途中の VM を片付けてから作り直す手順。
 func halfCreatedStoppedGuidance(name, repo string) string {
 	return fmt.Sprintf("sandbox VM %s の前回の作成が途中で止まっている。sbxr destroy %s で片付けてから sbxr create %s で作る", name, repo, repo)
-}
-
-// reportHalfCreatedStopped は、止めた作成途中の VM を片付けてから作り直す手順を、herdr の状態に依らずに示す。
-// herdr machine を無効にしたなら、無効にしたことだけを示す。有効に戻す sbxr start は示さない
-// (start は作成途中の VM を拒む。decision/0029)。
-func (l Lifecycle) reportHalfCreatedStopped(name, repo string, herdrDisabled bool) {
-	if herdrDisabled {
-		logf(l.Output, "%s\n", disabledNotice(name))
-	}
-	logf(l.Output, "%s\n", halfCreatedStoppedGuidance(name, repo))
 }
 
 // vanishedError は VM 消失 (状態ディレクトリはあるが VM が sbxr の外で撤去された) の stop を止める error

@@ -159,6 +159,37 @@ func TestEachCommandNamesTheSandboxOfAGitURLInItsResult(t *testing.T) {
 	}
 }
 
+// 作成途中の VM への stop は、VM の状態を示した行の後に destroy の案内を出す (decision/0029・0035)。
+func TestStopOfAHalfCreatedVMShowsHowToDestroyItAfterTheResultLine(t *testing.T) {
+	for _, tt := range []struct {
+		result        string
+		stoppedBefore bool
+	}{
+		{result: "sandbox VM app を止めた"},
+		{result: "sandbox VM app は止まっている", stoppedBefore: true},
+	} {
+		t.Run(tt.result, func(t *testing.T) {
+			lc := newLifecycle(t, lifecycleUserConfig)
+			lc.stub.VM.FailExecute = bootScriptPath
+			repo := gitRepo(t, "app", "version: 1\nboot:\n  - start-daemon\n", "https://github.com/me/app.git")
+			if _, err := lc.run(t, "create", repo, "--yes"); err == nil {
+				t.Fatal("create error = nil, want the creation stopped at boot with the VM running")
+			}
+			if tt.stoppedBefore {
+				lc.mustRun(t, "stop", repo)
+			}
+
+			out := lc.mustRun(t, "stop", repo)
+
+			guidance := "sbxr destroy " + repo + " で片付けてから sbxr create " + repo + " で作る"
+			resultAt, guidanceAt := strings.Index(out, tt.result), strings.Index(out, guidance)
+			if resultAt < 0 || guidanceAt < resultAt {
+				t.Errorf("sbxr stop output = %q, want %q followed by %q", out, tt.result, guidance)
+			}
+		})
+	}
+}
+
 func TestPlanShowsTheSummaryAndTheDriftOfAnExistingSandbox(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
 	repo := localRepo(t, "app", "")

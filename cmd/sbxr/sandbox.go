@@ -147,6 +147,9 @@ func newStopCmd(deps dependencies) *cobra.Command {
 			case sandbox.AlreadyStopped:
 				printf(cmd, "sandbox VM %s は止まっている\n", result.Name)
 			}
+			if result.Guidance != "" {
+				printf(cmd, "%s\n", result.Guidance)
+			}
 			return nil
 		},
 	}
