@@ -151,7 +151,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 2c. `--force`: sbxr は稼働中でも進み、3 を省いて 4 へ
 - 2d. herdr 連携を有効にして作った VM で、host に herdr が無い: sbxr は止まる
 - 3a. 投入方式が mount・作成途中の VM・VM 消失: sbxr は検査せずに 4 へ（mount の作業は host の作業ツリーにあり、作成途中の VM は agent に渡していない）
-- 3b. 未 push の作業がある: sbxr は、branch ごとの未 push の commit・未 commit の変更・stash を示し、VM を止め直して止まる。利用者は VM 内から origin へ push して 1 からやり直すか、`--force` を付ける
+- 3b. 未 push の作業がある: sbxr は、branch ごとの未 push の commit（branch に無いものは detached HEAD として）・未 commit の変更・stash を示し、VM を止め直して止まる。利用者は VM 内から origin へ push して 1 からやり直すか、`--force` を付ける
 - 3c. 一時起動か検査が失敗した（origin に届かない等）: sbxr は VM を止め直して止まる（`--force` で省ける）。origin の host の egress 許可か secret の配線が無い repo では、毎回ここで止まる
 - 4a. `--yes`: sbxr は確認を省いて 6 へ
 - 4b. 端末が無い: sbxr は止まる（`--yes` を案内する）

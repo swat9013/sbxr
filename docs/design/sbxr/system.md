@@ -8,7 +8,7 @@ sbxr の境界と、境界の外の相手との接続を表で書く。語は [C
 
 - sbxr の CLI（plan / create / stop / destroy / policy sync / secret setup / doctor）
 - 同梱の資材: default スコープの宣言と、kit `sbxr-boot`・`sbxr-herdr`
-- host 側の管理状態: 状態ディレクトリ（sandbox VM と build 用 VM のもの）、cache clone、template の記録（出所ごとに、出所・cache 層の hash・作成日時。状態ディレクトリとは別の置き場に置き、destroy の後も残す）
+- host 側の管理状態: 状態ディレクトリ（sandbox VM と build 用 VM のもの）、cache clone。template の記録は持たず、有無と作成日時は sbx の template の一覧から読む（decision/0020）
 
 境界の外に置くのは、利用者、宣言ファイル（user 設定・repo 宣言）、secret ファイル、host 側 repo、sbx とその上の sandbox VM・template・rule・secret、host の herdr、git hosting、GitHub API である。
 
@@ -55,6 +55,7 @@ port は変動性（取り替えの起きやすさ）で決める。
 - host の herdr は port にしない。差し替えれば herdr 連携という機能ごと別物になる。interface は test の継ぎ目で、取り替えの境界ではない
 - git hosting と GitHub API は port にしない。相手が固定で、継ぎ目は test 用
 - kit dispatcher の log の文面は、sbx v0.45.1 の VM の `/etc/durable-startup.d/run.sh` に合わせた約束である。実行基盤を替えれば一緒に変わるので、Runtime の内側に置く。env 定義の schema と kit の参照も同じ理由で Runtime の内側に置き、Runtime は作る内容を domain の言葉で受け取る（decision/0009）。sbx が host の skills store を VM の agent の skills ディレクトリへ共有する仕組みと、それを切る env 定義の key（`sandboxOptions.skills`）も sbx 固有の約束なので Runtime の内側に置く。domain は作る内容で「host の skills を持ち込まない」を頼むだけにする（decision/0017）
+- template を指定する env 定義には `pullPolicy: never` を書く。template は local の image store にしか無く、その名前を registry へ問い合わせさせない。cache 層の無い宣言では template も `pullPolicy` も書かない。env 定義の key なので Runtime の内側に置く
 - sbx から sbxr への着信接続は無い。kit は bash で完結し、sbxr を呼ばない。ADR 0006 の「lifecycle から呼ぶ処理は `sbxr` の隠しサブコマンドにする」は実装していない（ADR 0006 にその旨を追記してある）
 
 ## 状態機械
@@ -107,6 +108,9 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 11. env 定義から、状態ディレクトリに書いた v3 の source kit を参照して VM を作れるか。2026-11-16 の実測は `sbx create --kit` で確かめ、`sbx env create` では確かめていない。v3 の kit 名は directory 名で決まる。→ 成り立つ（下の 2026-11-17 の実測）
 12. v3 の source kit の build（`docker.io/docker/sandbox-kit:3` の pull）が、sbxr の default の global rule のもとで通るか。→ build は通る。ただし build と pull は VM ではなく host の docker が行い、sbx の proxy を通らない（下の 2026-11-17 の実測）。host に docker が無いときは、sbx の builder sandbox が build する（下の 2026-11-17 の実測の #116）
 13. host の docker が PATH にあるが daemon に繋がらず、kit の build cache も無いとき、v3 の埋め込み kit を使う `sbxr create` が kit の build で失敗するか。実装の前提ではないので、確かめずに置く。create が docker への接続で失敗した報告が 1 件出たら確かめ、doctor に注記を足す案（usecases.md の UC8 の却下）を見直す。下の #116 の実測は、descriptor に誤りのある kit と `sbx kit validate` でしか確かめていない
+14. `sbx template save` した image について、`sbx template ls --json` の `created_at` が save の時刻になるか（decision/0020）。ならなければ、template の記録を持つ形（decision/0004）へ戻す
+15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy・mount の VM を作れるか（decision/0022）
+16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
 
 Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/0018](decision/0018-embedded-kits-move-to-kit-spec-v3.md)。11 と 12 は、移行の実装の前に確かめる。
 
