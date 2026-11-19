@@ -88,7 +88,8 @@ func (l Lifecycle) startStopped(ctx context.Context, name, repo, worktree string
 		return fmt.Errorf("sandbox VM %s を起こせない (VM は止まったまま): %w", name, err)
 	}
 	if err := l.readyStarted(ctx, name, repo, enabled); err != nil {
-		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
+		// VM は稼働中になったので、確かめ直す start は run を始めない。run を始めるには起こし直す
+		return fmt.Errorf("%w\nsandbox VM %s は起こした%s", err, name, runNotStarted(repo, run))
 	}
 	if err := startRun(ctx, l.Runtime, name, worktree, run, l.Output); err != nil {
 		return fmt.Errorf("%w\nsandbox VM %s は起こした。%s", err, name, restartRun(repo))

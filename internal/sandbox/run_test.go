@@ -24,8 +24,8 @@ func TestLaunchingAScriptThatCannotRunFailsInsteadOfReportingItStarted(t *testin
 	}
 	for name, script := range map[string]string{"無い script": filepath.Join(dir, "missing.sh"), "実行できない script": notExecutable} {
 		t.Run(name, func(t *testing.T) {
-			if out, err := launch(t, script, filepath.Join(dir, "state", "run.log")); err == nil {
-				t.Errorf("launch = nil (output %q), want a non-zero exit", out)
+			if out, err := launch(t, script, filepath.Join(dir, "state", "run.log")); err == nil || !strings.Contains(out, "を実行できない") {
+				t.Errorf("launch = %v (output %q), want it to fail saying the script cannot run", err, out)
 			}
 		})
 	}

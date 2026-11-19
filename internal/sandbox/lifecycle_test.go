@@ -815,6 +815,33 @@ func TestStartThatCannotStartTheRunFailsWithTheVMRunning(t *testing.T) {
 	}
 }
 
+func TestStartThatStopsBeforeTheRunShowsHowToStartItAgain(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	w.mustCreate(repo)
+	w.mustStop(repo)
+	w.unusableInVM = []string{"docker"}
+
+	_, err := w.start(repo)
+
+	if err == nil || !strings.Contains(err.Error(), "run は始めていない") || !strings.Contains(err.Error(), "sbxr stop "+repo+" → sbxr start "+repo) {
+		t.Errorf("Start() error = %v, want the run reported as not started with how to start it again", err)
+	}
+}
+
+func TestCreateThatStopsAtHerdrBeforeTheRunShowsHowToStartItAgain(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	w.herdr.FailAdd = true
+	repo := localRepo(t, "app", repoWithRun)
+
+	_, err := w.create(repo, unattended())
+
+	if err == nil || w.runsStarted() != 0 || !strings.Contains(err.Error(), "run は始めていない") ||
+		!strings.Contains(err.Error(), "sbxr stop "+repo+" → sbxr start "+repo) {
+		t.Errorf("Create() error = %v, runs started = %d, want the run reported as not started with how to start it again", err, w.runsStarted())
+	}
+}
+
 func TestStartThatFindsTheAgentUnusableDoesNotStartTheRun(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	repo := localRepo(t, "app", repoWithRun)

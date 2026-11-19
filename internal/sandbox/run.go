@@ -52,11 +52,12 @@ func startRun(ctx context.Context, rt runtime.Runtime, name, worktree string, co
 func runScript(worktree string, commands []string) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/bash\n# sbxr が書いた run。sbxr create と sbxr start の終わりに、裏で始める。\n")
-	b.WriteString("echo \"=== sbxr run $(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"\n")
+	b.WriteString("now() { date -u +%Y-%m-%dT%H:%M:%SZ; }\n")
+	b.WriteString("echo \"=== sbxr run $(now) ===\"\n")
 	fmt.Fprintf(&b, "cd %s || exit 1\n", shell.Quote(worktree))
 	for i, command := range commands {
-		fmt.Fprintf(&b, "echo \"run[%d] start $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)\"\n", i+1)
-		fmt.Fprintf(&b, "bash -c %s < /dev/null; echo \"run[%d] exit=$? $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)\"\n", shell.Quote(command), i+1)
+		fmt.Fprintf(&b, "echo \"run[%d] start $(now)\"\n", i+1)
+		fmt.Fprintf(&b, "bash -c %s < /dev/null; echo \"run[%d] exit=$? $(now)\"\n", shell.Quote(command), i+1)
 	}
 	return b.String()
 }

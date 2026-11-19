@@ -312,6 +312,15 @@ func restartRun(repo string) string {
 	return fmt.Sprintf("復旧: 直してから sbxr stop %s → sbxr start %s で run を始め直す", repo, repo)
 }
 
+// runNotStarted は、run を始める前に止まったときに、run を宣言していれば、始めていないことと始め直す手順を示す
+// (前に改行を置く)。宣言していなければ空。
+func runNotStarted(repo string, run []string) string {
+	if len(run) == 0 {
+		return ""
+	}
+	return "\nrun は始めていない。" + restartRun(repo)
+}
+
 // agentSession は --attach で入る agent の対話 session のコマンド。
 var agentSession = []string{"claude"}
 
@@ -515,7 +524,7 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 	}
 	if prepared.Declaration.herdrEnabled() {
 		if err := l.setUpHerdr(ctx, name, spec.Worktree()); err != nil {
-			return err
+			return fmt.Errorf("%w%s", err, runNotStarted(repo, prepared.Declaration.Run))
 		}
 	}
 	// run は VM の中の確認と herdr machine の登録の後に始める (decision/0028)
