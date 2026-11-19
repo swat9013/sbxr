@@ -13,6 +13,7 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 - `sbxr policy sync [--check]` — user 設定の egress 宣言を global rule へ収束させる
 - `sbxr secret setup github` / `sbxr secret setup custom --host <host>` — token の能力を確認して secret ファイルへ格納する
 - `sbxr doctor [<repo>]` — user 設定・repo 宣言と host の前提（sbx・secret ファイル・herdr・global rule）を全件検査し、項目ごとに ok / fail / skip と、fail の直し方を表示する。1 つの誤りで残りの検査を止めない。fail があれば非 0 で終える。`<repo>` を省くと、環境と user 設定だけを見る。何も変えない
+- `sbxr guide` — host の AI coding agent が user 設定と repo 宣言を書くための案内を標準出力に出す（[AI に設定を書かせる](#ai-に設定を書かせる)）
 
 `<repo>` はローカル path か git URL。
 
@@ -123,21 +124,11 @@ go install github.com/swat9013/sbxr/cmd/sbxr@latest
 
 `sbxr --version` で入った版を確かめられる。
 
-## AI に設定を書かせる（skill `sbxr-config`）
+## AI に設定を書かせる
 
-repo 宣言と user 設定は、host の AI coding agent に書かせられる。この repo の [`skills/sbxr-config/SKILL.md`](skills/sbxr-config/SKILL.md) を、Agent Skills の skill として user スコープに入れる。
+repo 宣言と user 設定は、host の AI coding agent に書かせられる。書き方の案内は sbxr の binary に入っていて、`sbxr guide` が全文を標準出力に出す。案内は入っている sbxr と同じ版の書き方（書き込みの規則・手順・key の一覧・例）を持つので、別に入れるものは無い。
 
-```sh
-gh skill install swat9013/sbxr sbxr-config --agent claude-code --scope user
-```
-
-`--agent` は使う agent に合わせる（`gh skill install --help` に一覧がある）。更新は `gh skill update`。`npx skills` でも入れられる。
-
-```sh
-npx skills add swat9013/sbxr --skill sbxr-config --global
-```
-
-使い方は、agent に「この repo の sbxr の設定を作って」のように頼む。agent が user 設定の項目を尋ね、repo 宣言を repo の中身から推測して書き、`sbxr doctor` が通るまで直す（手順は [SKILL.md](skills/sbxr-config/SKILL.md)）。secret の値（`sbxr secret setup`）と global rule（`sbxr policy sync`）は、agent が示すコマンドを自分で実行する。作られる内容は `sbxr plan` と `sbxr create` の確認プロンプトで確かめる。
+使い方は、agent に「`sbxr guide` を読んで、この repo の sbxr の設定を作って」のように頼む。agent が user 設定の項目を尋ね、repo 宣言を repo の中身から推測して書き、`sbxr doctor` が通るまで直す。既存のファイルは、差分を見せて承認を得てから書き換える。secret の値（`sbxr secret setup`）と global rule（`sbxr policy sync`）は、agent が示すコマンドを自分で実行する。作られる内容は `sbxr plan` と `sbxr create` の確認プロンプトで確かめる。
 
 ## License
 

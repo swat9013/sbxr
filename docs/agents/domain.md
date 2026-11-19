@@ -60,4 +60,4 @@ If your output contradicts an existing ADR, surface it explicitly rather than si
 
 | 置き場 | 適用範囲 | 索引 |
 |---|---|---|
-| `docs/design/sbxr/` | `cmd/**`・`internal/**`・`skills/**` | `docs/design/sbxr/README.md` |
+| `docs/design/sbxr/` | `cmd/**`・`internal/**` | `docs/design/sbxr/README.md` |
