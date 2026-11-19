@@ -189,10 +189,9 @@ var transitions = []transition{
 	{from: stateAbsent, event: eventStart, to: stateAbsent, refused: true, then: touchesNoVM},
 	{from: stateIncompleteStopped, event: eventStart, to: stateIncompleteStopped, refused: true, then: touchesNoVM},
 	{from: stateIncompleteRunning, event: eventStart, to: stateIncompleteRunning, refused: true, then: touchesNoVM},
-	{from: stateRunning, event: eventStart, arrange: disableTheHerdrMachine, to: stateRunning, then: enablesTheHerdrMachineWithoutTouchingTheVM,
-		pending: "VM の中を確かめるのは #134"},
+	{from: stateRunning, event: eventStart, arrange: disableTheHerdrMachine, to: stateRunning, then: enablesTheHerdrMachineWithoutTouchingTheVM},
 	{from: stateStopped, event: eventStart, guard: "VM を起こせた", to: stateRunning, then: startsTheVMAndEnablesTheHerdrMachine,
-		pending: "VM の中を確かめるのは #134、run を始めるのは #137"},
+		pending: "run を始めるのは #137"},
 	{from: stateStopped, event: eventStart, guard: "VM を起こせない", arrange: failStart, to: stateStopped, refused: true, then: leavesTheHerdrMachineDisabled},
 	{from: stateVMGone, event: eventStart, to: stateVMGone, refused: true, then: touchesNoVM},
 

@@ -74,8 +74,8 @@ func (l Lifecycle) reportDisabled(name, repo, enable string) {
 	}
 }
 
-// startStopped は停止中の sandbox VM を起こし、herdr 連携を有効にして作った VM なら herdr machine を有効に戻す。
-// host に herdr が無ければ、VM に触れずに止まる。herdr machine は VM を起こせた後に有効に戻す
+// startStopped は停止中の sandbox VM を起こし、VM の中を確かめてから、herdr 連携を有効にして作った VM なら
+// herdr machine を有効に戻す。host に herdr が無ければ、VM に触れずに止まる。herdr machine は VM を起こせた後に有効に戻す
 // (起こせなかった VM の machine を有効にすると、herdr が繋ぎ直して VM を起こしうる)。
 func (l Lifecycle) startStopped(ctx context.Context, name string) error {
 	enabled, err := l.herdrRequired(name)
@@ -85,21 +85,31 @@ func (l Lifecycle) startStopped(ctx context.Context, name string) error {
 	if err := l.Runtime.StartSandbox(ctx, name); err != nil {
 		return fmt.Errorf("sandbox VM %s を起こせない (VM は止まったまま): %w", name, err)
 	}
-	if !enabled {
-		return nil
-	}
-	if err := l.registry().Enable(ctx, name, l.Output); err != nil {
+	if err := l.readyStarted(ctx, name, enabled); err != nil {
 		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
 	}
 	return nil
 }
 
-// enableHerdrMachine は稼働中の sandbox VM の herdr machine を、VM に触れずに有効に戻す (decision/0025)。
-// herdr 連携を有効にせずに作った VM では何もしない。host に herdr が無ければ error。
-func (l Lifecycle) enableHerdrMachine(ctx context.Context, name string) error {
+// startRunning は稼働中の sandbox VM を起こさずに、VM の中を確かめてから herdr machine を有効に戻す (decision/0025)。
+// host に herdr が無ければ、VM に触れずに止まる。
+func (l Lifecycle) startRunning(ctx context.Context, name string) error {
 	enabled, err := l.herdrRequired(name)
-	if err != nil || !enabled {
+	if err != nil {
 		return err
+	}
+	return l.readyStarted(ctx, name, enabled)
+}
+
+// readyStarted は稼働中の sandbox VM の中で agent と Docker が使えることを確かめ (decision/0027)、
+// herdr 連携を有効にして作った VM なら herdr machine を有効に戻す。確かめた項目が成り立たなければ、
+// herdr machine を有効に戻さずに止まる (UC10 の 4a。VM は稼働中のまま)。
+func (l Lifecycle) readyStarted(ctx context.Context, name string, herdrEnabled bool) error {
+	if err := checkDevTools(ctx, l.Runtime, name, l.Output); err != nil {
+		return err
+	}
+	if !herdrEnabled {
+		return nil
 	}
 	return l.registry().Enable(ctx, name, l.Output)
 }

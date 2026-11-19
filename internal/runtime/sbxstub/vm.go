@@ -165,6 +165,10 @@ func (vm *FakeVM) Exec(command VMCommand) ([]byte, error) {
 			list = append(list, plugin{ID: id})
 		}
 		return json.Marshal(list)
+	case slices.Equal(args, []string{"claude", "--version"}): // create と start の終わりの確認 (decision/0027)
+		return []byte("2.0.0 (Claude Code)\n"), nil
+	case slices.Equal(args, []string{"docker", "info", "--format", "{{.ServerVersion}}"}):
+		return []byte("28.0.0\n"), nil
 	case slices.Equal(args, []string{"pgrep", "-x", "apt-get"}):
 		vm.AptPolls++
 		if vm.AptPolls <= vm.AptBusyPolls {

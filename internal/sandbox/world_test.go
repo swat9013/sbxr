@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -47,6 +48,8 @@ type world struct {
 	// failCreationRecord なら、定義を書いた後に状態ディレクトリを書き込めなくする (作成の最初の記録を書けない)。
 	failCreationRecord bool
 	failAfterCreated   runtime.CreatedStep
+	// unusableInVM は VM の中で使えないコマンド (claude・docker)。その確認 (devChecks) を失敗させる。
+	unusableInVM []string
 	// stops は StopSandbox を呼ばれた VM (arrive が着いた後から数える)。
 	stops []string
 	// starts は StartSandbox を呼ばれた VM (arrive が着いた後から数える)。
@@ -254,6 +257,30 @@ func (r worldRuntime) StartSandbox(ctx context.Context, sandbox string) error {
 		return errors.New("sbx exec に失敗した")
 	}
 	return r.Runtime.StartSandbox(ctx, sandbox)
+}
+
+// ExecInSandbox は、unusableInVM に挙げたコマンドの確認 (devChecks) を、走らせた記録を残して失敗させる。
+func (r worldRuntime) ExecInSandbox(ctx context.Context, sandbox string, command runtime.SandboxCommand) ([]byte, error) {
+	out, err := r.Runtime.ExecInSandbox(ctx, sandbox, command)
+	for _, check := range devChecks {
+		if err == nil && slices.Equal(command.Args, check.command) && slices.Contains(r.w.unusableInVM, check.command[0]) {
+			return nil, fmt.Errorf("%s: command not found", check.command[0])
+		}
+	}
+	return out, err
+}
+
+// devChecksRan は VM の中で走った devChecks のコマンド (先頭の語) を、起きた順に返す。
+func (w *world) devChecksRan() []string {
+	var ran []string
+	for _, command := range w.vms.Commands {
+		for _, check := range devChecks {
+			if slices.Equal(command.Args, check.command) {
+				ran = append(ran, check.command[0])
+			}
+		}
+	}
+	return ran
 }
 
 func (r worldRuntime) RemoveEnvironment(ctx context.Context, envDir string) error {

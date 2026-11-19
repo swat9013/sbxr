@@ -246,8 +246,9 @@ func stopResult(name string, outcome StopOutcome, err error) (StopResult, error)
 	return StopResult{Name: name, Outcome: outcome}, nil
 }
 
-// Start は停止中の sandbox VM を起こし、herdr 連携を有効にして作った VM なら herdr machine を有効に戻す (decision/0025)。
-// 稼働中の VM には触れずに、無効な herdr machine だけを有効に戻す。確認プロンプトは通さない。
+// Start は停止中の sandbox VM を起こし、VM の中で agent と Docker が使えることを確かめ (decision/0027)、
+// herdr 連携を有効にして作った VM なら herdr machine を有効に戻す (decision/0025)。
+// 稼働中の VM は起こさずに、VM の中を確かめて無効な herdr machine を有効に戻す。確認プロンプトは通さない。
 // 作成途中・VM 消失・未作成・管理外・別出所なら、何もせずに理由と復旧手順を error で返す。
 func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) {
 	target, err := resolveTarget(repo, l.Places.CacheRoot)
@@ -263,7 +264,7 @@ func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) 
 	case stateStopped:
 		return startResult(name, Started, l.startStopped(ctx, name))
 	case stateRunning:
-		return startResult(name, AlreadyRunning, l.enableHerdrMachine(ctx, name))
+		return startResult(name, AlreadyRunning, l.startRunning(ctx, name))
 	case stateAbsent:
 		return StartResult{}, fmt.Errorf("sandbox VM %s は無い。sbxr create %s で作る", name, repo)
 	case stateIncompleteStopped, stateIncompleteRunning:
