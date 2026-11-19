@@ -46,13 +46,18 @@ func (e *RegistrationError) Unwrap() error { return e.Err }
 // stopServer は VM 内の herdr server を止めるコマンド。
 const stopServer = "pkill -x herdr"
 
+// registerByHand は稼働中の sandbox VM を利用者が手で登録する手順 (Register と同じく、VM 内の server を止めてから登録する)。
+func registerByHand(sandbox, target string) string {
+	return fmt.Sprintf("VM %s の中で %s を実行してから %s", sandbox, stopServer, addCommand(target, sandbox))
+}
+
 // Register は sandbox VM を host の herdr に、その ssh の宛先で登録する。
 // kit が起動した VM 内の server を止めてから登録する (動いたままだと herdr machine add が
 // "remote server is not ready for saved machines" で失敗する。ADR 0007 の実測)。
 // 同じ宛先の登録が残っていたら (前の VM の解除の失敗など)、この回に作っていない登録には触れずに止める。
 func (r Registry) Register(ctx context.Context, sandbox string, progress io.Writer) error {
 	target := r.VM.SSHTarget(sandbox)
-	recovery := fmt.Sprintf("VM %s の中で %s を実行してから %s", sandbox, stopServer, addCommand(target, sandbox))
+	recovery := registerByHand(sandbox, target)
 	machines, err := r.Client.List(ctx)
 	if err != nil {
 		return &RegistrationError{Err: err, Recovery: recovery}
@@ -118,7 +123,8 @@ func (r Registry) Disable(ctx context.Context, sandbox string, progress io.Write
 }
 
 // Enable は、起こした (か動いている) sandbox VM の無効な herdr machine を有効に戻す (decision/0025)。VM には触れない。
-// 有効なら何もしない。登録が無ければ警告して成功にする。有効に戻せなければ、手で戻すコマンドを添えた error。
+// 有効なら何もしない。登録が無ければ (利用者が手で解除した等)、登録し直す手順を添えた error (UC10 の 5b)。
+// 有効に戻せなければ、手で戻すコマンドを添えた error。
 func (r Registry) Enable(ctx context.Context, sandbox string, progress io.Writer) error {
 	target := r.VM.SSHTarget(sandbox)
 	machine, found, err := r.find(ctx, target)
@@ -126,8 +132,7 @@ func (r Registry) Enable(ctx context.Context, sandbox string, progress io.Writer
 		return fmt.Errorf("herdr machine を有効に戻せない: %w", err)
 	}
 	if !found {
-		logf(progress, "herdr: 警告 %s の登録が無い (有効に戻すものが無い)\n", target)
-		return nil
+		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s", target, registerByHand(sandbox, target))
 	}
 	if machine.Enabled {
 		return nil
