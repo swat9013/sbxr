@@ -85,7 +85,7 @@ _Avoid_: default allow
 repo 宣言の egress 宣言から作られ、その sandbox VM にだけ適用される許可。destroy で消える。
 
 **egress 自己検証**:
-create の最後に、VM 内から許可先に届くことと許可外に届かないことを 1 往復ずつ確かめる段。VM 直下と、VM の中の container の両方から確かめる（decision/0031）。通らなければ作成時の宣言を書かない。
+create の終わりに、VM 内から許可先に届くことと許可外に届かないことを 1 往復ずつ確かめる確認。VM 直下から確かめ、VM の中で agent と Docker が使えることを確かめた後に、VM の中の container からも確かめる（decision/0031）。通らなければ作成時の宣言を書かない。
 
 **proxy の拒否応答**:
 許可外の宛先への通信に実行基盤の proxy が返す応答（状態コード 403 と、body の 1 行目の `Approval required for <宛先>.`（どの rule にも当たらず承認待ちになった）か `Blocked by local rule for <宛先>`（deny rule に当たった））。egress 自己検証は、VM 直下からはこれだけを「届かない」とみなす（decision/0016）。proxy を使わない container からは、名前解決の拒否と接続の切断も「届かない」とみなす（decision/0031）。
