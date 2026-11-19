@@ -14,7 +14,7 @@ sbxr の境界と、境界の外の相手との接続を表で書く。語は [C
 
 sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だけである。そのため VM の中へ書くもの（agent runtime profile・git identity・boot）は、Runtime port 越しの出力として扱う。kit は sbxr の成果物だが、走らせるのは VM の dispatcher なので、境界をまたぐ資材として接続表に載せる。
 
-却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（2 回目以降の boot の失敗は VM の log に残るだけ）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
+却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（sbxr start を通さない起動での boot の失敗は、次に sbxr start を打つまで VM の log に残るだけ。decision/0033）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
 
 アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認プロンプトの根拠）。VM 内の agent は sbxr と接しない。host の agent が sbxr の案内で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは guide・doctor・plan の出力だけである（decision/0013・0030）。
 
@@ -72,12 +72,12 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 | 停止中 | あり | あり | 停止 |
 | VM 消失 | あり | あり | 無し |
 
-イベントは、sbxr が起こす `create`・`stop`・`start`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 7 つ。同じイベントの結果の分岐（create の失敗の段、start で VM を起こせたか、destroy の `--force`）は guard で書く。
+イベントは、sbxr が起こす `create`・`stop`・`start`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 7 つ。同じイベントの結果の分岐（create の失敗の段、start で VM を起こせたかと起動時の処理が成功したか、destroy の `--force`）は guard で書く。
 
 主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →start→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
 
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
-- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることは、遷移の action として書く
+- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることと、start で起動時の処理の失敗を示すことは、遷移の action として書く
 - recreate は新しいイベントにせず、stop → destroy → create を続けて起こすものとして扱う（decision/0026）
 - plan・policy sync・secret setup・doctor は VM の状態を変えないので、イベントに含めない
 

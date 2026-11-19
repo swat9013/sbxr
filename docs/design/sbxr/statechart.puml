@@ -41,8 +41,10 @@ VMGone --> VMGone : stop / 拒否 (destroy を促す)
 Absent --> Absent : start / 拒否 (create を促す)
 IncompleteStopped --> IncompleteStopped : start / 拒否 (destroy を促す)
 IncompleteRunning --> IncompleteRunning : start / 拒否 (stop → destroy を促す)
-Running --> Running : start / 動いている (VM に触れない)・VM の中を確かめる・herdr machine を有効に戻す
-Stopped --> Running : start [VM を起こせた] / 起動時の処理の結果を読む (失敗なら非 0 で以降を行わない)・VM の中を確かめる (成り立たなければ非 0)・herdr machine を有効に戻す・run を始める
+Running --> Running : start [起動時の処理が成功] / 動いている (VM を起こさない)・VM の中を確かめる・herdr machine を有効に戻す
+Running --> Running : start [起動時の処理が失敗か時間切れ] / この VM を起こした回の失敗を示して非 0 (VM の中の確認・herdr machine の有効化を行わない)
+Stopped --> Running : start [VM を起こせ、起動時の処理が成功] / VM の中を確かめる (成り立たなければ非 0)・herdr machine を有効に戻す・run を始める
+Stopped --> Running : start [VM を起こせたが、起動時の処理が失敗か時間切れ] / 失敗を示して非 0 (VM の中の確認・herdr machine の有効化・run を行わない)
 Stopped --> Stopped : start [VM を起こせない] / 拒否
 VMGone --> VMGone : start / 拒否 (destroy を促す)
 
