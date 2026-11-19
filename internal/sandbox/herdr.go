@@ -34,21 +34,17 @@ func requireHerdrOnHost(client herdr.Client) error {
 
 // stopRunning は稼働中の sandbox VM を止める。herdr 連携を有効にして作った VM は、先に herdr machine を無効にする
 // (有効なままだと herdr が繋ぎ直して VM が起動し直す。ADR 0007)。host に herdr が無ければ、VM に触れずに止まる。
-// repo は、有効に戻す手順 (sbxr start) に添える利用者の <repo>。
-func (l Lifecycle) stopRunning(ctx context.Context, name, repo string) error {
+// herdr machine を無効にしたかを返す。後の案内は、VM が作成途中かで呼び出し側が選ぶ。
+func (l Lifecycle) stopRunning(ctx context.Context, name string) (disabled bool, err error) {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !enabled {
-		return l.Runtime.StopSandbox(ctx, name)
+		return false, l.Runtime.StopSandbox(ctx, name)
 	}
 	enable, err := l.registry().DisableAndStop(ctx, name, l.Output)
-	if err != nil {
-		return err
-	}
-	l.reportDisabled(name, repo, enable)
-	return nil
+	return enable != "", err
 }
 
 // disableHerdrMachine は止まっている sandbox VM の herdr machine を、VM に触れずに無効にする (decision/0010)。
@@ -62,17 +58,21 @@ func (l Lifecycle) disableHerdrMachine(ctx context.Context, name, repo string) e
 	if err != nil {
 		return err
 	}
-	l.reportDisabled(name, repo, enable)
+	if enable != "" {
+		l.reportDisabled(name, repo)
+	}
 	return nil
 }
 
 // reportDisabled は無効にした herdr machine と、VM と一緒に有効に戻すコマンド (sbxr start。decision/0025) を示す。
-// 無効にしなかったら (enable が空) 何も出さない。手で有効に戻すコマンドは示さない (VM が止まったまま有効にすると、
-// herdr が繋ぎ直して sbxr の外で VM を起こす)。
-func (l Lifecycle) reportDisabled(name, repo, enable string) {
-	if enable != "" {
-		logf(l.Output, "herdr: %s の herdr machine を無効にした (sbxr start %s で VM を起こすと有効に戻る)\n", name, repo)
-	}
+// 手で有効に戻すコマンドは示さない (VM が止まったまま有効にすると、herdr が繋ぎ直して sbxr の外で VM を起こす)。
+func (l Lifecycle) reportDisabled(name, repo string) {
+	logf(l.Output, "%s (sbxr start %s で VM を起こすと有効に戻る)\n", disabledNotice(name), repo)
+}
+
+// disabledNotice は herdr machine を無効にしたことを示す行。
+func disabledNotice(name string) string {
+	return fmt.Sprintf("herdr: %s の herdr machine を無効にした", name)
 }
 
 // startStopped は停止中の sandbox VM を起こし、VM の中を確かめてから、herdr 連携を有効にして作った VM なら

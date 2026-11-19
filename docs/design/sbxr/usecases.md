@@ -129,6 +129,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 3d. herdr machine を無効にできない: sbxr は VM を止めずに止まる（止めても herdr が起こし直すため）
 - 4a. VM を止められない: sbxr は herdr machine を有効に戻して止まる（VM は動いたままなので、herdr から見失わせない）
 - 4b. VM が既に止まっている（外部停止の後など）: sbxr は VM に触れずに「止まっている」と示し、3 で無効にしたなら 5 を行う（herdr が VM を起こし直さないよう、無効化は止まっていても行う。decision/0010）
+- 5a. 止めた VM が作成途中: sbxr は `sbxr start` でなく、destroy で片付けてから create で作る手順を示す（start は作成途中の VM を拒む。UC10 の 2b）。3a・3c の経路でもこの手順を示す（作成途中の VM に勧める操作は destroy だけで、herdr の状態に依らない。decision/0025・0029）
 
 ## UC4 sandbox VM を撤去する
 
