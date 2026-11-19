@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
@@ -36,11 +37,13 @@ type dependencies struct {
 	sbxAvailable func() error
 	// sbxVersion は host の sbx の版を読む。読めなければ error。
 	sbxVersion func(ctx context.Context) (runtime.SbxVersion, error)
+	// terminal は利用者の端末に繋がっているか (stdin と stdout がどちらも端末か)。--attach が確かめる。
+	terminal func() bool
 }
 
 func main() {
 	info, _ := debug.ReadBuildInfo() // 取れなければ nil が返る
-	sbx := runtime.NewSbx(runtime.ExecSbx)
+	sbx := runtime.NewSbx(runtime.ExecSbx).OnTerminal(runtime.ExecSbxOnTerminal)
 	deps := dependencies{
 		runtime:        sbx,
 		userConfigPath: defaultUserConfigPath,
@@ -52,6 +55,7 @@ func main() {
 		herdr:          herdr.CLI{},
 		sbxAvailable:   runtime.SbxAvailable,
 		sbxVersion:     sbx.Version,
+		terminal:       onTerminal,
 	}
 	if err := newRootCmd(resolveVersion(version, info), deps).Execute(); err != nil {
 		os.Exit(1)
@@ -66,6 +70,11 @@ func newRootCmd(version string, deps dependencies) *cobra.Command {
 	}
 	root.AddCommand(newPlanCmd(deps), newCreateCmd(deps), newDestroyCmd(deps), newStopCmd(deps), newStartCmd(deps), newPolicyCmd(deps), newSecretCmd(deps), newDoctorCmd(deps))
 	return root
+}
+
+// onTerminal は stdin と stdout がどちらも端末か。
+func onTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 // defaultUserConfigPath は user 設定の path (~/.config/sbxr/config.yaml。ADR 0004)。

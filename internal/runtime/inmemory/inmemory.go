@@ -22,6 +22,8 @@ type Runtime struct {
 	Sandboxes map[string]*Sandbox
 	// Commands は ExecInSandbox で走ったコマンドを起きた順に並べる。
 	Commands []Command
+	// Sessions は AttachSandbox で端末を繋いだコマンドを起きた順に並べる。
+	Sessions []Command
 	// Respond は VM 内のコマンドへの応答。nil なら空の出力で成功する。
 	Respond func(sandbox string, command runtime.SandboxCommand) ([]byte, error)
 	// Definitions は状態ディレクトリごとの定義 (secret の値を除いた作る内容)。状態ディレクトリが消えた定義は無いものとして扱う。
@@ -207,6 +209,15 @@ func (r *Runtime) ExecInSandbox(_ context.Context, sandbox string, command runti
 		return nil, nil
 	}
 	return r.Respond(sandbox, command)
+}
+
+// AttachSandbox は稼働中の VM で端末を繋いだコマンドを記録する (利用者がすぐに抜けたものとして成功する)。
+func (r *Runtime) AttachSandbox(_ context.Context, sandbox string, command runtime.SandboxCommand) error {
+	if _, err := r.running(sandbox); err != nil {
+		return err
+	}
+	r.Sessions = append(r.Sessions, Command{Sandbox: sandbox, SandboxCommand: command})
+	return nil
 }
 
 func (r *Runtime) ReadSandboxFile(_ context.Context, sandbox, path string) ([]byte, error) {

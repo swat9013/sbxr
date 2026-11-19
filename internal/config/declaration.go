@@ -51,6 +51,7 @@ type Declaration struct {
 	Egress     map[string]egress.GroupDeclaration `yaml:"egress"`
 	Init       []string                           `yaml:"init"`
 	Boot       []string                           `yaml:"boot"`
+	Run        []string                           `yaml:"run"`
 	SecretDefs map[string]secret.Definition       `yaml:"secret_defs"`
 	Secrets    []string                           `yaml:"secrets"`
 	Herdr      HerdrDeclaration                   `yaml:"herdr"`
@@ -395,7 +396,7 @@ func (d Declaration) validate() error {
 	for _, list := range []struct {
 		key     string
 		entries []string
-	}{{"init", d.Init}, {"boot", d.Boot}, {"secrets", d.Secrets}} {
+	}{{"init", d.Init}, {"boot", d.Boot}, {"run", d.Run}, {"secrets", d.Secrets}} {
 		if slices.Contains(list.entries, "") {
 			errs = append(errs, fmt.Errorf("%s に空の entry がある", list.key))
 		}

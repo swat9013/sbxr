@@ -115,8 +115,8 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 14. `sbx template save` した image について、`sbx template ls --json` の `created_at` が save の時刻になるか（decision/0020）。ならなければ、template の記録を持つ形（decision/0004）へ戻す
 15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
-17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す
-18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る
+17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す。→ sbx v0.53.0 では、container の通信も VM 直下と同じ global rule で判定され、許可外に届く経路は見つからなかった。ただし container の既定の通信は proxy の `transparent` を通り、egress 自己検証が通る `forward` とは proxy の中の経路が違う。これを「同じ経路」とみなすかは決めていない（下の 2026-11-19 の実測）
+18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る。→ sbx v0.53.0 では成り立つ。`sbx exec <VM> -- true` は起こした回の startup が終わるか止まるまで戻らず、戻った後の log の最後の回はその回だった。startup が失敗しても exit 0 で戻る（下の 2026-11-19 の実測の #133）
 
 5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。15 の mount の部分も同じく確かめない。2 は、destroy の前の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
 
@@ -215,3 +215,71 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
 - docker が PATH にあり daemon に繋がらない（`DOCKER_HOST` を実在しない socket にした。`DOCKER_CONTEXT` を daemon の止まった context にした）: build は `failed to connect to the docker API at <socket>; check if the path is correct and if the daemon is running` で失敗し、builder sandbox へは切り替わらない。この 2 回は descriptor に誤りのある kit（top-level の `name:`）で試し、接続の失敗は descriptor を読む前に出た
 - build が 1 度通った後は、上のどちらの条件でも、startup の command を変えた kit と増やした kit が、build を走らせずに `valid (directory)` になる。cache の鍵と置き場は特定していない。`sbx kit inspect` は Template を `sbx-kit-src:spec-<hash>` と示す
 - v3 の descriptor には `kind:` が要る。無いと `kind must be "workload", "mixin", or "set", got ""` で失敗する
+
+### 実測（2026-11-19、sbx v0.53.0、VM の Docker 29.10.0、#135）
+
+17 を確かめた。VM の中の container・`--network host` の container・`docker build` の `RUN` は、VM 直下と同じ global rule で判定され、許可外の宛先には 1 つも届かなかった。ただし、sbx の proxy の中の経路は 2 つある。proxy を明示した通信は `forward` を通り、VM 直下と同じ拒否応答（HTTP 403 と `Approval required for <宛先>.`）を受ける。proxy を使わない通信は `transparent` を通り、名前解決の失敗か接続の切断で終わる。container の既定の通信は proxy を使わない側で、egress 自己検証（VM 直下で、proxy の環境変数のもとで `forward` を通る）はこの経路を試さない。この 2 つを 17 の「同じ経路」とみなすか（egress 自己検証に container からの確認を足すか）は決めていない。#135 は設計の見直しを範囲に入れていない。
+
+- VM の作り方: sbxr が書く形の env 定義（`schemaVersion: "1"`・`agent: claude`・`workspace.clone: true`・`sandboxOptions.skills: off`。kit なし）を `sbx env create --force <dir>` に渡した（Sbx adapter と同じ経路）。`sbxr create` は使っていない。この host の user 設定が herdr 連携を有効にしており、`sbxr create` は host の herdr へ machine を登録するため。通信の経路を決めるのは VM と sbx の proxy で、kit は関わらないと読んでいる（herdr と boot の kit を入れた VM では確かめていない）
+- global rule: sbxr の宣言と一致していた（`sbxr policy sync --check` → `global rule は宣言と一致している (宛先 47)`。user 設定に egress は無いので、default の宣言と同じ）。default deny で、`sbx policy check network example.com:443` は Denied。global rule は変えていない
+- image の pull: VM の Docker daemon による `docker pull curlimages/curl:8.11.1` は、blob の取得先 `production.cloudfront.docker.com:443` が許可されておらず、`403 Forbidden` で失敗した（`sbx policy log` の PROXY は `forward`）。daemon の pull も同じ rule で判定される。default の宣言の `docker-registry` group は CDN として `production.cloudflare.docker.com:443` だけを許可しており、cloudfront の宛先を含まない → #142。実測では、この宛先を sandbox スコープ rule で許可して pull した
+- 手順: 同じ shell script を、VM 直下（`sbx exec`）、既定の bridge network の container（`docker run`）、`docker run --network host`、`docker build` の `RUN`（既定と `--network host`）の 5 つで走らせた。script は curl で、proxy を使わない通信（`--noproxy '*'`）と、proxy（`-x http://gateway.docker.internal:3128`）を明示した通信を 1 往復ずつ試す。container と `docker build` の proxy 経由の通信は、image の既定の CA bundle に proxy の CA を足した bundle で検証した。別に、bridge と `--network host` の container で、`8.8.8.8` への名前解決（`nslookup`）と、example.com の IP への `http://` を試した
+- container には proxy の環境変数（`HTTPS_PROXY` など）も proxy の CA も入らない。VM 直下には入る。container の既定の通信は、proxy を使わない形になる
+
+結果（括弧で断った行のほかは、5 つの経路で同じだった）:
+
+| 通信 | 結果 |
+|---|---|
+| proxy なし、`https://github.com`（許可先） | 200 |
+| proxy なし、`https://example.com` / `http://example.com` | curl exit 6（`Could not resolve host: example.com`） |
+| proxy なし、example.com の IP へ `--resolve` で `https://` | curl exit 35（TLS の接続が切れる） |
+| proxy なし、example.com の IP へ `--resolve` で `http://` | curl exit 52（`Empty reply from server`。bridge と `--network host` の container で確かめた） |
+| proxy なし、`https://1.1.1.1` | curl exit 35 |
+| proxy なし、`8.8.8.8` への名前解決（UDP 53） | `Connection refused` で応答なし（bridge と `--network host` の container で確かめた） |
+| proxy あり、`https://github.com` | 200。許可先の TLS は proxy が終端しない（`sbx policy log` の PROXY は `forward-bypass`。proxy の CA だけを信頼させると curl exit 60 になる） |
+| proxy あり、`https://example.com` | 403、body の 1 行目は `Approval required for example.com:443.`（container は proxy の CA を足さないと curl exit 60（`self-signed certificate in certificate chain`）。拒否するときは proxy が TLS を終端する） |
+| proxy あり、`http://example.com` | 403、body の 1 行目は `Approval required for example.com:80.` |
+
+- `sbx policy log <VM>` は、proxy を使わない通信を PROXY `transparent`、proxy を明示した通信を `forward` で記録し、どちらの拒否も `No matching allow rule (default deny)` だった。名前解決は `DNS lookup blocked by proxy policy`、UDP は `Direct UDP connections not allowed` で拒否された。IP を指定した `https://` も、TLS の SNI の `example.com:443` として判定された
+- 拒否された宛先は承認待ち（`sbx policy approval ls`）に載った。`sbx env rm` の後は `No pending approvals.` になった
+- VM 直下でも、proxy を使わない通信は container と同じく exit 6 と exit 35 で終わる。拒否の形を分けるのは、container か VM 直下かではなく、proxy を使うかどうか
+- decision/0007 は `--noproxy '*'` で送る案を「proxy を迂回するので、確かめたい proxy の policy を通らない」として却下した。sbx v0.53.0 では、proxy を使わない通信も `transparent` で同じ global rule に判定されるので、この理由は当たらない。却下そのもの（拒否が拒否応答の形をとらず、名前解決の失敗や接続の切断と見分けられない）は保たれる
+
+### 実測（2026-11-19、sbx v0.53.0、前提 18、#133）
+
+18 を確かめた。待てる。kit を入れた VM を 3 つ作って確かめた。startup が成功する VM（boot と probe の kit、boot と herdr の kit）と、startup の段が失敗する VM である。どの VM でも、`sbx exec <VM> -- true`（`sbxr start` の StartSandbox と同じ起こし方）は、起こした回の kit の startup が終わるか止まるまで戻らなかった。戻った後の `/var/log/sbx-kit-startup.log` では、最後の `=== dispatcher run` が新しい起動の回で、その回の `=== dispatcher complete ===` まで出ていた。Sbx adapter の waitStartup の読み方（`startupOutcome`。最後の `=== dispatcher run` から後だけを読む）をこの log に当てると、前の回の行を読まずに、1 回目の読み取りで完了になる（waitStartup そのものを start の経路で走らせてはいない）。
+
+- VM の作り方: 上の #135 の実測と同じ形の env 定義に kit を入れ、`sbx env create --force <dir>` で作った。kit は次の 3 つの組。埋め込みの kit は `internal/assets/kits/` の写しを使った。VM の `~/.config/sbxr/boot.sh` は書いていないので、`sbxr-boot` の段は何もせず ok で終わる。host の herdr には触れていない（`herdr machine add` をしていない）
+  - VM 1: `sbxr-boot` と、startup に 15 秒かかる probe の mixin kit `probe-slow`（開始と終了の時刻を出し、間で `sleep 15`）
+  - VM 2: `sbxr-herdr`（`version: v0.9.0`、`worktree` は VM 内の作業ツリー）、`sbxr-boot`、10 秒待ってから `exit 3` で失敗する probe の mixin kit `probe-fail`
+  - VM 3: `sbxr-herdr`（VM 2 と同じ args）と `sbxr-boot`
+- 手順（VM 1）: create の後に log を読み、`sbx stop` → `sbx exec <VM> -- true` を 2 回繰り返した。1 回目は `sbx exec -- true` の前後の host の時刻と、戻った直後の log を見た。2 回目は `sbx exec -- true` を background で走らせ、同時に別の `sbx exec <VM> -- sh -c '…'` で log を 8 回続けて読んだ
+- VM 1 の時刻（UTC）と log:
+
+| 回 | host で起こし始めた時刻 | dispatcher run の時刻 | probe-slow の開始 → 終了 | `sbx exec -- true` が戻った時刻 |
+|---|---|---|---|---|
+| create | — | 08:53:21 | 08:53:22.4 → 08:53:37.5 | （`sbx env create`）08:53:38 の時点で戻っていた。08:53:44 に読んだ log は `=== dispatcher complete ===` で終わっていた |
+| 起こし直し 1 | 08:53:57.4 | 08:53:59 | 08:54:00.3 → 08:54:15.3 | 08:54:15.5（exit 0、`✓ sandbox sbxr-startup-probe-135 — started`） |
+| 起こし直し 2 | 08:54:28.2 | 08:54:29 | 08:54:30.5 → 08:54:45.5 | 08:54:46.9 |
+
+- 起こし直し 1 の、戻った直後（08:54:15.8）の log の dispatcher の行は次のとおり。log は起動ごとに書き足され、前の回の行は残る
+
+  ```text
+  1:=== dispatcher run 2026-11-19T08:53:21Z ===
+  17:=== dispatcher complete ===
+  18:=== dispatcher run 2026-11-19T08:53:59Z ===
+  34:=== dispatcher complete ===
+  ```
+
+- 起こし直し 2 で同時に読んだ側の `sbx exec` も、startup が終わるまで出力しなかった。最初の出力は 08:54:45.7（probe-slow の終了の後）で、`dispatcher run` は 3 回、最後の行は `=== dispatcher complete ===` だった。8 回とも同じで、startup の途中の log は 1 度も読めなかった
+- VM 2（startup の段が失敗する）: dispatcher は `probe-fail` の段で止まった。`sbx env create` は `warning: a kit startup command failed; view the log: …` を出して exit 0 で終わった（2026-11-16 の実測の 10 と同じ）。`sbx stop` の後、VM 1 の起こし直し 1 と同じ手順で起こし直した
+  - 起こし始めは 09:01:58.0。log の新しい回は `=== dispatcher run 2026-11-19T09:02:00Z ===` で、`probe-fail: start 09:02:00.88` → `probe-fail: exit 3 at 09:02:10.89` → `fail /etc/durable-startup.d/002-startup-probe-fail/000-cmd.sh exit=3` と出た
+  - `sbx exec -- true` は、同じ warning と、その回の startup の log の写しを出してから、09:02:11.7 に exit 0 で戻った。終了 code では失敗を読めない
+  - 戻った直後（09:02:12.3）の log の最後の dispatcher run は 09:02:00 の回で、最後の行はその回の `fail … exit=3` だった。前の回（create の 09:00:43 の回）にも同じ `fail` 行があるが、`startupOutcome` は最後の `=== dispatcher run` より前を読まないので、読み分けられる
+  - VM 2 では `probe-fail` が `sbxr-herdr` より先に走ったので、herdr の段は 1 度も走っていない（下の kit の順）
+- VM 3（herdr の kit）: create の後の log は `ok …/003-startup-sbxr-herdr/003-cmd.sh`（integration の段）→ `=== dispatcher complete ===` で終わった。起こし始めは 09:03:21.8、`sbx exec -- true` は 09:03:24.8 に exit 0 で戻り、09:03:25.2 に読んだ log の最後の回（`=== dispatcher run 2026-11-19T09:03:23Z ===`）は `=== dispatcher complete ===` まで出ていた。`herdr status --json` は `"running":true`
+  - 前の回の `=== dispatcher complete ===` の後、次の回の `=== dispatcher run` の前に、background の `herdr server` の出力（`herdr server running; …` など 5 行）が入っていた。前の回に属する行で、`startupOutcome` が読む範囲には入らない
+  - VM 3 では、起こし直しの startup が 3 秒ほどで終わり、戻った時刻と `dispatcher complete` の順は log の時刻からは読めない（`dispatcher complete` の行は時刻を持たない）。戻るまで待つことは VM 1 で示した
+- kit の順: env 定義の `kits:` の順と、VM の `/etc/durable-startup.d/` の連番（startup が走る順）は、3 つの VM とも逆だった。VM 1 は `sbxr-boot`, `probe-slow` → `002-startup-probe-slow`, `003-startup-sbxr-boot`。VM 2 は `sbxr-herdr`, `sbxr-boot`, `probe-fail` → `002-startup-probe-fail`, `003-startup-sbxr-boot`, `004-startup-sbxr-herdr`。VM 3 は `sbxr-herdr`, `sbxr-boot` → `002-startup-sbxr-boot`, `003-startup-sbxr-herdr`。どれも kit 名の辞書順でもあり、どちらで決まるかは確かめていない → #152
+- VM 2 で、create の後に log を読もうとした `sbx exec` は `✓ sandbox sbxr-startup-fail-135 — started` を出して VM を起こした（`sbx env create` が戻ったのは 09:00:54.5 で、log の次の回は `=== dispatcher run 2026-11-19T09:01:31Z ===`）。create の後に VM が止まっていた理由は確かめていない
+- 確かめたのは sbx v0.53.0 だけ。`sbx exec --help` は「止まっていれば先に起動する」とだけ書き、startup の完了を待つかは書いていない

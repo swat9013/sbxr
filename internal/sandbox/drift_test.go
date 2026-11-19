@@ -81,7 +81,8 @@ func TestTheDeclarationHoldsOnlyTheKeysBakedIntoTheVM(t *testing.T) {
 	secretKeys := slices.Sorted(maps.Keys(secretFields))
 
 	// Drift は宣言の key を全部比べる。焼き込まれない key を足すなら、比べる key を絞り直す
-	want := []string{"boot", "git", "herdr", "init", "profile", "sandbox_egress", "secrets"}
+	// (run は start が作成時の宣言のものを始めるので、boot と同じく作成時に確定する。decision/0028)
+	want := []string{"boot", "git", "herdr", "init", "profile", "run", "sandbox_egress", "secrets"}
 	if !slices.Equal(keys, want) {
 		t.Errorf("declaration keys = %v, want %v", keys, want)
 	}

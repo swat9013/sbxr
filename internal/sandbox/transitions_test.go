@@ -135,10 +135,29 @@ func enablesTheHerdrMachineWithoutTouchingTheVM(t *testing.T, w *world) {
 	touchesNoVM(t, w)
 }
 
-func startsTheVMAndEnablesTheHerdrMachine(t *testing.T, w *world) {
+func startsTheVMEnablesTheHerdrMachineAndStartsTheRun(t *testing.T, w *world) {
 	enablesTheHerdrMachine(t, w)
 	if len(w.starts) != 1 {
 		t.Errorf("sbx starts = %v, want the VM started once", w.starts)
+	}
+	startsTheRunOnce(t, w)
+}
+
+func registersTheHerdrMachineAndStartsTheRun(t *testing.T, w *world) {
+	registersTheHerdrMachine(t, w)
+	startsTheRunOnce(t, w)
+}
+
+func startsTheRunOnce(t *testing.T, w *world) {
+	if w.runsStarted() != 1 {
+		t.Errorf("runs started = %d, want the run started once", w.runsStarted())
+	}
+}
+
+// startsNoRun は run を始めないことを確かめる (稼働中の VM の run を二重に始めない。外部起動では始めない)。
+func startsNoRun(t *testing.T, w *world) {
+	if w.runsStarted() != 0 {
+		t.Errorf("runs started = %d, want no run started", w.runsStarted())
 	}
 }
 
@@ -165,7 +184,7 @@ func createsNothingNew(t *testing.T, w *world) {
 
 var transitions = []transition{
 	// --- create ---
-	{from: stateAbsent, event: eventCreate, guard: "成功", to: stateRunning, then: registersTheHerdrMachine,
+	{from: stateAbsent, event: eventCreate, guard: "成功", to: stateRunning, then: registersTheHerdrMachineAndStartsTheRun,
 		pending: "template の用意は #13、herdr の pane で agent を起動できることを確かめるのは #138"},
 	{from: stateAbsent, event: eventCreate, guard: "出所の記録前に失敗", arrange: failDefine, to: stateAbsent, refused: true, then: leavesNoStateDir,
 		pending: "build 用 VM の片付けは #13"},
@@ -189,10 +208,12 @@ var transitions = []transition{
 	{from: stateAbsent, event: eventStart, to: stateAbsent, refused: true, then: touchesNoVM},
 	{from: stateIncompleteStopped, event: eventStart, to: stateIncompleteStopped, refused: true, then: touchesNoVM},
 	{from: stateIncompleteRunning, event: eventStart, to: stateIncompleteRunning, refused: true, then: touchesNoVM},
-	{from: stateRunning, event: eventStart, arrange: disableTheHerdrMachine, to: stateRunning, then: enablesTheHerdrMachineWithoutTouchingTheVM,
+	{from: stateRunning, event: eventStart, arrange: disableTheHerdrMachine, to: stateRunning, then: func(t *testing.T, w *world) {
+		enablesTheHerdrMachineWithoutTouchingTheVM(t, w)
+		startsNoRun(t, w)
+	}, pending: "herdr の pane で agent を起動できることを確かめるのは #138"},
+	{from: stateStopped, event: eventStart, guard: "VM を起こせた", to: stateRunning, then: startsTheVMEnablesTheHerdrMachineAndStartsTheRun,
 		pending: "herdr の pane で agent を起動できることを確かめるのは #138"},
-	{from: stateStopped, event: eventStart, guard: "VM を起こせた", to: stateRunning, then: startsTheVMAndEnablesTheHerdrMachine,
-		pending: "herdr の pane で agent を起動できることを確かめるのは #138、run を始めるのは #137"},
 	{from: stateStopped, event: eventStart, guard: "VM を起こせない", arrange: failStart, to: stateStopped, refused: true, then: leavesTheHerdrMachineDisabled},
 	{from: stateVMGone, event: eventStart, to: stateVMGone, refused: true, then: touchesNoVM},
 
@@ -208,7 +229,7 @@ var transitions = []transition{
 
 	// --- sbxr の外で起きること ---
 	{from: stateIncompleteStopped, event: eventStartOutside, guard: "VM がある", to: stateIncompleteRunning},
-	{from: stateStopped, event: eventStartOutside, to: stateRunning},
+	{from: stateStopped, event: eventStartOutside, to: stateRunning, then: startsNoRun},
 	{from: stateIncompleteRunning, event: eventStopOutside, to: stateIncompleteStopped},
 	{from: stateRunning, event: eventStopOutside, to: stateStopped, then: leavesTheHerdrMachineEnabled},
 	{from: stateIncompleteStopped, event: eventRemoveOutside, guard: "VM がある", to: stateIncompleteStopped},
@@ -311,6 +332,7 @@ func TestTransitions(t *testing.T) {
 				t.Logf("action の一部が未実装: %s", tr.pending)
 			}
 			w := newWorld(t, herdrUserConfig)
+			w.repoPath = localRepo(t, "app", "version: 1\nrun: [make watch]\n") // create と start が run を始めるかを見る
 			w.arrive(tr.from)
 			if tr.arrange != nil {
 				tr.arrange(w)
@@ -386,7 +408,7 @@ func (w *world) arrive(s state) {
 	if got := w.stateOf(repo); got != s {
 		w.t.Fatalf("arrived at %s, want %s", got, s)
 	}
-	w.stops, w.starts = nil, nil
+	w.stops, w.starts, w.vms.Commands = nil, nil, nil
 	w.definitionsAtArrival = len(w.vms.Definitions)
 }
 
