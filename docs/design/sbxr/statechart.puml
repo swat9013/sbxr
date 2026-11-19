@@ -31,8 +31,8 @@ VMGone --> VMGone : create / 拒否 (destroy を促す)
 
 ' --- stop ---
 Absent --> Absent : stop / 拒否 (VM が無い)
-IncompleteStopped --> IncompleteStopped : stop / 止まっている (VM に触れない)
-IncompleteRunning --> IncompleteStopped : stop
+IncompleteStopped --> IncompleteStopped : stop / 止まっている (VM に触れない)・destroy を促す
+IncompleteRunning --> IncompleteStopped : stop / 止めて destroy を促す
 Running --> Stopped : stop / herdr machine を無効にしてから止める
 Stopped --> Stopped : stop / herdr machine を無効にし、止まっている (VM に触れない)
 VMGone --> VMGone : stop / 拒否 (destroy を促す)
