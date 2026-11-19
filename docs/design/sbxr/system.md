@@ -72,12 +72,12 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 | 停止中 | あり | あり | 停止 |
 | VM 消失 | あり | あり | 無し |
 
-イベントは、sbxr が起こす `create`・`stop`・`start`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 7 つ。同じイベントの結果の分岐（create の失敗の段、start で VM を起こせたかと起動時の処理が成功したか、destroy の `--force`）は guard で書く。
+イベントは、sbxr が起こす `create`・`stop`・`start`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 7 つ。同じイベントの結果の分岐（create の失敗の段、start で VM を起こせたか、destroy の `--force`）は guard で書く。
 
 主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →start→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
 
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
-- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることと、start で起動時の処理の失敗か時間切れを示すことは、遷移の action として書く
+- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることと、start で起動時の処理の結果を読み、失敗か時間切れを示すことは、遷移の action として書く
 - recreate は新しいイベントにせず、stop → destroy → create を続けて起こすものとして扱う（decision/0026）
 - plan・policy sync・secret setup・doctor は VM の状態を変えないので、イベントに含めない
 
