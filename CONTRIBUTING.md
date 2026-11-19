@@ -91,7 +91,7 @@ v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/R
 
 - sbx の stable が実測済みの上限より新しくなったら、[docs/real-sbx-walkthrough-macos.md](./docs/real-sbx-walkthrough-macos.md) の 1 周をその版で通し、実測済みの上限を上げて release する。通らなければ、直してから上げる
 - 新しい stable の検知は、週 1 回の workflow（`.github/workflows/sbx-stable-watch.yml`）が issue を立てて知らせる
-- public repo では、60 日間 repository activity が無いと、GitHub が schedule の workflow を自動で無効にする（[Disabling and enabling a workflow](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow)）。無効になると新しい stable を検知できない。CI workflow の週 1 回の vulncheck も同じ条件で止まる。有効に戻すには、repo の Actions タブを開き、左の sidebar で該当の workflow（`sbx stable watch` か `CI`）を選んで **Enable workflow** を押す
+- public repo では、60 日間 repository activity が無いと、GitHub が schedule の workflow を自動で無効にする（[Disabling and enabling a workflow](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow)）。無効になると新しい stable を検知できない。CI workflow の週 1 回の vulncheck も同じ条件で止まる。止まったことに気付けるよう、release の前に repo の Actions タブで `sbx stable watch` と `CI` が無効になっていないかを確かめる。無効なら、左の sidebar で該当の workflow を選んで **Enable workflow** を押し、[sbx の release](https://github.com/docker/sbx-releases/releases) で、止まっていた間に新しい stable が出ていないかを見る
 
 ## issue の範囲
 
