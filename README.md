@@ -7,9 +7,9 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 ## できること
 
 - `sbxr plan <repo>` — 何が作られるかを表示する。VM が既にあれば、作成時の宣言からの差分（drift）も表示する
-- `sbxr create <repo>` — repo 宣言（`sbxr.yaml`）を user 設定と merge し、確認のうえ sandbox VM を作る。egress 許可・secret 配線・agent runtime profile・init / boot を適用する。最後に VM 内から、許可先に届くことと許可外（`example.com` など）が proxy に拒否されることを 1 回ずつ確かめ（egress 自己検証）、通らなければ VM を残して止まる（global rule が宣言に揃っていないと許可先に届かないので、先に `sbxr policy sync` を実行しておく）
+- `sbxr create <repo>` — repo 宣言（`sbxr.yaml`）を user 設定と merge し、確認のうえ sandbox VM を作る。egress 許可・secret 配線・agent runtime profile・init / boot を適用する。最後に VM 内から、許可先に届くことと許可外（`example.com` など）が proxy に拒否されることを 1 回ずつ確かめ（egress 自己検証）、通らなければ VM を残して止まる（global rule が宣言に揃っていないと許可先に届かないので、先に `sbxr policy sync` を実行しておく）。その後に宣言の `run` を VM 内の作業ツリーで裏で始める。`--attach` を付けると、その後に VM 内の作業ツリーで agent の対話 session に入る（[run と --attach](#run-と---attach)）
 - `sbxr stop <repo>` / `sbxr destroy <repo>` — 停止 / 撤去（撤去すると VM 内の commit と変更は失われるので、確認を求める。稼働中の VM は使用中かを確かめられないので、止めてから撤去するか `--force` を付ける。VM 消失（VM が sbxr の外で撤去され、状態ディレクトリだけが残っている）では、stop は拒否して destroy を促し、destroy は VM が無くても sandbox スコープの secret と状態ディレクトリを片付ける）
-- `sbxr start <repo>` — 止めた sandbox VM を起こす（起動ごとの boot が走る）。確認は求めない。動いている VM には触れずに「動いている」と示す。未作成なら create を、作成途中・VM 消失なら destroy を促して非 0 で終える。VM を起こせなければ、VM は止まったまま非 0 で終える
+- `sbxr start <repo>` — 止めた sandbox VM を起こす（起動ごとの boot が走る）。確認は求めない。動いている VM には触れずに「動いている」と示す。未作成なら create を、作成途中・VM 消失なら destroy を促して非 0 で終える。VM を起こせなければ、VM は止まったまま非 0 で終える。起こした VM では作成時の宣言の `run` を始める（動いていた VM では始めない）。`--attach` は create と同じ
 - `sbxr policy sync [--check]` — user 設定の egress 宣言を global rule へ収束させる
 - `sbxr secret setup github` / `sbxr secret setup custom --host <host>` — token の能力を確認して secret ファイルへ格納する
 - `sbxr doctor [<repo>]` — user 設定・repo 宣言と host の前提（sbx・secret ファイル・herdr・global rule）を全件検査し、項目ごとに ok / fail / skip と、fail の直し方を表示する。1 つの誤りで残りの検査を止めない。fail があれば非 0 で終える。`<repo>` を省くと、環境と user 設定だけを見る。何も変えない
@@ -18,7 +18,7 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 
 ## drift（作成時の宣言からの差分）
 
-`profile`・`git`・`init`・`boot`・repo の egress・`secrets`（実際に配線される secret）・`herdr` は作成時に VM へ焼き込まれる。既存の VM に `sbxr create` すると、作成時の宣言と現在の宣言を比べる。
+`profile`・`git`・`init`・`boot`・`run`・repo の egress・`secrets`（実際に配線される secret）・`herdr` は作成時に VM へ焼き込まれる。既存の VM に `sbxr create` すると、作成時の宣言と現在の宣言を比べる。
 
 - 差分が無ければ既存であることを表示して 0 で終える
 - 差分があれば差分と作り直す手順（`sbxr destroy` → `sbxr create`）を表示し、確認にも作成にも進まず非 0 で終える。destroy は自動では実行しない
@@ -39,6 +39,22 @@ sandbox VM 内の commit は、VM 内から origin へ push して取り出す�
 - `init` は create のときに 1 回、VM 内の repo root で順に走る。失敗すると create は VM を残して止まる
 - `boot` は create のときに init の後で 1 回走り、その後は sandbox VM の起動ごとに走る。走るのは作成時に確定した内容で、起動のたびに宣言を読み直しはしない
 - 2 回目以降の起動での boot の出力と失敗（`boot[N] fail`）は host からは見えない。VM 内の `/var/log/sbx-kit-startup.log` に残る（`sbx exec <name> -- cat /var/log/sbx-kit-startup.log`）
+
+## run と --attach
+
+```yaml
+# sbxr.yaml
+version: 1
+run:
+  - claude -p 'README の手順を確かめて、直す箇所を issue にまとめる'
+```
+
+- `run` はコマンドの list で、user 設定と repo 宣言のどちらにも書ける（`init`・`boot` と同じく、default・user・repo の順に並べて足す）。確認プロンプトと `sbxr plan` が内容を示す。長く走る作業（agent の非対話の実行や script）はここに置く。`init`・`boot` は準備で終わる
+- `sbxr create` は最後に（egress 自己検証・VM の中の確認・herdr machine の登録の後に）、`run` を VM 内の作業ツリーで裏で始め、始めたことと出力が残る VM 内の log の場所（`~/.local/state/sbxr/run.log`）を示して終わる。終わるのを待たない。コマンドは順に走り、1 件が失敗しても次へ進む。各コマンドの終了は log に `run[N] exit=<code>` で残る（sbxr が示す `sbx exec <name> -- tail -f <log>` で読む）
+- `sbxr start` は VM を起こしたときに、作成時の宣言の `run` を始める（宣言を読み直さない）。VM が既に動いていたら、動いている run を二重に始めないよう始めない。sbxr の外での起動（`sbx exec`・herdr の再接続）では始まらない。start は起動ごとの boot の完了を待たないので、run は boot より先に走りうる
+- `run` を始められなければ、VM を残して非 0 で終える
+- `run` は作成時の宣言に記録され、変えると drift に出る
+- `--attach`（`sbxr create`・`sbxr start`）は最後に、VM 内の作業ツリーで agent（Claude Code）の対話 session に入る（`run` があれば、始めた後に入る）。抜けても VM は動いたまま。端末が無ければ、VM に触れる前に止まる。create で VM が既にあったときは入らない
 
 ## herdr 連携（opt-in）
 
