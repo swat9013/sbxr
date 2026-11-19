@@ -190,7 +190,8 @@ func TestCheckEgressSkipsTheSideWithoutAProbeTarget(t *testing.T) {
 	}
 }
 
-// checkEgress は egress 自己検証を、create と同じく VM 直下 → container の順に行う (間の agent と Docker の確認は省く)。
+// checkEgress は egress 自己検証の両側を VM 直下 → container の順に行う test の helper (間の agent と Docker の確認は省く)。
+// create での順序は lifecycle_test.go の create を通す test が確かめる。
 func checkEgress(ctx context.Context, v vm, prepared preparation, progress io.Writer) error {
 	targets := probeTargetsOf(prepared)
 	if err := checkEgressFromVM(ctx, v, targets, progress); err != nil {
@@ -213,7 +214,7 @@ func answerContainer(host, out string) func(runtime.SandboxCommand) ([]byte, err
 	}
 }
 
-func TestCheckEgressProbesFromAContainerInTheVMAfterTheVMWithAPulledImage(t *testing.T) {
+func TestCheckEgressFromAContainerPullsTheImageAndProbesBothHosts(t *testing.T) {
 	v, rt := runningVM(t, answerProbes(allowsGithubOnly))
 	var progress bytes.Buffer
 

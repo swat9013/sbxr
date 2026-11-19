@@ -28,35 +28,39 @@ const probeImage = "curlimages/curl:8.11.1"
 type probeOrigin struct {
 	// prefix は probe の script の前に置くコマンド (script・"sh"・URL が後に続く)。
 	prefix []string
-	// from は表示で、結果の前に置く語 (VM 直下は空)。sender は exec の失敗の表示で、宛先の前に置く語。
+	// from は表示で結果の前に置く語 (VM 直下は空)。sender は exec の失敗の表示で宛先の前に置く語で、VM 直下にも要る。
 	from, sender string
 	// cutOffIsDenial は、curl が proxy を使わない通信の拒否の形 (probeCutOff) で終わったときに「届かない」と読むか。
 	cutOffIsDenial bool
-	// unconfirmed は、許可外への通信が「届かない」と読む形を得ずに失敗したときの表示。
-	unconfirmed string
 }
 
 // cutOffExits は、proxy を使わない通信を sbx の proxy が拒否したときの curl の exit code
 // (6: 名前解決の拒否、35: TLS の切断、52: 空の応答。sbx v0.53.0 の実測。#135)。
 var cutOffExits = []string{"6", "35", "52"}
 
+// fromContainerLabel は VM の中の container から送ったことを示す語。
+const fromContainerLabel = "VM の中の container から、"
+
 var (
 	// fromVM は VM 直下。proxy の環境変数のもとで、proxy を明示した経路 (forward) を通る。
-	fromVM = probeOrigin{
-		prefix:      []string{"sh", "-c"},
-		sender:      "VM から ",
-		unconfirmed: "proxy の拒否応答を得ずに失敗した",
-	}
+	fromVM = probeOrigin{prefix: []string{"sh", "-c"}, sender: "VM から "}
 	// fromContainer は VM の中の既定の network の container。proxy の環境変数を持たず、proxy を使わない経路 (transparent) を通る
 	// (sbx v0.53.0 の実測。#135)。
 	fromContainer = probeOrigin{
 		prefix:         []string{"docker", "run", "--rm", "--entrypoint", "sh", probeImage, "-c"},
-		from:           "VM の中の container から、",
-		sender:         "VM の中の container から、",
+		from:           fromContainerLabel,
+		sender:         fromContainerLabel,
 		cutOffIsDenial: true,
-		unconfirmed:    "proxy の拒否応答も、拒否と読む curl の exit (" + strings.Join(cutOffExits, "・") + ") も得ずに失敗した",
 	}
 )
+
+// unconfirmed は、許可外への通信が「届かない」と読む形を得ずに失敗したときの表示。「届かない」と読む形は cutOffIsDenial で決まる。
+func (o probeOrigin) unconfirmed() string {
+	if !o.cutOffIsDenial {
+		return "proxy の拒否応答を得ずに失敗した"
+	}
+	return "proxy の拒否応答も、拒否と読む curl の exit (" + strings.Join(cutOffExits, "・") + ") も得ずに失敗した"
+}
 
 // isProxyDenial は、403 の body が host:443 への proxy の拒否応答かを読む (sbx v0.48.0 の実測。decision/0016)。
 // どの rule にも当たらない宛先は承認待ち、deny rule に当たった宛先は local rule の拒否になる。どちらも宛先へは届いていない。
@@ -188,7 +192,7 @@ func checkDenied(ctx context.Context, v vm, origin probeOrigin, targets probeTar
 		return nil
 	case p.result == probeCutOff, p.result == probeFailed:
 		return fmt.Errorf("%s許可外の %s:443 への通信が %s (proxy の policy が効いているか確かめられない): %s",
-			origin.from, host, origin.unconfirmed, p.detail)
+			origin.from, host, origin.unconfirmed(), p.detail)
 	}
 	logf(progress, "egress 自己検証: %s許可外の %s:443 は proxy が拒否した\n", origin.from, host)
 	return nil

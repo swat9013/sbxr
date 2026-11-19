@@ -96,10 +96,16 @@ func (vm *FakeVM) probe(url string) []byte {
 // curl が exit 6 で終わる (sbx v0.53.0 の実測。docs/design/sbxr/system.md の #135 の実測)。
 func (vm *FakeVM) containerProbe(url string) []byte {
 	result := vm.httpResult(url)
-	if host := hostOf(url); result == ProxyDenial(host) {
+	if host := hostOf(url); isProxyDenial(host, result) {
 		result = HTTPResult{Body: "curl: (6) Could not resolve host: " + host}
 	}
 	return probeOutput(result)
+}
+
+// isProxyDenial は result が host:443 への proxy の拒否応答 (承認待ちか deny rule の拒否) か。
+func isProxyDenial(host string, result HTTPResult) bool {
+	first, _, _ := strings.Cut(result.Body, "\n")
+	return result.Code == "403" && (first == "Approval required for "+host+":443." || first == "Blocked by local rule for "+host+":443")
 }
 
 func (vm *FakeVM) httpResult(url string) HTTPResult {
