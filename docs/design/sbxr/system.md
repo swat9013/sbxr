@@ -27,7 +27,7 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 | repo 宣言 | 外 | ファイル（port にしない） | 入 | untrusted な宣言 |
 | secret ファイル | 外 | ファイル（port にしない） | 入 / 出（secret setup） | secret の値 |
 | host 側 repo（path のとき） | 外 | host の git・ファイル（port にしない） | 入 | origin の host、copy で持ち込むもの、cache 層の inputs |
-| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・起動・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・egress 自己検証・VM の中で agent と Docker が使えることの確認・copy の持ち込み・herdr の最初の workspace の開き直し）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
+| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・起動・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・egress 自己検証・VM の中で agent と Docker が使えることの確認・run の開始・agent の対話 session・copy の持ち込み・herdr の最初の workspace の開き直し）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
 | VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版、VM 内の作業ツリー、host の skills を持ち込まないこと）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009）。このうち host の skills を持ち込まないことは kit ではなく、env 定義の `sandboxOptions.skills` で作成時に入れる（decision/0017） |
 | host の herdr | 外 | herdr CLI（port にしない） | 出 | herdr machine の登録・無効化・有効化・解除 |
 | git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan・drift・doctor の一時 clone |
@@ -93,6 +93,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 - VM 内の作業ツリー: copy の置き場が決まっておらず、herdr の pane は VM 内の作業ツリーではなく image の既定の cwd（`/home/agent/workspace`）で始まる。→ [decision/0014](decision/0014-vm-worktree-at-host-path-and-herdr-starts-there.md)・[decision/0015](decision/0015-herdr-first-workspace-reopened-after-registration.md)
 - 起こし直し: 止めた VM を起こす手段が sbxr に無く、起こし直した VM の中で何が成り立つかを設計のどこも保証していない（#87）。→ [decision/0025](decision/0025-start-command.md)・[decision/0027](decision/0027-create-and-start-check-inside-vm.md)
 - 作り直し: 宣言の変更を反映するのに stop → destroy → create の 3 コマンドが要る。→ [decision/0026](decision/0026-recreate-command.md)
+- 立ち上げた後の作業の開始: 準備（init・boot）の後に agent や script を始める仕組みが無く、利用者が VM に入って自分で起動している。→ [decision/0028](decision/0028-run-and-attach-after-create-and-start.md)
 
 ## 未実測の前提
 

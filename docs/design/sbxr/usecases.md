@@ -54,7 +54,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - Level: user-goal
 - Trigger: 利用者が、repo で AI coding agent を動かす隔離環境を欲しい
 - 事前条件: sbx が使える。herdr 連携が有効なら host に herdr がある
-- 成功保証: sandbox VM が宣言どおりに構成されて稼働し、egress 自己検証が通り、作成時の宣言が状態ディレクトリに記録されている。VM の中で agent（Claude Code）を起動でき、Docker を使える。herdr 連携の VM では、herdr の pane で agent を起動できる（decision/0027）
+- 成功保証: sandbox VM が宣言どおりに構成されて稼働し、egress 自己検証が通り、作成時の宣言が状態ディレクトリに記録されている。VM の中で agent（Claude Code）を起動でき、Docker を使える。herdr 連携の VM では、herdr の pane で agent を起動できる（decision/0027）。宣言の run が VM の中で始まっている（decision/0028）
 
 ### Main Success Scenario
 
@@ -66,7 +66,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 6. sbxr が sandbox スコープの secret を置いてから template で sandbox VM を作り、repo を投入方式で渡し、作った後に sandbox スコープ rule を足す
 7. sbxr が VM の中を宣言どおりにする（materialize → init → boot）
 8. sbxr が VM 内から egress 自己検証を行い、VM の中で agent と Docker が使えることを確かめる
-9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）
+9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）。最後に、宣言の run を VM 内の作業ツリーで裏で始める（decision/0028）
 
 ### Extensions
 
@@ -75,6 +75,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 1c. 同じ名前の VM が管理外か別出所: sbxr は触らずに止まる
 - 1d. VM 消失（作成時の宣言はあるが VM が無い）: sbxr は destroy を促して止まる
 - 1e. git URL に copy を指定した: sbxr は止まる
+- 1f. `--attach` を付けたのに端末が無い: sbxr は止まる
 - 2a. 宣言が不正か、secret 要求に定義が無い: sbxr は理由を示して止まる
 - 2b. 要求された secret の注入先 host が egress で許可されていない: sbxr はその secret を配線から外し、作る内容に載せて 3 へ
 - 2c. herdr 連携が有効なのに host に herdr が無い: sbxr は確認プロンプトの前に止まる
@@ -96,6 +97,9 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 9b. 同じ `<名前>.sbx` の登録が既にある: sbxr はその登録に触れずに止まり、解除してから登録し直す手順を示す
 - 9c. 最初の workspace を VM 内の作業ツリーで開き直せない: VM と herdr machine の登録は残り、sbxr は VM 内で開き直す手順を示して非 0 で終える
 - 9d. herdr の pane で agent を起動できない: VM と herdr machine の登録は残り、sbxr は成り立たなかった項目を示して非 0 で終える
+- 9e. 宣言に run が無い: sbxr は何も始めない
+- 9f. run を始められない: VM は作成済みとして残り、sbxr は非 0 で終える
+- 9g. `--attach`: sbxr は最後に、VM 内の作業ツリーで agent の対話 session に入る。利用者が抜けても VM は動いたままにする
 
 ## UC3 sandbox VM を止める
 
@@ -319,7 +323,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - Level: user-goal
 - Trigger: 利用者が、止めた VM での作業を再開したい
 - 事前条件: sbxr が作った、停止中か稼働中の VM がある
-- 成功保証: VM が稼働している。VM の中で agent（Claude Code）を起動でき、Docker を使える。herdr 連携の VM では herdr machine が有効で、herdr の pane で agent を起動できる（decision/0025・0027）
+- 成功保証: VM が稼働している。VM の中で agent（Claude Code）を起動でき、Docker を使える。herdr 連携の VM では herdr machine が有効で、herdr の pane で agent を起動できる（decision/0025・0027）。作成時の宣言の run が VM の中で始まっている（decision/0028）
 
 ### Main Success Scenario
 
@@ -328,9 +332,11 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 3. sbxr が VM を起こす（boot が再生される）
 4. sbxr が、VM の中で agent と Docker が使えることを確かめる
 5. sbxr が herdr machine を有効に戻し、herdr の pane で agent を起動できることを確かめる
+6. sbxr が、作成時の宣言の run を VM 内の作業ツリーで裏で始める
 
 ### Extensions
 
+- 1a. `--attach` を付けたのに端末が無い: sbxr は止まる
 - 2a. VM が未作成: sbxr は create を促して止まる
 - 2b. 作成途中の VM か VM 消失: sbxr は destroy を促して止まる
 - 2c. 同じ名前の VM が管理外か別出所: sbxr は触らずに止まる
@@ -341,5 +347,8 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 5a. herdr 連携を有効にせずに作った VM: 5 を行わない
 - 5b. herdr machine の登録が無い（利用者が手で解除した等）: sbxr は登録し直す手順を示して非 0 で終える
 - 5c. herdr machine を有効に戻せないか、pane で agent を起動できない: sbxr は成り立たなかった項目を示して非 0 で終える（VM は稼働中のまま）
+- 6a. 作成時の宣言に run が無いか、VM が既に稼働していた（3a）: sbxr は何も始めない（動いている run を二重に始めない）
+- 6b. run を始められない: sbxr は非 0 で終える（VM は稼働中のまま）
+- 6c. `--attach`: sbxr は最後に、VM 内の作業ツリーで agent の対話 session に入る
 
 却下: create が停止中の VM を起こす。理由: 作成済みの VM への create は drift の報告で、同じコマンドに 2 つの意味が付く（decision/0025）。

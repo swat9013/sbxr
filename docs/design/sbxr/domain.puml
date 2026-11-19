@@ -22,7 +22,7 @@ package "集約: sandbox VM (1 つの出所から作った VM の管理)" as Agg
   class CreationDeclaration <<作成時の宣言>> {
     {field} profile : agent runtime profile
     {field} git : name・email
-    {field} init・boot : コマンド列
+    {field} init・boot・run : コマンド列
     {field} sandbox スコープ rule の宛先 : host[:port] の列
     {field} repo の egress の扱い : 残す | 落とす
     {field} herdr の版 : 無効なら無し
@@ -57,7 +57,7 @@ package "集約: 宣言 (1 スコープ分の宣言ファイル)" as AggDecl {
   class Declaration <<宣言>> {
     {field} スコープ : default | user | repo
     {field} version : 1
-    {field} profile・git・init・boot
+    {field} profile・git・init・boot・run
   }
   class EgressGroup <<egress 宣言>> {
     {field} group 名
@@ -182,7 +182,7 @@ note right of Declaration
   base 固定の profile key は書けない)。
   default → user → repo の順に重ねる:
   map は additive (同じ key は後の層が勝つ)、scalar は override、
-  init・boot・template.run は並べて足し、secrets・template.inputs は和集合。
+  init・boot・run・template.run は並べて足し、secrets・template.inputs は和集合。
   profile.enabledPlugins は true だけを書ける (下の層の plugin は消せない)。
   egress の group は名前ごとに field を重ね、allow は和集合。
   git.name・git.email はどこかのスコープに要る。

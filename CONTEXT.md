@@ -133,6 +133,10 @@ create 時に 1 回だけ VM 内で走るコマンド列。
 sandbox VM の起動ごとに VM 内で走るコマンド列。起動で消える状態（daemon など）を戻す。走るのは作成時に確定した内容。
 _Avoid_: startup（sbx kit の用語）, resume hook
 
+**run**:
+create と start の終わりに、VM 内の作業ツリーで裏で始めるコマンド列。agent の非対話の実行や script を置く。sbxr は終わるのを待たない。走るのは作成時に確定した内容で、sbxr の外での起動では始まらない。
+_Avoid_: entrypoint（VM の主プロセスを指す）, cache 層の `template.run`（template に焼くコマンド列で、別のもの）
+
 ### herdr 連携
 
 **herdr 連携**:
