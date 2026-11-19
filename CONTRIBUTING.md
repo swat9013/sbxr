@@ -64,7 +64,7 @@ sbxr-dev create .
 
 ### v1.0.0 の条件
 
-v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/README.md) の 4 つ）が実 sbx の上で満たされ、公開 interface の互換を保ち始める版である。tag を打つのは、次がすべて成り立つときだけ。それより前の 0.x の release は、この条件を待たずに出す。
+v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/README.md) の 3 つ）が実 sbx の上で満たされ、公開 interface の互換を保ち始める版である。tag を打つのは、次がすべて成り立つときだけ。それより前の 0.x の release は、この条件を待たずに出す。
 
 - milestone `v1.0.0` に open の issue が無い。入れるのは、下の判定条件を満たすのに要る issue だけで、入れる・外すは人が決める
 - 実測済みの上限（`internal/runtime/sbx_version.go` の `MeasuredSbxVersion`）が、tag を打つ時点の sbx の最新の stable である
@@ -72,10 +72,9 @@ v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/R
 
 | 目的 | 判定条件 |
 |---|---|
-| 隔離 | create の確認プロンプトが、VM に入る設定と VM から通信できる宛先をすべて示す。egress 自己検証が、許可先に届くことと、許可外が proxy に拒否されることの両方を通す |
-| 作業の保全 | destroy が、VM 内の commit と変更が失われることを示してから承認を求める。稼働中の VM は `--force` 無しでは撤去しない |
-| 再現 | 宣言を変えると plan が drift を示し、stop → destroy → create の後に drift が無くなる。herdr 連携を有効にした VM も、同じ名前で作り直せる |
-| 手数 | README の手順だけで、install から create・stop・起動し直し・destroy までを通せる。起動し直した VM の herdr の pane で agent が動く。VM の中で `docker run` が通る |
+| 隔離 | create の確認プロンプトが、VM に入る設定と VM から通信できる宛先をすべて示す。egress 自己検証が、許可先に届くことと、許可外が proxy に拒否されることの両方を通す。VM の中の container からも、許可外の宛先に届かない |
+| VM の中で開発できる | create の後と start の後に、VM の中で agent を起動でき、`docker run` が通る。herdr 連携の VM では、herdr の pane で agent が動く |
+| 手軽 | README の手順だけで、install から create・stop・start・destroy までを通せる。宣言を変えると plan が drift を示し、作り直した後に drift が無くなる。herdr 連携を有効にした VM も、同じ名前で作り直せる |
 
 対応する OS は macOS とする。Linux は binary を配るが、実機で確かめていない。
 
