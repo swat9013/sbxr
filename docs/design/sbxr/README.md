@@ -83,6 +83,7 @@ git URL `https://github.com/acme/api.git` から作る。VM の名前は `api`�
    - 作成途中・稼働になる。cache clone と状態ディレクトリは残る
 3. `sbxr destroy` は、稼働中なので `--force` 無しでは拒む
 4. `sbxr stop` で作成途中・停止になる
+   - `sbxr start` でなく、`sbxr destroy` で片付けてから `sbxr create` で作る手順を案内する（start は作成途中の VM を拒む。decision/0029）
 5. `sbxr destroy`
    - herdr 連携を有効にして作ったことは、作成の最初に書いた状態ディレクトリから分かる。host の herdr があることを確かめ、`api.sbx` の登録を探す（登録は作成時の宣言の後なので無い）
    - 撤去する
