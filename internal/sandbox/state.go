@@ -8,7 +8,7 @@ import (
 )
 
 // state は sbxr から見た 1 つの sandbox VM の状態。正本は docs/design/sbxr/statechart.puml で、状態の名前もそれに揃える。
-// 管理外と別出所は状態機械の外で、create・stop・destroy のどれも触らずに止まる。
+// 管理外と別出所は状態機械の外で、create・stop・start・destroy のどれも触らずに止まる。
 type state int
 
 const (

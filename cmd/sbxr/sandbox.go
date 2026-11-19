@@ -127,6 +127,34 @@ func newStopCmd(deps dependencies) *cobra.Command {
 	}
 }
 
+func newStartCmd(deps dependencies) *cobra.Command {
+	return &cobra.Command{
+		Use:   "start <repo>",
+		Short: "止めた sandbox VM を起こす",
+		Long: `止めた sandbox VM を起こす。herdr 連携を有効にして作った VM なら、herdr machine も有効に戻す。
+動いている VM には触れず、herdr machine が無効なら有効に戻す。`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cmd.SilenceUsage = true
+			lc, err := lifecycleFor(cmd, deps)
+			if err != nil {
+				return err
+			}
+			result, err := lc.Start(cmd.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			switch result.Outcome {
+			case sandbox.Started:
+				printf(cmd, "sandbox VM %s を起こした\n", result.Name)
+			case sandbox.AlreadyRunning:
+				printf(cmd, "sandbox VM %s は動いている\n", result.Name)
+			}
+			return nil
+		},
+	}
+}
+
 // lifecycleFor は subcommand の入出力と dependencies で lifecycle を組み立てる。
 func lifecycleFor(cmd *cobra.Command, deps dependencies) (sandbox.Lifecycle, error) {
 	places, err := deps.places()

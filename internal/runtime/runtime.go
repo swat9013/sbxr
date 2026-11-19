@@ -39,6 +39,9 @@ type Runtime interface {
 	RemoveEnvironment(ctx context.Context, envDir string) error
 	// StopSandbox は sandbox VM を止める。状態は残る。
 	StopSandbox(ctx context.Context, sandbox string) error
+	// StartSandbox は止まっている sandbox VM を起こす (起動ごとの boot の再生は VM の起動時の処理が行う)。
+	// 稼働中の VM には何もせずに成功する。VM が無ければ error。VM の起動時の処理の完了は待たない。
+	StartSandbox(ctx context.Context, sandbox string) error
 	// ExecInSandbox は sandbox VM 内でコマンドを実行し、stdout を返す。0 以外で終われば error。
 	ExecInSandbox(ctx context.Context, sandbox string, command SandboxCommand) ([]byte, error)
 	// ReadSandboxFile は sandbox VM 内の path (絶対 path) の中身を返す。無ければ error。

@@ -256,6 +256,21 @@ func TestSbxReadsTheStatusOfItsSandboxes(t *testing.T) {
 	}
 }
 
+// sbx に start は無く、sbx exec が止まった sandbox を先に起動する (sbx v0.53.0 の sbx exec --help)。
+func TestSbxStartsTheSandboxByExecutingANoOpInIt(t *testing.T) {
+	var got []string
+	run := func(_ context.Context, _ io.Reader, args ...string) ([]byte, error) {
+		got = args
+		return nil, nil
+	}
+
+	err := NewSbx(run).StartSandbox(context.Background(), "app")
+
+	if want := []string{"exec", "app", "--", "true"}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("StartSandbox = %v, sbx args = %q, want %q", err, got, want)
+	}
+}
+
 func TestSbxConnectsToTheSandboxOverTheSSHConfigSbxWrites(t *testing.T) {
 	if got := NewSbx(nil).SSHTarget("app"); got != "app.sbx" {
 		t.Errorf("SSHTarget = %q, want app.sbx", got)

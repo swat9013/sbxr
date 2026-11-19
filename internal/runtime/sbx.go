@@ -194,6 +194,15 @@ func (s *Sbx) StopSandbox(ctx context.Context, sandbox string) error {
 	return err
 }
 
+// StartSandbox は sbx exec で何もしないコマンドを走らせて起こす。sbx に start は無く、sbx exec が止まった sandbox を
+// 先に起動する (sbx v0.53.0 の sbx exec --help)。この起動でも kit の startup (boot の再生) が走る
+// (docs/real-sbx-walkthrough-macos.md。sbx v0.45.1 で確認)。startup の完了は待たない
+// (止めた VM を起こした後に待てるかは未実測。docs/design/sbxr/system.md「未実測の前提」の 18)。
+func (s *Sbx) StartSandbox(ctx context.Context, sandbox string) error {
+	_, err := s.run(ctx, nil, "exec", sandbox, "--", "true")
+	return err
+}
+
 // allowSandboxEgress は sbx policy allow network --sandbox で sandbox スコープ rule を足す。
 func (s *Sbx) allowSandboxEgress(ctx context.Context, sandbox, resource string) error {
 	_, err := s.run(ctx, nil, "policy", "allow", "network", "--sandbox", sandbox, resource)

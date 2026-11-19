@@ -43,12 +43,14 @@ type world struct {
 	out, errs strings.Builder
 
 	// 実行基盤に起こす失敗
-	failDefine, failEnvCreate, failRemove bool
+	failDefine, failEnvCreate, failRemove, failStart bool
 	// failCreationRecord なら、定義を書いた後に状態ディレクトリを書き込めなくする (作成の最初の記録を書けない)。
 	failCreationRecord bool
 	failAfterCreated   runtime.CreatedStep
 	// stops は StopSandbox を呼ばれた VM (arrive が着いた後から数える)。
 	stops []string
+	// starts は StartSandbox を呼ばれた VM (arrive が着いた後から数える)。
+	starts []string
 	// definitionsAtArrival は arrive が着いたときの実行基盤の定義の数。
 	definitionsAtArrival int
 }
@@ -141,6 +143,11 @@ func (w *world) mustStop(repo string) {
 	if _, err := w.stop(repo); err != nil {
 		w.t.Fatalf("Stop(%s) error = %v", repo, err)
 	}
+}
+
+func (w *world) start(repo string) (StartOutcome, error) {
+	result, err := w.lifecycle().Start(context.Background(), repo)
+	return result.Outcome, err
 }
 
 func (w *world) destroy(repo string, running RunningPolicy) error {
@@ -238,6 +245,15 @@ func (r worldRuntime) CreateSandbox(ctx context.Context, stateDir string, spec r
 func (r worldRuntime) StopSandbox(ctx context.Context, sandbox string) error {
 	r.w.stops = append(r.w.stops, sandbox)
 	return r.Runtime.StopSandbox(ctx, sandbox)
+}
+
+// StartSandbox は、failStart なら VM を起こせずに失敗する (VM は止まったまま)。
+func (r worldRuntime) StartSandbox(ctx context.Context, sandbox string) error {
+	r.w.starts = append(r.w.starts, sandbox)
+	if r.w.failStart {
+		return errors.New("sbx exec に失敗した")
+	}
+	return r.Runtime.StartSandbox(ctx, sandbox)
 }
 
 func (r worldRuntime) RemoveEnvironment(ctx context.Context, envDir string) error {

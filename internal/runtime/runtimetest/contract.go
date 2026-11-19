@@ -78,6 +78,34 @@ func Contract(t *testing.T, newHarness func(t *testing.T) Harness) {
 		assertStatus(t, h, "app", runtime.SandboxStopped)
 	})
 
+	t.Run("止めた VM を起こすと running", func(t *testing.T) {
+		h := newHarness(t)
+		create(t, h, spec("app"))
+		must(t, h.Runtime.StopSandbox(ctx, "app"))
+
+		must(t, h.Runtime.StartSandbox(ctx, "app"))
+
+		assertStatus(t, h, "app", runtime.SandboxRunning)
+	})
+
+	t.Run("稼働中の VM を起こしても running のまま", func(t *testing.T) {
+		h := newHarness(t)
+		create(t, h, spec("app"))
+
+		must(t, h.Runtime.StartSandbox(ctx, "app"))
+
+		assertStatus(t, h, "app", runtime.SandboxRunning)
+	})
+
+	t.Run("無い VM は起こせない", func(t *testing.T) {
+		h := newHarness(t)
+
+		if err := h.Runtime.StartSandbox(ctx, "app"); err == nil {
+			t.Errorf("StartSandbox of an absent VM = nil, want an error")
+		}
+		assertStatus(t, h, "app", runtime.SandboxAbsent)
+	})
+
 	t.Run("撤去した VM は absent", func(t *testing.T) {
 		h := newHarness(t)
 		dir := create(t, h, spec("app"))
