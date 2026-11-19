@@ -12,6 +12,7 @@ import (
 
 	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
+	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 	"github.com/swat9013/sbxr/internal/secret"
 )
 
@@ -281,23 +282,106 @@ func TestCreateFailureAfterTheVMAsksToStopBeforeDestroying(t *testing.T) {
 	}
 }
 
-func TestCreateChecksTheAgentAndDockerInTheVMAfterTheEgressCheck(t *testing.T) {
+func TestCreateChecksTheAgentAndDockerBetweenTheEgressCheckFromTheVMAndFromAContainer(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	repo := localRepo(t, "app", "")
 
 	w.mustCreate(repo)
 
-	lastProbe, firstCheck := -1, -1
-	for i, command := range w.vms.Commands {
-		if slices.Contains(command.Args, probeScript) {
-			lastProbe = i
-		}
-		if firstCheck < 0 && slices.Equal(command.Args, devChecks[0].command) {
-			firstCheck = i
+	var order []string
+	for _, command := range w.vms.Commands {
+		_, fromContainer, probed := probedURL(command.SandboxCommand)
+		switch {
+		case probed && fromContainer:
+			order = append(order, "container")
+		case probed:
+			order = append(order, "vm")
+		case pullsImage(command.SandboxCommand):
+			order = append(order, "pull")
+		case slices.ContainsFunc(devChecks, func(check devCheck) bool { return slices.Equal(command.Args, check.command) }):
+			order = append(order, command.Args[0])
 		}
 	}
-	if got := w.devChecksRan(); !slices.Equal(got, []string{"claude", "docker"}) || lastProbe < 0 || firstCheck < lastProbe {
-		t.Errorf("checks = %v (first at %d, last probe at %d), want the agent and Docker checked after the egress check", got, firstCheck, lastProbe)
+	if want := []string{"vm", "vm", "claude", "docker", "pull", "container", "container"}; !slices.Equal(order, want) {
+		t.Errorf("order = %q, want %q", order, want)
+	}
+}
+
+func TestCreateWithDockerUnusableChecksTheEgressFromTheVMButNotFromAContainer(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.unusableInVM = []string{"docker"}
+	repo := localRepo(t, "app", "")
+
+	_, err := w.create(repo, unattended())
+
+	var stageErr *StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != StageDevTools {
+		t.Errorf("Create() error = %v, want the %s stage", err, StageDevTools)
+	}
+	fromVMOnly := !slices.ContainsFunc(probedURLs(w.vms), func(p string) bool { return p == "pull" || strings.HasPrefix(p, "container ") })
+	if got := probedURLs(w.vms); len(got) != 2 || !fromVMOnly {
+		t.Errorf("probes = %q, want the allowed and the disallowed host probed from the VM only", got)
+	}
+}
+
+func TestCreateChecksTheEgressFromAContainerInTheVM(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", "")
+
+	w.mustCreate(repo)
+
+	var fromContainer []string
+	for _, command := range w.vms.Commands {
+		if url, container, ok := probedURL(command.SandboxCommand); ok && container {
+			fromContainer = append(fromContainer, url)
+		}
+	}
+	if len(fromContainer) != 2 || !pulled(w.vms.Commands) {
+		t.Errorf("probes from a container = %q, want the allowed and the disallowed host probed after pulling the image", fromContainer)
+	}
+}
+
+func TestCreateKeepsTheVMWithoutRecordingTheDeclarationWhenTheContainerReachesADisallowedHost(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	answers := w.vms.Respond
+	w.vms.Respond = func(sandbox string, command runtime.SandboxCommand) ([]byte, error) {
+		if url, container, ok := probedURL(command); ok && container && url == "https://example.com/" {
+			return []byte("0 200\n<html>\n"), nil
+		}
+		return answers(sandbox, command)
+	}
+	repo := localRepo(t, "app", "")
+
+	_, err := w.create(repo, unattended())
+
+	var stageErr *StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != StageEgressCheck || !strings.Contains(err.Error(), "VM の中の container から、許可外の example.com:443 に届いた") {
+		t.Errorf("Create() error = %v, want the egress self-check to stop on the container reaching example.com", err)
+	}
+	if got := w.stateOf(repo); got != stateIncompleteRunning {
+		t.Errorf("state = %s, want the VM left running without the declaration recorded", got)
+	}
+}
+
+func TestCreateKeepsTheVMWithoutRecordingTheDeclarationWhenTheContainerImageCannotBePulled(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	answers := w.vms.Respond
+	w.vms.Respond = func(sandbox string, command runtime.SandboxCommand) ([]byte, error) {
+		if pullsImage(command) {
+			return nil, errors.New("pull access denied")
+		}
+		return answers(sandbox, command)
+	}
+	repo := localRepo(t, "app", "")
+
+	_, err := w.create(repo, unattended())
+
+	var stageErr *StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != StageEgressCheck || !strings.Contains(err.Error(), "docker-registry group") {
+		t.Errorf("Create() error = %v, want the egress self-check to stop naming the docker-registry group", err)
+	}
+	if got := w.stateOf(repo); got != stateIncompleteRunning {
+		t.Errorf("state = %s, want the VM left running without the declaration recorded", got)
 	}
 }
 
@@ -584,6 +668,26 @@ func TestStartChecksTheAgentAndDockerInTheVM(t *testing.T) {
 
 			if got := w.devChecksRan(); err != nil || !slices.Equal(got, []string{"claude", "docker"}) {
 				t.Errorf("Start() error = %v, checks = %v, want the agent and Docker checked", err, got)
+			}
+		})
+	}
+}
+
+func TestStartDoesNotCheckTheEgressFromTheVMOrAContainer(t *testing.T) {
+	for _, from := range []state{stateStopped, stateRunning} {
+		t.Run(from.String(), func(t *testing.T) {
+			w := newWorld(t, testUserConfig)
+			w.arrive(from)
+			w.vms.Commands = nil
+
+			_, err := w.start(w.repo())
+
+			probed := pulled(w.vms.Commands) || slices.ContainsFunc(w.vms.Commands, func(command inmemory.Command) bool {
+				_, _, ok := probedURL(command.SandboxCommand)
+				return ok
+			})
+			if err != nil || probed {
+				t.Errorf("Start() error = %v, egress probed or image pulled = %t, want neither (decision/0031)", err, probed)
 			}
 		})
 	}
