@@ -282,23 +282,45 @@ func TestCreateFailureAfterTheVMAsksToStopBeforeDestroying(t *testing.T) {
 	}
 }
 
-func TestCreateChecksTheAgentAndDockerInTheVMBeforeTheEgressCheck(t *testing.T) {
+func TestCreateChecksTheAgentAndDockerBetweenTheEgressCheckFromTheVMAndFromAContainer(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	repo := localRepo(t, "app", "")
 
 	w.mustCreate(repo)
 
-	firstProbe, lastCheck := -1, -1
-	for i, command := range w.vms.Commands {
-		if _, _, ok := probedURL(command.SandboxCommand); ok && firstProbe < 0 {
-			firstProbe = i
-		}
-		if slices.Equal(command.Args, devChecks[len(devChecks)-1].command) {
-			lastCheck = i
+	var order []string
+	for _, command := range w.vms.Commands {
+		_, fromContainer, probed := probedURL(command.SandboxCommand)
+		switch {
+		case probed && fromContainer:
+			order = append(order, "container")
+		case probed:
+			order = append(order, "vm")
+		case pullsImage(command.SandboxCommand):
+			order = append(order, "pull")
+		case slices.ContainsFunc(devChecks, func(check devCheck) bool { return slices.Equal(command.Args, check.command) }):
+			order = append(order, command.Args[0])
 		}
 	}
-	if got := w.devChecksRan(); !slices.Equal(got, []string{"claude", "docker"}) || lastCheck < 0 || firstProbe < lastCheck {
-		t.Errorf("checks = %v (last at %d, first probe at %d), want the agent and Docker checked before the egress check", got, lastCheck, firstProbe)
+	if want := []string{"vm", "vm", "claude", "docker", "pull", "container", "container"}; !slices.Equal(order, want) {
+		t.Errorf("order = %q, want %q", order, want)
+	}
+}
+
+func TestCreateWithDockerUnusableChecksTheEgressFromTheVMButNotFromAContainer(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	w.unusableInVM = []string{"docker"}
+	repo := localRepo(t, "app", "")
+
+	_, err := w.create(repo, unattended())
+
+	var stageErr *StageError
+	if !errors.As(err, &stageErr) || stageErr.Stage != StageDevTools {
+		t.Errorf("Create() error = %v, want the %s stage", err, StageDevTools)
+	}
+	fromVMOnly := !slices.ContainsFunc(probedURLs(w.vms), func(p string) bool { return p == "pull" || strings.HasPrefix(p, "container ") })
+	if got := probedURLs(w.vms); len(got) != 2 || !fromVMOnly {
+		t.Errorf("probes = %q, want the allowed and the disallowed host probed from the VM only", got)
 	}
 }
 
@@ -665,7 +687,7 @@ func TestStartDoesNotCheckTheEgressFromTheVMOrAContainer(t *testing.T) {
 				return ok
 			})
 			if err != nil || probed {
-				t.Errorf("Start() error = %v, egress probed or image pulled = %t, want neither (decision/0030)", err, probed)
+				t.Errorf("Start() error = %v, egress probed or image pulled = %t, want neither (decision/0031)", err, probed)
 			}
 		})
 	}

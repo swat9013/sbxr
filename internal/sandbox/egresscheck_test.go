@@ -190,12 +190,21 @@ func TestCheckEgressSkipsTheSideWithoutAProbeTarget(t *testing.T) {
 	}
 }
 
-// defaultGlobal は許可先 github.com:443 を持ち、example.com を許可しない許可集合。
-var defaultGlobal = []string{"github.com:443"}
+// checkEgress は egress 自己検証を、create と同じく VM 直下 → container の順に行う (間の agent と Docker の確認は省く)。
+func checkEgress(ctx context.Context, v vm, prepared preparation, progress io.Writer) error {
+	targets := probeTargetsOf(prepared)
+	if err := checkEgressFromVM(ctx, v, targets, progress); err != nil {
+		return err
+	}
+	return checkEgressFromContainer(ctx, v, targets, progress)
+}
 
-// answerContainer は container からの probe script にだけ out を返し、ほかは answerProbes(defaultGlobal) に任せる。
+// allowsGithubOnly は許可先 github.com:443 だけを持ち、example.com を許可しない許可集合。
+var allowsGithubOnly = []string{"github.com:443"}
+
+// answerContainer は container からの probe script にだけ out を返し、ほかは answerProbes(allowsGithubOnly) に任せる。
 func answerContainer(host, out string) func(runtime.SandboxCommand) ([]byte, error) {
-	probes := answerProbes(defaultGlobal)
+	probes := answerProbes(allowsGithubOnly)
 	return func(command runtime.SandboxCommand) ([]byte, error) {
 		if url, fromContainer, ok := probedURL(command); ok && fromContainer && url == "https://"+host+"/" {
 			return []byte(out), nil
@@ -205,16 +214,16 @@ func answerContainer(host, out string) func(runtime.SandboxCommand) ([]byte, err
 }
 
 func TestCheckEgressProbesFromAContainerInTheVMAfterTheVMWithAPulledImage(t *testing.T) {
-	v, rt := runningVM(t, answerProbes(defaultGlobal))
+	v, rt := runningVM(t, answerProbes(allowsGithubOnly))
 	var progress bytes.Buffer
 
-	err := checkEgress(context.Background(), v, preparation{GlobalEgress: defaultGlobal}, &progress)
+	err := checkEgress(context.Background(), v, preparation{GlobalEgress: allowsGithubOnly}, &progress)
 
 	want := []string{"https://github.com/", "https://example.com/", "pull", "container https://github.com/", "container https://example.com/"}
 	if probes := probedURLs(rt); err != nil || !slices.Equal(probes, want) {
 		t.Errorf("checkEgress() error = %v, probes = %q, want %q", err, probes, want)
 	}
-	for _, want := range []string{"VM の中の container から、許可先 github.com:443 に届いた", "VM の中の container から、許可外の example.com:443 は proxy が拒否した (curl の exit 6)"} {
+	for _, want := range []string{"VM の中の container に使う image curlimages/curl:8.11.1 を pull する", "VM の中の container から、許可先 github.com:443 に届いた", "VM の中の container から、許可外の example.com:443 は proxy が拒否した (curl の exit 6)"} {
 		if !strings.Contains(progress.String(), want) {
 			t.Errorf("progress = %q, want %q", progress.String(), want)
 		}
@@ -222,9 +231,9 @@ func TestCheckEgressProbesFromAContainerInTheVMAfterTheVMWithAPulledImage(t *tes
 }
 
 func TestCheckEgressRunsTheContainerWithoutAProxyFromAFixedImageTag(t *testing.T) {
-	v, rt := runningVM(t, answerProbes(defaultGlobal))
+	v, rt := runningVM(t, answerProbes(allowsGithubOnly))
 
-	if err := checkEgress(context.Background(), v, preparation{GlobalEgress: defaultGlobal}, io.Discard); err != nil {
+	if err := checkEgress(context.Background(), v, preparation{GlobalEgress: allowsGithubOnly}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -252,7 +261,7 @@ func TestCheckEgressFromTheContainerReadsTheTransparentDenialsAsDenied(t *testin
 		t.Run(out, func(t *testing.T) {
 			v, _ := runningVM(t, answerContainer("example.com", out))
 
-			if err := checkEgress(context.Background(), v, preparation{GlobalEgress: defaultGlobal}, io.Discard); err != nil {
+			if err := checkEgress(context.Background(), v, preparation{GlobalEgress: allowsGithubOnly}, io.Discard); err != nil {
 				t.Errorf("checkEgress() error = %v, want the denial from the container to pass", err)
 			}
 		})
@@ -262,12 +271,12 @@ func TestCheckEgressFromTheContainerReadsTheTransparentDenialsAsDenied(t *testin
 func TestCheckEgressFromTheContainerStopsUnlessTheDisallowedHostIsDenied(t *testing.T) {
 	for name, tt := range map[string]struct{ out, want string }{
 		"宛先の応答":     {"0 200\n<html>\n", "VM の中の container から、許可外の example.com:443 に届いた"},
-		"拒否の形でない失敗": {"28 000\ncurl: (28) Connection timed out\n", "VM の中の container から、許可外の example.com:443 への通信が proxy の拒否 (拒否応答か、curl の exit 6・35・52)を得ずに失敗した"},
+		"拒否の形でない失敗": {"28 000\ncurl: (28) Connection timed out\n", "VM の中の container から、許可外の example.com:443 への通信が proxy の拒否応答も、拒否と読む curl の exit (6・35・52) も得ずに失敗した"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			v, _ := runningVM(t, answerContainer("example.com", tt.out))
 
-			err := checkEgress(context.Background(), v, preparation{GlobalEgress: defaultGlobal}, io.Discard)
+			err := checkEgress(context.Background(), v, preparation{GlobalEgress: allowsGithubOnly}, io.Discard)
 
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("checkEgress() error = %v, want %q", err, tt.want)
@@ -285,7 +294,7 @@ func TestCheckEgressFromTheContainerStopsWhenTheAllowedHostIsNotReached(t *testi
 		t.Run(out, func(t *testing.T) {
 			v, _ := runningVM(t, answerContainer("github.com", out))
 
-			err := checkEgress(context.Background(), v, preparation{GlobalEgress: defaultGlobal}, io.Discard)
+			err := checkEgress(context.Background(), v, preparation{GlobalEgress: allowsGithubOnly}, io.Discard)
 
 			if err == nil || !strings.Contains(err.Error(), "VM の中の container から、許可先 github.com:443 に届かない") {
 				t.Errorf("checkEgress() error = %v, want the allowed host unreached from the container", err)
@@ -295,7 +304,7 @@ func TestCheckEgressFromTheContainerStopsWhenTheAllowedHostIsNotReached(t *testi
 }
 
 func TestCheckEgressFromTheVMStillFailsOnTheTransparentDenialShape(t *testing.T) {
-	probes := answerProbes(defaultGlobal)
+	probes := answerProbes(allowsGithubOnly)
 	v, rt := runningVM(t, func(command runtime.SandboxCommand) ([]byte, error) {
 		if url, fromContainer, ok := probedURL(command); ok && !fromContainer && url == "https://example.com/" {
 			return []byte("6 000\ncurl: (6) Could not resolve host: example.com\n"), nil
@@ -303,7 +312,7 @@ func TestCheckEgressFromTheVMStillFailsOnTheTransparentDenialShape(t *testing.T)
 		return probes(command)
 	})
 
-	err := checkEgress(context.Background(), v, preparation{GlobalEgress: defaultGlobal}, io.Discard)
+	err := checkEgress(context.Background(), v, preparation{GlobalEgress: allowsGithubOnly}, io.Discard)
 
 	if err == nil || !strings.Contains(err.Error(), "許可外の example.com:443 への通信が proxy の拒否応答を得ずに失敗した") {
 		t.Errorf("checkEgress() error = %v, want the VM side to require the proxy's denial response", err)
@@ -314,7 +323,7 @@ func TestCheckEgressFromTheVMStillFailsOnTheTransparentDenialShape(t *testing.T)
 }
 
 func TestCheckEgressStopsNamingTheDockerRegistryGroupWhenTheImageCannotBePulled(t *testing.T) {
-	probes := answerProbes(defaultGlobal)
+	probes := answerProbes(allowsGithubOnly)
 	v, rt := runningVM(t, func(command runtime.SandboxCommand) ([]byte, error) {
 		if pullsImage(command) {
 			return nil, errors.New("Error response from daemon: Get \"https://registry-1.docker.io/v2/\": Forbidden")
@@ -322,7 +331,7 @@ func TestCheckEgressStopsNamingTheDockerRegistryGroupWhenTheImageCannotBePulled(
 		return probes(command)
 	})
 
-	err := checkEgress(context.Background(), v, preparation{GlobalEgress: defaultGlobal}, io.Discard)
+	err := checkEgress(context.Background(), v, preparation{GlobalEgress: allowsGithubOnly}, io.Discard)
 
 	if err == nil || !strings.Contains(err.Error(), "image curlimages/curl:8.11.1 を pull できない") || !strings.Contains(err.Error(), "docker-registry group が要る") {
 		t.Errorf("checkEgress() error = %v, want the pull failure naming the docker-registry group", err)
