@@ -44,7 +44,7 @@ When your output names a domain concept (in an issue title, a refactor proposal,
 
 If the concept you need isn't in the glossary yet, that's a signal: either you're inventing language the project doesn't use (reconsider) or there's a real gap (note it for `/domain-modeling`).
 
-用語集の語を改名する変更と、`_Avoid_` に語を足す変更では、避ける語（旧称と `_Avoid_` に足した語）を置き換える対象に、comment・CLI の文面・文書に加えて、その概念を名指す識別子（型・関数・変数・test の名前）と test の失敗文を含める。`docs/design/sbxr/decision/` と `docs/adr/` の既存 file は不変なので置き換えない。
+用語集の語を改名する変更・`_Avoid_` に語を足す変更・避ける語を後から置き換える変更では、避ける語（旧称と `_Avoid_` の語）を置き換える対象に、comment・CLI の文面・文書に加えて、その概念を名指す識別子（型・関数・変数・test の名前）と test の失敗文を含める。`docs/design/sbxr/decision/` と `docs/adr/` の既存 file は不変なので置き換えない。
 
 避ける語を英訳や略語で綴った識別子も、避ける語として数える（例: 確認関門 → `Gate`）。避ける語の一部でも、用語集の定義文が今も使う語をその意味で使う識別子は残す（例: 避けるのは「placeholder 注入」で、credential injection の定義文が使う placeholder は残す）。
 

@@ -23,7 +23,7 @@ issue に label を付ける・triage で issue の行き先を決める前に�
 
 ### Domain docs
 
-single-context: root の `CONTEXT.md` と `docs/adr/`。See `docs/agents/domain.md`. 用語集の語を改名する・`_Avoid_` に語を足す・旧称を置き換える前にも、`docs/agents/domain.md` を読む。実装に入る前に、設計ドキュメントの索引 `docs/design/sbxr/README.md` も読む。
+single-context: root の `CONTEXT.md` と `docs/adr/`。codebase を調べる前と、用語集の語を改名する・`_Avoid_` に語を足す・避ける語（旧称と `_Avoid_` の語）を置き換える前に、`docs/agents/domain.md` を読む。実装に入る前に、設計ドキュメントの索引 `docs/design/sbxr/README.md` も読む。
 
 ## Worktree 方式
 
