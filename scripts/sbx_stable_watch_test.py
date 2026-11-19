@@ -1,5 +1,11 @@
+import contextlib
+import io
 import pathlib
+import re
+import sys
+import tempfile
 import unittest
+from unittest import mock
 
 import sbx_stable_watch as watch
 
@@ -35,9 +41,43 @@ class MeasuredVersionTest(unittest.TestCase):
 
     def test_reads_the_real_version_file(self):
         # sbx_version.go の書き方が変わって読めなくなったら、週 1 回の実行を待たずにここで落とす。
-        # 上限は対応する下限 (MinSbxVersion、v0.51.0) を下回らないので、別の定数を読み違えたら落ちる値で確かめる
-        measured = watch.measured_version(VERSION_FILE.read_text(encoding="utf-8"))
-        self.assertGreater(measured, (0, 51, 0))
+        # 読んだ値は、同じ file の下限 (MinSbxVersion) を下回らない (decision/0019)
+        source = VERSION_FILE.read_text(encoding="utf-8")
+        minimum = re.search(r"MinSbxVersion\s*=\s*SbxVersion\{Major:\s*([0-9]+),\s*Minor:\s*([0-9]+),\s*Patch:\s*([0-9]+)\}", source)
+        self.assertIsNotNone(minimum)
+        self.assertGreaterEqual(watch.measured_version(source), tuple(int(part) for part in minimum.groups()))
+
+
+class MainTest(unittest.TestCase):
+    def run_main(self, latest_tag, tmp):
+        titles = pathlib.Path(tmp) / "titles"
+        titles.write_text("", encoding="utf-8")
+        body = pathlib.Path(tmp) / "body.md"
+        argv = [
+            "sbx_stable_watch.py",
+            "--latest-tag", latest_tag,
+            "--version-file", str(VERSION_FILE),
+            "--existing-titles", str(titles),
+            "--body-out", str(body),
+        ]
+        stdout = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(stdout):
+            watch.main()
+        return stdout.getvalue(), body
+
+    def test_unreadable_tag_fails_the_run_with_error_annotation(self):
+        # 読めない版を「新しい版は無い」と読み替えると、監視が黙って止まる
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(SystemExit) as raised:
+                self.run_main("v0.55.0-rc4", tmp)
+            self.assertTrue(str(raised.exception.code).startswith("::error::"))
+            self.assertFalse((pathlib.Path(tmp) / "body.md").exists())
+
+    def test_newer_stable_prints_title_and_writes_body(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout, body = self.run_main("v999.0.0", tmp)
+            self.assertEqual(stdout, "sbx v999.0.0 を実 sbx で確かめる\n")
+            self.assertIn("v999.0.0", body.read_text(encoding="utf-8"))
 
 
 class NewIssueTitleTest(unittest.TestCase):

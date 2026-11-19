@@ -5,8 +5,14 @@ name: sbx stable watch
 on:
   schedule:
     - cron: "0 0 * * 1"
-  # merge の後に、gh api と issue の作成の経路を月曜を待たずに通せるようにする
+  # 新しい stable が出た直後や workflow を直した後に、月曜を待たずに走らせる。
+  # 新しい stable が無ければ、手で走らせても issue の作成までは進まない
   workflow_dispatch:
+
+# 手の起動と schedule が重なっても、同じ版の issue を 2 件立てないよう 1 つずつ走らせる
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
