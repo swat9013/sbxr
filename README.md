@@ -9,6 +9,7 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 - `sbxr plan <repo>` — 何が作られるかを表示する。VM が既にあれば、作成時の宣言からの差分（drift）も表示する
 - `sbxr create <repo>` — repo 宣言（`sbxr.yaml`）を user 設定と merge し、確認のうえ sandbox VM を作る。egress 許可・secret 配線・agent runtime profile・init / boot を適用する。最後に VM 内から、許可先に届くことと許可外（`example.com` など）が proxy に拒否されることを 1 回ずつ確かめ（egress 自己検証）、通らなければ VM を残して止まる（global rule が宣言に揃っていないと許可先に届かないので、先に `sbxr policy sync` を実行しておく）
 - `sbxr stop <repo>` / `sbxr destroy <repo>` — 停止 / 撤去（撤去すると VM 内の commit と変更は失われるので、確認を求める。稼働中の VM は使用中かを確かめられないので、止めてから撤去するか `--force` を付ける。VM 消失（VM が sbxr の外で撤去され、状態ディレクトリだけが残っている）では、stop は拒否して destroy を促し、destroy は VM が無くても sandbox スコープの secret と状態ディレクトリを片付ける）
+- `sbxr start <repo>` — 止めた sandbox VM を起こす（起動ごとの boot が走る）。確認は求めない。動いている VM には触れずに「動いている」と示す。未作成なら create を、作成途中・VM 消失なら destroy を促して非 0 で終える。VM を起こせなければ、VM は止まったまま非 0 で終える
 - `sbxr policy sync [--check]` — user 設定の egress 宣言を global rule へ収束させる
 - `sbxr secret setup github` / `sbxr secret setup custom --host <host>` — token の能力を確認して secret ファイルへ格納する
 - `sbxr doctor [<repo>]` — user 設定・repo 宣言と host の前提（sbx・secret ファイル・herdr・global rule）を全件検査し、項目ごとに ok / fail / skip と、fail の直し方を表示する。1 つの誤りで残りの検査を止めない。fail があれば非 0 で終える。`<repo>` を省くと、環境と user 設定だけを見る。何も変えない
@@ -51,8 +52,8 @@ herdr:
 ```
 
 - VM 内では起動ごとに、宣言の版と違うときだけ GitHub release から herdr を入れ、`herdr server` を起動し、`herdr integration install claude` を実行する
-- create の後に登録し、destroy の前に解除する。stop の前には machine を無効にする（有効なままだと herdr が繋ぎ直して VM が起動する）。sbxr の外（`sbx stop`）で止めた VM にも stop を打つと、VM には触れずに machine を無効にする。起動し直したら、stop が表示した `herdr machine enable <id>` で有効に戻す
-- 有効なのに host に herdr が無ければ、create / stop / destroy は確認や VM の操作の前に止まる。登録に失敗したら VM を残して止まり、登録し直す手順を表示する（同じ `<name>.sbx` の登録が残っているときも、それには触れずに止まる）
+- create の後に登録し、destroy の前に解除する。stop の前には machine を無効にする（有効なままだと herdr が繋ぎ直して VM が起動する）。sbxr の外（`sbx stop`）で止めた VM にも stop を打つと、VM には触れずに machine を無効にする。`sbxr start` は VM を起こした後に machine を有効に戻す（動いている VM なら、無効な machine だけを有効に戻す）。登録が無ければ（手で解除した等）、登録し直す手順を表示して非 0 で終える
+- 有効なのに host に herdr が無ければ、create / stop / start / destroy は確認や VM の操作の前に止まる。登録に失敗したら VM を残して止まり、登録し直す手順を表示する（同じ `<name>.sbx` の登録が残っているときも、それには触れずに止まる）
 - VM 内の herdr の失敗は `/var/log/sbx-kit-startup.log` に `sbxr-herdr: fail` の行で残る。create のときは create が失敗として止まる
 
 ## 必要なもの

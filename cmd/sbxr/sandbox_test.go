@@ -13,7 +13,7 @@ import (
 	"github.com/swat9013/sbxr/internal/sandbox"
 )
 
-// plan・create・stop・destroy の振る舞い (状態機械の遷移と、それに伴う片付け・前提の確認) は internal/sandbox の遷移表が固定する。
+// plan・create・stop・start・destroy の振る舞い (状態機械の遷移と、それに伴う片付け・前提の確認) は internal/sandbox の遷移表が固定する。
 // cmd に置くのは、引数と flag の解釈と表示 (この file) と、sbx stub の上の受け入れテスト (ADR 0001):
 // 宣言の merge と egress・boot・確認プロンプト (acceptance_test.go)、VM の中の段と egress 自己検証が sbx stub の VM で通ること
 // (materialize_test.go・egresscheck_test.go)、v0.1.0 の状態ディレクトリを扱えること (compat_test.go)。
@@ -140,9 +140,12 @@ func TestEachCommandNamesTheSandboxOfAGitURLInItsResult(t *testing.T) {
 		{[]string{"create", url, "--yes"}, "sandbox VM app は既にある"},
 		{[]string{"stop", url}, "sandbox VM app を止めた"},
 		{[]string{"stop", url}, "sandbox VM app は止まっている"},
+		{[]string{"start", url}, "sandbox VM app を起こした"},
+		{[]string{"start", url}, "sandbox VM app は動いている"},
+		{[]string{"stop", url}, "sandbox VM app を止めた"},
 		{[]string{"destroy", url, "--yes"}, "sandbox VM app を撤去した"},
 	} {
-		// 各段は前の段が残した状態から始まる (作った → 既にある → 止めた → 止まっている → 撤去した)
+		// 各段は前の段が残した状態から始まる (作った → 既にある → 止めた → 止まっている → 起こした → 動いている → 止めた → 撤去した)
 		t.Run(step.want, func(t *testing.T) {
 			if out := lc.mustRun(t, step.args...); !strings.Contains(out, step.want) {
 				t.Errorf("sbxr %s output = %q, want %q", strings.Join(step.args, " "), out, step.want)

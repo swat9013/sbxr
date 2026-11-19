@@ -228,6 +228,54 @@ func TestDisableFailsWhenTheMachineCannotBeDisabled(t *testing.T) {
 	}
 }
 
+func TestEnableEnablesADisabledMachine(t *testing.T) {
+	rt := runningApp()
+	host := hostWithEnabledMachine(rt)
+	host.Machines[0].Enabled = false
+	var progress strings.Builder
+
+	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", &progress)
+
+	if err != nil || !host.Machines[0].Enabled || !strings.Contains(progress.String(), "有効に戻した") {
+		t.Errorf("Enable() = %v, machine = %+v, progress = %q, want it enabled and reported", err, host.Machines[0], progress.String())
+	}
+}
+
+func TestEnableLeavesAnEnabledMachineAlone(t *testing.T) {
+	rt := runningApp()
+	host := hostWithEnabledMachine(rt)
+
+	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", io.Discard)
+
+	if err != nil || slices.Contains(host.Calls, "enable m1") {
+		t.Errorf("Enable() = %v, calls = %v, want nothing to enable", err, host.Calls)
+	}
+}
+
+// 利用者が手で解除した等で登録が無ければ、登録し直す手順を示して失敗する (UC10 の 5b)。
+func TestEnableWithoutARegistrationFailsWithHowToRegisterAgain(t *testing.T) {
+	rt := runningApp()
+
+	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.Enable(context.Background(), "app", io.Discard)
+
+	if err == nil || !strings.Contains(err.Error(), "pkill -x herdr を実行してから herdr machine add app.inmemory --label app") {
+		t.Errorf("Enable() error = %v, want how to register the machine again", err)
+	}
+}
+
+func TestEnableFailsWithHowToEnableByHandWhenTheMachineCannotBeEnabled(t *testing.T) {
+	rt := runningApp()
+	host := hostWithEnabledMachine(rt)
+	host.Machines[0].Enabled = false
+	host.FailEnable = true
+
+	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", io.Discard)
+
+	if err == nil || !strings.Contains(err.Error(), "herdr machine enable m1") {
+		t.Errorf("Enable() error = %v, want the failure with how to enable by hand", err)
+	}
+}
+
 func TestRemoveRemovesOnlyTheMachineOfTheSandbox(t *testing.T) {
 	rt := runningApp()
 	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "m1", Target: rt.SSHTarget("app")}, {ID: "m2", Target: rt.SSHTarget("other")}}}

@@ -15,7 +15,7 @@ type VM interface {
 	StopSandbox(ctx context.Context, sandbox string) error
 }
 
-// Registry は sandbox VM ごとの herdr machine の登録簿: 登録・停止前の無効化・解除 (ADR 0007)。
+// Registry は sandbox VM ごとの herdr machine の登録簿: 登録・停止前の無効化・起こした後の有効化・解除 (ADR 0007・decision/0025)。
 // 残った登録の扱いと、失敗したときの復旧手順の文面はここに置く。host に herdr があることは、呼び出し側が
 // 先に RequireOnHost で確かめる (確認プロンプトの前に止めるため)。
 type Registry struct {
@@ -46,13 +46,18 @@ func (e *RegistrationError) Unwrap() error { return e.Err }
 // stopServer は VM 内の herdr server を止めるコマンド。
 const stopServer = "pkill -x herdr"
 
+// registerByHand は稼働中の sandbox VM を利用者が手で登録する手順 (Register と同じく、VM 内の server を止めてから登録する)。
+func registerByHand(sandbox, target string) string {
+	return fmt.Sprintf("VM %s の中で %s を実行してから %s", sandbox, stopServer, addCommand(target, sandbox))
+}
+
 // Register は sandbox VM を host の herdr に、その ssh の宛先で登録する。
 // kit が起動した VM 内の server を止めてから登録する (動いたままだと herdr machine add が
 // "remote server is not ready for saved machines" で失敗する。ADR 0007 の実測)。
 // 同じ宛先の登録が残っていたら (前の VM の解除の失敗など)、この回に作っていない登録には触れずに止める。
 func (r Registry) Register(ctx context.Context, sandbox string, progress io.Writer) error {
 	target := r.VM.SSHTarget(sandbox)
-	recovery := fmt.Sprintf("VM %s の中で %s を実行してから %s", sandbox, stopServer, addCommand(target, sandbox))
+	recovery := registerByHand(sandbox, target)
 	machines, err := r.Client.List(ctx)
 	if err != nil {
 		return &RegistrationError{Err: err, Recovery: recovery}
@@ -115,6 +120,28 @@ func (r Registry) Disable(ctx context.Context, sandbox string, progress io.Write
 		return "", err
 	}
 	return enableCommand(machine.ID), nil
+}
+
+// Enable は、起こした (か動いている) sandbox VM の無効な herdr machine を有効に戻す (decision/0025)。VM には触れない。
+// 有効なら何もしない。登録が無ければ (利用者が手で解除した等)、登録し直す手順を添えた error (UC10 の 5b)。
+// 有効に戻せなければ、手で戻すコマンドを添えた error。
+func (r Registry) Enable(ctx context.Context, sandbox string, progress io.Writer) error {
+	target := r.VM.SSHTarget(sandbox)
+	machine, found, err := r.find(ctx, target)
+	if err != nil {
+		return fmt.Errorf("herdr machine を有効に戻せない: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s", target, registerByHand(sandbox, target))
+	}
+	if machine.Enabled {
+		return nil
+	}
+	if err := r.Client.Enable(ctx, machine.ID); err != nil {
+		return fmt.Errorf("herdr machine %s を有効に戻せない (%s で戻す): %w", machine.Target, enableCommand(machine.ID), err)
+	}
+	logf(progress, "herdr: %s を有効に戻した\n", machine.Target)
+	return nil
 }
 
 // disable は sandbox VM の有効な herdr machine を無効にする。disabled は sbxr が無効にしたか

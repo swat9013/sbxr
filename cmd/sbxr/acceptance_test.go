@@ -149,9 +149,7 @@ func TestAcceptanceBootReplaysTheCreationTimeCommandsOnEveryStart(t *testing.T) 
 
 	for range 2 {
 		lc.mustRun(t, "stop", repo)
-		if err := lc.stub.Start("app"); err != nil {
-			t.Fatal(err)
-		}
+		lc.mustRun(t, "start", repo)
 	}
 
 	if want := slices.Repeat([]string{bootScriptPath}, 3); !slices.Equal(lc.stub.VM.Executed, want) {
