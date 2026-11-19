@@ -166,7 +166,7 @@ func createsNothingNew(t *testing.T, w *world) {
 var transitions = []transition{
 	// --- create ---
 	{from: stateAbsent, event: eventCreate, guard: "成功", to: stateRunning, then: registersTheHerdrMachine,
-		pending: "template の用意は #13"},
+		pending: "template の用意は #13、herdr の pane で agent を起動できることを確かめるのは #138"},
 	{from: stateAbsent, event: eventCreate, guard: "出所の記録前に失敗", arrange: failDefine, to: stateAbsent, refused: true, then: leavesNoStateDir,
 		pending: "build 用 VM の片付けは #13"},
 	{from: stateAbsent, event: eventCreate, guard: "VM 作成前に失敗", arrange: failEnvCreate, to: stateIncompleteStopped, refused: true, then: keepsTheStateDir},
@@ -189,9 +189,10 @@ var transitions = []transition{
 	{from: stateAbsent, event: eventStart, to: stateAbsent, refused: true, then: touchesNoVM},
 	{from: stateIncompleteStopped, event: eventStart, to: stateIncompleteStopped, refused: true, then: touchesNoVM},
 	{from: stateIncompleteRunning, event: eventStart, to: stateIncompleteRunning, refused: true, then: touchesNoVM},
-	{from: stateRunning, event: eventStart, arrange: disableTheHerdrMachine, to: stateRunning, then: enablesTheHerdrMachineWithoutTouchingTheVM},
+	{from: stateRunning, event: eventStart, arrange: disableTheHerdrMachine, to: stateRunning, then: enablesTheHerdrMachineWithoutTouchingTheVM,
+		pending: "herdr の pane で agent を起動できることを確かめるのは #138"},
 	{from: stateStopped, event: eventStart, guard: "VM を起こせた", to: stateRunning, then: startsTheVMAndEnablesTheHerdrMachine,
-		pending: "run を始めるのは #137"},
+		pending: "herdr の pane で agent を起動できることを確かめるのは #138、run を始めるのは #137"},
 	{from: stateStopped, event: eventStart, guard: "VM を起こせない", arrange: failStart, to: stateStopped, refused: true, then: leavesTheHerdrMachineDisabled},
 	{from: stateVMGone, event: eventStart, to: stateVMGone, refused: true, then: touchesNoVM},
 

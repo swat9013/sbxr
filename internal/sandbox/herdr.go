@@ -77,7 +77,8 @@ func (l Lifecycle) reportDisabled(name, repo, enable string) {
 // startStopped は停止中の sandbox VM を起こし、VM の中を確かめてから、herdr 連携を有効にして作った VM なら
 // herdr machine を有効に戻す。host に herdr が無ければ、VM に触れずに止まる。herdr machine は VM を起こせた後に有効に戻す
 // (起こせなかった VM の machine を有効にすると、herdr が繋ぎ直して VM を起こしうる)。
-func (l Lifecycle) startStopped(ctx context.Context, name string) error {
+// repo は、確かめ直す手順 (sbxr start) に添える利用者の <repo>。
+func (l Lifecycle) startStopped(ctx context.Context, name, repo string) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
 		return err
@@ -85,7 +86,7 @@ func (l Lifecycle) startStopped(ctx context.Context, name string) error {
 	if err := l.Runtime.StartSandbox(ctx, name); err != nil {
 		return fmt.Errorf("sandbox VM %s を起こせない (VM は止まったまま): %w", name, err)
 	}
-	if err := l.readyStarted(ctx, name, enabled); err != nil {
+	if err := l.readyStarted(ctx, name, repo, enabled); err != nil {
 		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
 	}
 	return nil
@@ -93,20 +94,23 @@ func (l Lifecycle) startStopped(ctx context.Context, name string) error {
 
 // startRunning は稼働中の sandbox VM を起こさずに、VM の中を確かめてから herdr machine を有効に戻す (decision/0025)。
 // host に herdr が無ければ、VM に触れずに止まる。
-func (l Lifecycle) startRunning(ctx context.Context, name string) error {
+func (l Lifecycle) startRunning(ctx context.Context, name, repo string) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
 		return err
 	}
-	return l.readyStarted(ctx, name, enabled)
+	return l.readyStarted(ctx, name, repo, enabled)
 }
 
 // readyStarted は稼働中の sandbox VM の中で agent と Docker が使えることを確かめ (decision/0027)、
 // herdr 連携を有効にして作った VM なら herdr machine を有効に戻す。確かめた項目が成り立たなければ、
-// herdr machine を有効に戻さずに止まる (UC10 の 4a。VM は稼働中のまま)。
-func (l Lifecycle) readyStarted(ctx context.Context, name string, herdrEnabled bool) error {
+// herdr machine を有効に戻さずに、確かめ直す手順を添えて止まる (UC10 の 4a。VM は稼働中のまま)。
+func (l Lifecycle) readyStarted(ctx context.Context, name, repo string, herdrEnabled bool) error {
 	if err := checkDevTools(ctx, l.Runtime, name, l.Output); err != nil {
-		return err
+		if herdrEnabled {
+			return fmt.Errorf("%w\nherdr machine は無効のまま。直してから sbxr start %s で確かめ直すと有効に戻る", err, repo)
+		}
+		return fmt.Errorf("%w\n直してから sbxr start %s で確かめ直す", err, repo)
 	}
 	if !herdrEnabled {
 		return nil

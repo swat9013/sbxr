@@ -599,8 +599,9 @@ func TestStartShowsEveryUnusableToolAndLeavesTheVMRunningWithTheHerdrMachineDisa
 
 			_, err := w.start(w.repo())
 
-			if err == nil || !strings.Contains(err.Error(), "agent (Claude Code) を起動できない") || !strings.Contains(err.Error(), "Docker を使えない") {
-				t.Errorf("Start() error = %v, want both unusable tools shown", err)
+			if err == nil || !strings.Contains(err.Error(), "agent (Claude Code) を起動できない") || !strings.Contains(err.Error(), "Docker を使えない") ||
+				!strings.Contains(err.Error(), "herdr machine は無効のまま。直してから sbxr start "+w.repo()) {
+				t.Errorf("Start() error = %v, want both unusable tools shown with how to check again", err)
 			}
 			if w.stateOf(w.repo()) != stateRunning || len(w.herdr.Machines) != 1 || w.herdr.Machines[0].Enabled {
 				t.Errorf("state = %s, herdr machines = %v, want the VM running and the machine left disabled", w.stateOf(w.repo()), w.herdr.Machines)

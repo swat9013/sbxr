@@ -262,9 +262,9 @@ func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) 
 	name := target.Name
 	switch observed.state {
 	case stateStopped:
-		return startResult(name, Started, l.startStopped(ctx, name))
+		return startResult(name, Started, l.startStopped(ctx, name, repo))
 	case stateRunning:
-		return startResult(name, AlreadyRunning, l.startRunning(ctx, name))
+		return startResult(name, AlreadyRunning, l.startRunning(ctx, name, repo))
 	case stateAbsent:
 		return StartResult{}, fmt.Errorf("sandbox VM %s は無い。sbxr create %s で作る", name, repo)
 	case stateIncompleteStopped, stateIncompleteRunning:
