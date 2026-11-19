@@ -123,14 +123,14 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 
 - 2a. VM が無いか、管理外か、別出所: sbxr は止まる
 - 2b. VM 消失: sbxr は destroy を促して止まる
-- 2c. 作成途中の VM が止まっているか無い: sbxr は VM に触れずに「止まっている」と示して終える（herdr machine は登録前なので触れない）
+- 2c. 作成途中の VM が止まっているか無い: sbxr は VM に触れずに「止まっている」と示し、続けて destroy で片付けてから create で作る手順を示して終える（herdr machine は登録前なので触れない。作成途中の VM に勧める操作は destroy だけである。decision/0025・0035）
 - 3a. herdr 連携を有効にせずに作った VM: 4 へ進み、5 を行わない
 - 3b. host に herdr が無い: sbxr は VM に触れずに止まる
 - 3c. herdr machine の登録が無い（利用者が手で解除した等）: sbxr は警告して 4 へ進み、5 を行わない
 - 3d. herdr machine を無効にできない: sbxr は VM を止めずに止まる（止めても herdr が起こし直すため）
 - 4a. VM を止められない: sbxr は herdr machine を有効に戻して止まる（VM は動いたままなので、herdr から見失わせない）
 - 4b. VM が既に止まっている（外部停止の後など）: sbxr は VM に触れずに「止まっている」と示し、3 で無効にしたなら 5 を行う（herdr が VM を起こし直さないよう、無効化は止まっていても行う。decision/0010）
-- 5a. 止めた VM が作成途中: sbxr は `sbxr start` でなく、destroy で片付けてから create で作る手順を示す（start は作成途中の VM を拒む。UC10 の 2b）。3a・3c の経路でもこの手順を示す（作成途中の VM に勧める操作は destroy だけで、herdr の状態に依らない。decision/0025・0029）
+- 5a. 止めた VM が作成途中: sbxr は「止めた」と示した後に、`sbxr start` でなく、destroy で片付けてから create で作る手順を示す（start は作成途中の VM を拒む。UC10 の 2b）。3a・3c の経路でもこの手順を示す（作成途中の VM に勧める操作は destroy だけで、herdr の状態に依らない。decision/0025・0029）
 
 ## UC4 sandbox VM を撤去する
 
