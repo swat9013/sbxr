@@ -96,11 +96,12 @@ func TestRegisterShowsHowToReopenTheWorkspaceAtTheWorktreeAfterRegisteringByHand
 				t.Fatalf("Register() = %v, want a registration error", err)
 			}
 			recovery := registration.Recovery
+			stop := strings.Index(recovery, "pkill -x herdr")
 			add := strings.Index(recovery, "herdr machine add app.inmemory --label app")
 			list := strings.Index(recovery, "herdr workspace list")
 			// 開けたときだけ、開く前に控えた workspace を閉じる (&&)
 			reopen := strings.Index(recovery, "herdr workspace create --cwd "+quotedWorktree+" --focus && herdr workspace close <控えた id>")
-			if add < 0 || list <= add || reopen <= list || strings.Index(recovery, "herdr workspace close") < reopen {
+			if stop < 0 || add <= stop || list <= add || reopen <= list || strings.Index(recovery, "herdr workspace close") < reopen {
 				t.Errorf("Recovery = %q, want the workspaces listed after registering, then the worktree one opened && the listed ones closed", recovery)
 			}
 		})

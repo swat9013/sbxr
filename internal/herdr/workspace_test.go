@@ -121,6 +121,10 @@ func TestStartAtWorktreeShowsHowToCloseOnlyTheWorkspacesListedBeforeOpeningWhenT
 	if list < 0 || reopen <= list || strings.Index(start.Recovery, "herdr workspace close") < reopen {
 		t.Errorf("Recovery = %q, want the workspaces listed before opening, then only the listed ones closed after the worktree one opened", start.Recovery)
 	}
+	// 手で読む一覧も読めないとき (server に繋がらない) の手当てまで示す
+	if !strings.Contains(start.Recovery, "pgrep -x herdr") {
+		t.Errorf("Recovery = %q, want what to check when the list fails again", start.Recovery)
+	}
 }
 
 func TestStartAtWorktreeShowsHowToCheckBeforeOpeningAgainWhenItsOutputCannotBeRead(t *testing.T) {
