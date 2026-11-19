@@ -244,3 +244,30 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
 - 拒否された宛先は承認待ち（`sbx policy approval ls`）に載った。`sbx env rm` の後は `No pending approvals.` になった
 - VM 直下でも、proxy を使わない通信は container と同じく exit 6 と exit 35 で終わる。拒否の形を分けるのは、container か VM 直下かではなく、proxy を使うかどうか
 - decision/0007 は `--noproxy '*'` で送る案を「proxy を迂回するので、確かめたい proxy の policy を通らない」として却下した。sbx v0.53.0 では、proxy を使わない通信も `transparent` で同じ global rule に判定されるので、この理由は当たらない。却下そのもの（拒否が拒否応答の形をとらず、名前解決の失敗や接続の切断と見分けられない）は保たれる
+
+### 実測（2026-11-19、sbx v0.53.0、前提 18、#133）
+
+18 を確かめた。待てる。`sbx exec <VM> -- true`（`sbxr start` の StartSandbox と同じ起こし方）は、起こした回の kit の startup が終わるまで戻らなかった。戻った後の `/var/log/sbx-kit-startup.log` では、最後の `=== dispatcher run` が新しい起動の回で、その回の `=== dispatcher complete ===` まで出ていた。Sbx adapter の waitStartup の読み方（`startupOutcome`。最後の `=== dispatcher run` から後だけを読む）をこの log に当てると、前の回の行を読まずに、1 回目の読み取りで完了になる（waitStartup そのものを start の経路で走らせてはいない）。
+
+- VM の作り方: 上の #135 の実測と同じ形の env 定義に、kit を 2 つ入れて `sbx env create --force <dir>` で作った。1 つは埋め込みの `sbxr-boot`（`internal/assets/kits/sbxr-boot/spec.yaml` の写し）。もう 1 つは startup に 15 秒かかる probe の mixin kit `probe-slow`（開始と終了の時刻を出し、間で `sleep 15`）。herdr の kit は入れていない。VM の `~/.config/sbxr/boot.sh` は書いていないので、`sbxr-boot` の段は何もせず ok で終わる
+- 手順: create の後に log を読み、`sbx stop` → `sbx exec <VM> -- true` を 2 回繰り返した。1 回目は `sbx exec -- true` の前後の host の時刻と、戻った直後の log を見た。2 回目は `sbx exec -- true` を background で走らせ、同時に別の `sbx exec <VM> -- sh -c '…'` で log を 8 回続けて読んだ
+- 時刻（UTC）と log:
+
+| 回 | host で起こし始めた時刻 | dispatcher run の時刻 | probe-slow の開始 → 終了 | `sbx exec -- true` が戻った時刻 |
+|---|---|---|---|---|
+| create | — | 08:53:21 | 08:53:22.4 → 08:53:37.5 | （`sbx env create`）08:53:38 の時点で戻っていた。08:53:44 に読んだ log は `=== dispatcher complete ===` で終わっていた |
+| 起こし直し 1 | 08:53:57.4 | 08:53:59 | 08:54:00.3 → 08:54:15.3 | 08:54:15.5（exit 0、`✓ sandbox sbxr-startup-probe-135 — started`） |
+| 起こし直し 2 | 08:54:28.2 | 08:54:29 | 08:54:30.5 → 08:54:45.5 | 08:54:46.9 |
+
+- 起こし直し 1 の、戻った直後（08:54:15.8）の log の dispatcher の行は次のとおり。log は起動ごとに書き足され、前の回の行は残る
+
+  ```text
+  1:=== dispatcher run 2026-11-19T08:53:21Z ===
+  17:=== dispatcher complete ===
+  18:=== dispatcher run 2026-11-19T08:53:59Z ===
+  34:=== dispatcher complete ===
+  ```
+
+- 起こし直し 2 で同時に読んだ側の `sbx exec` も、startup が終わるまで出力しなかった。最初の出力は 08:54:45.7（probe-slow の終了の後）で、`dispatcher run` は 3 回、最後の行は `=== dispatcher complete ===` だった。8 回とも同じで、startup の途中の log は 1 度も読めなかった
+- startup の段が失敗する kit で起こし直したときに、`sbx exec -- true` がいつ戻るか、終了 code が何かは確かめていない
+- 確かめたのは sbx v0.53.0 だけ。`sbx exec --help` は「止まっていれば先に起動する」とだけ書き、startup の完了を待つかは書いていない
