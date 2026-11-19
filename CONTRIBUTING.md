@@ -42,6 +42,7 @@ sbxr-dev create .
   - lint: `golangci-lint`（`.golangci.yml`。整形の崩れもここで落ちる）
   - vulncheck: `govulncheck`（週 1 回の schedule でも走る）
   - goreleaser-check: `goreleaser check`
+  - scripts-test: `python3 -m unittest discover -s scripts -p '*_test.py'`（`scripts/` の script の test）
   - decision-immutable（PR だけ）: `docs/design/sbxr/decision/` の既存 file の変更・削除・改名を拒む（decision は不変）
 - `v*` tag の push: release workflow が CI workflow を呼び、通った後に goreleaser で GitHub Release と `swat9013/homebrew-tap` の cask を出す（secret `HOMEBREW_TAP_GITHUB_TOKEN` が要る）
 - 依存と actions の更新: Dependabot が週 1 回 PR を出す。actions は commit SHA で固定しているので、更新は Dependabot に任せる
@@ -89,7 +90,8 @@ v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/R
 ### sbx の新しい版への追従
 
 - sbx の stable が実測済みの上限より新しくなったら、[docs/real-sbx-walkthrough-macos.md](./docs/real-sbx-walkthrough-macos.md) の 1 周をその版で通し、実測済みの上限を上げて release する。通らなければ、直してから上げる
-- 新しい stable の検知は、週 1 回の workflow が issue を立てて知らせる。workflow は #130 で足す。それまでは、release の前に [sbx の release](https://github.com/docker/sbx-releases/releases) を見て確かめる
+- 新しい stable の検知は、週 1 回の workflow（`.github/workflows/sbx-stable-watch.yml`）が issue を立てて知らせる
+- public repo では、60 日間 repository activity が無いと、GitHub が schedule の workflow を自動で無効にする（[Disabling and enabling a workflow](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-workflow-runs/disabling-and-enabling-a-workflow)）。無効になると新しい stable を検知できない。CI workflow の週 1 回の vulncheck も同じ条件で止まる。有効に戻すには、repo の Actions タブを開き、左の sidebar で該当の workflow（`sbx stable watch` か `CI`）を選んで **Enable workflow** を押す
 
 ## issue の範囲
 
