@@ -363,6 +363,8 @@ func (w *world) defaultAct(e event) func(w *world) error {
 		return func(w *world) error { _, err := w.create(w.repo(), unattended()); return err }
 	case eventStop:
 		return func(w *world) error { _, err := w.stop(w.repo()); return err }
+	case eventStart: // sbxr start は #133 が足す。表の行は unimplemented で、ここへ来る前に skip する
+		w.t.Fatal("start は未実装 (#133)")
 	case eventDestroy:
 		return func(w *world) error { return w.destroy(w.repo(), RefuseRunning) }
 	case eventStartOutside:
