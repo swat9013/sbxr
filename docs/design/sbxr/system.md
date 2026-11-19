@@ -116,7 +116,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
 17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す。→ sbx v0.53.0 では、container の通信も VM 直下と同じ global rule で判定され、許可外に届く経路は見つからなかった。ただし container の既定の通信は proxy の `transparent` を通り、egress 自己検証が通る `forward` とは proxy の中の経路が違う。これを「同じ経路」とみなすかは決めていない（下の 2026-11-19 の実測）
-18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る。→ sbx v0.53.0 では成り立つ。`sbx exec <VM> -- true` は起こした回の startup が終わるか止まるまで戻らず、戻った後の log の最後の回はその回だった。startup が失敗しても exit 0 で戻る（下の 2026-11-19 の実測の #133）
+18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る。→ sbx v0.53.0 では成り立つ。`sbx exec <VM> -- true` は起こした回の startup が終わるか止まるまで戻らず、戻った後の log の最後の回はその回だった。startup が失敗しても exit 0 で戻る（下の 2026-11-19 の実測の #133）。start がこの結果をどう扱うかは decision/0033
 
 5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。15 の mount の部分も同じく確かめない。2 は、destroy の前の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
 
