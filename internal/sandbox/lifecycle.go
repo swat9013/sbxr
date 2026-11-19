@@ -546,7 +546,7 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 
 // setUpHerdr は作り終えた sandbox VM の herdr machine を登録し、herdr の最初の workspace を VM 内の作業ツリーから始め直す。
 func (l Lifecycle) setUpHerdr(ctx context.Context, name, worktree string) error {
-	if err := l.registry().Register(ctx, name, l.Output); err != nil {
+	if err := l.registry().Register(ctx, name, worktree, l.Output); err != nil {
 		if registration, ok := errors.AsType[*herdr.RegistrationError](err); ok { // VM は作り終えている
 			return fmt.Errorf("%w\nsandbox VM %s は作った。復旧: %s", err, name, registration.Recovery)
 		}

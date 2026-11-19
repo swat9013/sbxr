@@ -1285,7 +1285,12 @@ func TestCreateKeepsTheVMAndShowsHowToRegisterWhenTheRegistrationFails(t *testin
 	_, err := w.create(repo, unattended())
 
 	if err == nil || !strings.Contains(err.Error(), "herdr machine add app.inmemory --label app") {
-		t.Errorf("Create() error = %v, want how to register by hand", err)
+		t.Fatalf("Create() error = %v, want how to register by hand", err)
+	}
+	// 登録した後に、VM 内の作業ツリーで最初の workspace を開き直す (decision/0015)
+	reopen := "herdr " + shell.Join([]string{"workspace", "create", "--cwd", repo, "--focus"})
+	if add := strings.Index(err.Error(), "herdr machine add"); strings.Index(err.Error(), reopen) <= add {
+		t.Errorf("Create() error = %v, want %q after registering", err, reopen)
 	}
 	if got := w.stateOf(repo); got != stateRunning {
 		t.Errorf("state = %s, want the creation itself finished", got)

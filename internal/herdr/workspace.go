@@ -33,8 +33,8 @@ func StartAtWorktree(ctx context.Context, vm VM, sandbox, worktree string) error
 	create := workspaceCreateArgs(worktree)
 	before, err := workspaces(ctx, vm, sandbox)
 	if err != nil {
-		return &WorktreeStartError{Err: err, Recovery: fmt.Sprintf("VM %s の中で %s を実行し、それが通ったら、%s に出る他の workspace を id ごとに %s <id> で閉じる",
-			sandbox, command(create), command(workspaceListArgs()), command(workspaceCloseArgs("")[:2]))}
+		// 開いた後の一覧には開いた workspace も載り見分けられないので、開く前に控えた id だけを閉じさせる (decision/0032 と同じ理由)
+		return &WorktreeStartError{Err: err, Recovery: reopenByHand(sandbox, worktree)}
 	}
 	// 手で開き直すコマンド。開けたときだけ閉じる (&&) ので、貼り付けて失敗しても workspace は 0 件にならない
 	reopen := strings.Join(append([]string{command(create)}, closeCommands(before)...), " && ")

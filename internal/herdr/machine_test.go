@@ -30,7 +30,7 @@ func TestRegisterAddsTheMachineOfTheSandbox(t *testing.T) {
 	rt := runningApp()
 	host := &herdrtest.Fake{}
 
-	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
+	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", worktree, io.Discard)
 
 	if err != nil || len(host.Machines) != 1 || host.Machines[0].Target != rt.SSHTarget("app") {
 		t.Errorf("Register() = %v, machines = %v, want the machine of app", err, host.Machines)
@@ -42,7 +42,7 @@ func TestRegisterStopsTheServerInTheVMBeforeAddingTheMachine(t *testing.T) {
 	host := &herdrtest.Fake{}
 	vm := &observedVM{Runtime: rt, host: host}
 
-	_ = herdr.Registry{Client: host, VM: vm}.Register(context.Background(), "app", io.Discard)
+	_ = herdr.Registry{Client: host, VM: vm}.Register(context.Background(), "app", worktree, io.Discard)
 
 	if len(vm.machinesAtExec) != 1 || vm.machinesAtExec[0] != 0 || !strings.Contains(strings.Join(rt.Commands[0].Args, " "), "pkill -x herdr") {
 		t.Errorf("machines when the VM ran a command = %v, VM commands = %v, want the server stopped before the add", vm.machinesAtExec, rt.Commands)
@@ -53,7 +53,7 @@ func TestRegisterLeavesAStaleRegistrationAloneAndShowsHowToReplaceIt(t *testing.
 	rt := runningApp()
 	host := &herdrtest.Fake{Machines: []herdr.Machine{{ID: "old", Target: rt.SSHTarget("app")}}}
 
-	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
+	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", worktree, io.Discard)
 
 	var registration *herdr.RegistrationError
 	if !errors.As(err, &registration) || !strings.HasPrefix(registration.Recovery, "herdr machine remove old; ") {
@@ -68,11 +68,42 @@ func TestRegisterShowsHowToRegisterByHandWhenTheMachinesCannotBeListed(t *testin
 	rt := runningApp()
 	host := &herdrtest.Fake{FailList: true}
 
-	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", io.Discard)
+	err := herdr.Registry{Client: host, VM: rt}.Register(context.Background(), "app", worktree, io.Discard)
 
 	var registration *herdr.RegistrationError
 	if !errors.As(err, &registration) || !strings.Contains(registration.Recovery, "herdr machine add "+rt.SSHTarget("app")) {
 		t.Errorf("Register() = %v, want how to register by hand", err)
+	}
+}
+
+// 手で登録すると VM 内の server は最初の workspace を作業ツリーの外で作るので、示す手順は登録の後に
+// 作業ツリーで workspace を開き直し、それが通ったら開く前に控えた workspace だけを閉じる (decision/0015・UC1 の 9a・9b)。
+func TestRegisterShowsHowToReopenTheWorkspaceAtTheWorktreeAfterRegisteringByHand(t *testing.T) {
+	for name, host := range map[string]func(rt *inmemory.Runtime) *herdrtest.Fake{
+		"machines cannot be listed": func(*inmemory.Runtime) *herdrtest.Fake { return &herdrtest.Fake{FailList: true} },
+		"machine cannot be added":   func(*inmemory.Runtime) *herdrtest.Fake { return &herdrtest.Fake{FailAdd: true} },
+		"stale registration": func(rt *inmemory.Runtime) *herdrtest.Fake {
+			return &herdrtest.Fake{Machines: []herdr.Machine{{ID: "old", Target: rt.SSHTarget("app")}}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rt := runningApp()
+
+			err := herdr.Registry{Client: host(rt), VM: rt}.Register(context.Background(), "app", worktree, io.Discard)
+
+			var registration *herdr.RegistrationError
+			if !errors.As(err, &registration) {
+				t.Fatalf("Register() = %v, want a registration error", err)
+			}
+			recovery := registration.Recovery
+			add := strings.Index(recovery, "herdr machine add app.inmemory --label app")
+			list := strings.Index(recovery, "herdr workspace list")
+			// 開けたときだけ、開く前に控えた workspace を閉じる (&&)
+			reopen := strings.Index(recovery, "herdr workspace create --cwd "+quotedWorktree+" --focus && herdr workspace close <控えた id>")
+			if add < 0 || list <= add || reopen <= list || strings.Index(recovery, "herdr workspace close") < reopen {
+				t.Errorf("Recovery = %q, want the workspaces listed after registering, then the worktree one opened && the listed ones closed", recovery)
+			}
+		})
 	}
 }
 
