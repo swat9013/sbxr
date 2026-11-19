@@ -107,10 +107,11 @@ func (l Lifecycle) startRunning(ctx context.Context, name, repo string) error {
 // herdr machine を有効に戻さずに、確かめ直す手順を添えて止まる (UC10 の 4a。VM は稼働中のまま)。
 func (l Lifecycle) readyStarted(ctx context.Context, name, repo string, herdrEnabled bool) error {
 	if err := checkDevTools(ctx, l.Runtime, name, l.Output); err != nil {
-		if herdrEnabled {
-			return fmt.Errorf("%w\nherdr machine は無効のまま。直してから sbxr start %s で確かめ直すと有効に戻る", err, repo)
+		var untouched string
+		if herdrEnabled { // 有効か無効かは読んでいないので、変えていないことだけを示す
+			untouched = " (herdr machine の有効・無効は変えていない)"
 		}
-		return fmt.Errorf("%w\n直してから sbxr start %s で確かめ直す", err, repo)
+		return fmt.Errorf("%w\n直してから sbxr start %s で確かめ直す%s", err, repo, untouched)
 	}
 	if !herdrEnabled {
 		return nil

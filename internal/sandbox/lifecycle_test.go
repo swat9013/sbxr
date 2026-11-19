@@ -599,12 +599,41 @@ func TestStartShowsEveryUnusableToolAndLeavesTheVMRunningWithTheHerdrMachineDisa
 
 			_, err := w.start(w.repo())
 
-			if err == nil || !strings.Contains(err.Error(), "agent (Claude Code) を起動できない") || !strings.Contains(err.Error(), "Docker を使えない") ||
-				!strings.Contains(err.Error(), "herdr machine は無効のまま。直してから sbxr start "+w.repo()) {
-				t.Errorf("Start() error = %v, want both unusable tools shown with how to check again", err)
+			if err == nil || !strings.Contains(err.Error(), "agent (Claude Code) を起動できない") || !strings.Contains(err.Error(), "Docker を使えない") {
+				t.Errorf("Start() error = %v, want both unusable tools shown", err)
 			}
 			if w.stateOf(w.repo()) != stateRunning || len(w.herdr.Machines) != 1 || w.herdr.Machines[0].Enabled {
 				t.Errorf("state = %s, herdr machines = %v, want the VM running and the machine left disabled", w.stateOf(w.repo()), w.herdr.Machines)
+			}
+		})
+	}
+}
+
+func TestStartThatFailsTheCheckShowsHowToCheckAgain(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		userConfig string
+		from       state
+		want       string
+	}{
+		// herdr machine は有効なまま (無効だと決めつけて示さない)
+		{"herdr 連携・稼働中", herdrUserConfig, stateRunning, " (herdr machine の有効・無効は変えていない)"},
+		{"herdr 連携なし・停止中", testUserConfig, stateStopped, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newWorld(t, tt.userConfig)
+			w.arrive(tt.from)
+			enabledBefore := slices.Clone(w.herdr.Machines)
+			w.unusableInVM = []string{"docker"}
+
+			_, err := w.start(w.repo())
+
+			hint := "直してから sbxr start " + w.repo() + " で確かめ直す" + tt.want + "\n"
+			if err == nil || !strings.Contains(err.Error()+"\n", hint) || (tt.want == "" && strings.Contains(err.Error(), "herdr machine")) {
+				t.Errorf("Start() error = %v, want a line %q", err, hint)
+			}
+			if !slices.Equal(w.herdr.Machines, enabledBefore) {
+				t.Errorf("herdr machines = %v → %v, want them untouched", enabledBefore, w.herdr.Machines)
 			}
 		})
 	}
