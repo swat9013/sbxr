@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -101,14 +103,49 @@ func TestTheEnvDefinitionCarriesTheHerdrKitWithItsVersionAndTheWorktreeOnlyWhenH
 			if err != nil {
 				t.Fatal(err)
 			}
-			i := slices.IndexFunc(env.Kits, func(kit envKit) bool { return kit.Source == "./kits/"+herdrKit })
+			i := slices.IndexFunc(env.Kits, func(kit envKit) bool { return path.Base(kit.Source) == herdrKit })
 			if (install == nil) != (i < 0) || (install != nil && (env.Kits[i].Args["version"] != install.Version || env.Kits[i].Args["worktree"] != "/src/app")) {
 				t.Errorf("env kits = %+v, want the herdr kit only when installed, with its version and the worktree", env.Kits)
 			}
-			if _, err := fs.Stat(os.DirFS(dir), kitsDir+"/"+herdrKit+"/spec.yaml"); (install == nil) != (err != nil) {
-				t.Errorf("herdr kit in the state dir: %v, want it only when installed", err)
+			written, err := fs.Glob(os.DirFS(dir), kitsDir+"/*/"+herdrKit+"/spec.yaml")
+			if err != nil || (install == nil) != (len(written) == 0) || (install != nil && written[0] != path.Join(env.Kits[i].Source, "spec.yaml")) {
+				t.Errorf("herdr kit in the state dir: %q, %v, want it only when installed, where the env definition points", written, err)
 			}
 		})
+	}
+}
+
+// herdr の kit の各段は、後段の boot を止めないよう失敗しても 0 で終わる (ADR 0007)。boot が先に走ると、boot の失敗で
+// dispatcher が止まり、herdr の段が 1 つも走らない。走る順は stub が sbx の決め方 (source の path の順) で再現する。
+func TestTheVMRunsTheHerdrKitStartupBeforeTheBootKit(t *testing.T) {
+	stub := &sbxstub.Stub{VM: &sbxstub.FakeVM{}}
+	stub.VM.CompleteKitStartup()
+	sbx := NewSbx(stub.Run)
+	dir := t.TempDir()
+	spec := SandboxSpec{Name: "app", Repo: "/src/app", Herdr: &HerdrInstall{Version: "v0.9.0"}, ReplayBoot: true}
+	if err := sbx.DefineSandbox(dir, spec); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := sbx.CreateSandbox(context.Background(), dir, spec); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := stub.KitStartupOrders["app"], []string{herdrKit, bootKit}; !slices.Equal(got, want) {
+		t.Errorf("kit startup order = %q, want %q", got, want)
+	}
+}
+
+// v0.1.0 などの前の版が書いた env 定義は、kit を ./kits/<name> で指す。
+func TestDefinedWithHerdrReadsAnEnvDefinitionThatPointsAtKitsDirectlyUnderTheKitsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	env := "schemaVersion: \"1\"\nname: app\nkits:\n  - source: ./kits/sbxr-herdr\n  - source: ./kits/sbxr-boot\n"
+	if err := os.WriteFile(filepath.Join(dir, envFile), []byte(env), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := NewSbx((&sbxstub.Stub{}).Run).DefinedWithHerdr(dir); err != nil || !got {
+		t.Errorf("DefinedWithHerdr() = %v, %v, want true", got, err)
 	}
 }
 

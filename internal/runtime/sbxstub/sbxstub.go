@@ -41,6 +41,8 @@ type Stub struct {
 	Sandboxes map[string]string
 	// SkillsModes は sandbox を作った env 定義の sandboxOptions.skills (無ければ空)。sandbox と一緒に消える。
 	SkillsModes map[string]string
+	// KitStartupOrders は sandbox を作った env 定義の kit の名前を、VM の起動で startup が走る順に並べたもの。sandbox と一緒に消える。
+	KitStartupOrders map[string][]string
 	// SandboxRules は sandbox スコープ rule の宛先。sandbox と一緒に消える。
 	SandboxRules map[string][]string
 	// SandboxSecrets は sandbox スコープの secret の数。sandbox と一緒に消える。
@@ -119,6 +121,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		s.ensureMaps()
 		s.Sandboxes[env.Name] = "running"
 		s.SkillsModes[env.Name] = env.SkillsMode
+		s.KitStartupOrders[env.Name] = env.kitStartupOrder()
 		return nil, nil
 	case len(args) == 4 && slices.Equal(args[:3], []string{"env", "rm", "--force"}):
 		// 実 sbx と同じく、env 定義が無ければ消せない。sandbox が無くても sandbox スコープの secret は消して成功する
@@ -132,6 +135,7 @@ func (s *Stub) Run(_ context.Context, stdin io.Reader, args ...string) ([]byte, 
 		_, existed := s.Sandboxes[name]
 		delete(s.Sandboxes, name)
 		delete(s.SkillsModes, name)
+		delete(s.KitStartupOrders, name)
 		delete(s.SandboxRules, name)
 		delete(s.SandboxSecrets, name)
 		if existed && s.VM != nil { // 撤去した VM の中身は、作り直した VM に残らない (fake VM は 1 つなので、sandbox は 1 つを前提にする)
@@ -270,6 +274,9 @@ func (s *Stub) ensureMaps() {
 	}
 	if s.SkillsModes == nil {
 		s.SkillsModes = map[string]string{}
+	}
+	if s.KitStartupOrders == nil {
+		s.KitStartupOrders = map[string][]string{}
 	}
 	if s.SandboxRules == nil {
 		s.SandboxRules = map[string][]string{}
