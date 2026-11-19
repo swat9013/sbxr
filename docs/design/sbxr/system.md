@@ -115,7 +115,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 14. `sbx template save` した image について、`sbx template ls --json` の `created_at` が save の時刻になるか（decision/0020）。ならなければ、template の記録を持つ形（decision/0004）へ戻す
 15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
-17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す
+17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す。→ sbx v0.53.0 では成り立つ。ただし proxy を使わない通信の失敗は、proxy の拒否応答の形をとらない（下の 2026-11-19 の実測）
 18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る
 
 5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。15 の mount の部分も同じく確かめない。2 は、destroy の前の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
@@ -215,3 +215,31 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
 - docker が PATH にあり daemon に繋がらない（`DOCKER_HOST` を実在しない socket にした。`DOCKER_CONTEXT` を daemon の止まった context にした）: build は `failed to connect to the docker API at <socket>; check if the path is correct and if the daemon is running` で失敗し、builder sandbox へは切り替わらない。この 2 回は descriptor に誤りのある kit（top-level の `name:`）で試し、接続の失敗は descriptor を読む前に出た
 - build が 1 度通った後は、上のどちらの条件でも、startup の command を変えた kit と増やした kit が、build を走らせずに `valid (directory)` になる。cache の鍵と置き場は特定していない。`sbx kit inspect` は Template を `sbx-kit-src:spec-<hash>` と示す
 - v3 の descriptor には `kind:` が要る。無いと `kind must be "workload", "mixin", or "set", got ""` で失敗する
+
+### 実測（2026-11-19、sbx v0.53.0、VM の Docker 29.10.0、#135）
+
+17 を確かめた。成り立つ。VM の中の container・`--network host` の container・`docker build` の `RUN` は、VM 直下と同じ global rule で判定され、許可外の宛先には 1 つも届かなかった。ただし、拒否の形は経路で変わる。proxy を明示した通信は VM 直下と同じ拒否応答（HTTP 403 と `Approval required for <宛先>.`）を受ける。proxy を使わない通信は、名前解決の失敗か接続の切断で終わる。
+
+- VM の作り方: sbxr が書く形の env 定義（`schemaVersion: "1"`・`agent: claude`・`workspace.clone: true`・`sandboxOptions.skills: off`。kit なし）を `sbx env create --force <dir>` に渡した（Sbx adapter と同じ経路）。`sbxr create` は使っていない。この host の user 設定が herdr 連携を有効にしており、`sbxr create` は host の herdr へ machine を登録するため。通信の経路を決めるのは VM と sbx の proxy で、kit は関わらないと読んでいる（herdr と boot の kit を入れた VM では確かめていない）
+- global rule: default deny で、`github.com:443`・`**.docker.io:443` などを許可していた（`sbx policy check network example.com:443` → Denied）。global rule は変えていない
+- image の pull: VM の Docker daemon による `docker pull curlimages/curl:8.11.1` は、blob の取得先 `production.cloudfront.docker.com:443` が許可されておらず、`403 Forbidden` で失敗した（`sbx policy log` の PROXY は `forward`）。daemon の pull も同じ rule で判定される。この宛先を sandbox スコープ rule で許可して pull した
+- 手順: 同じ shell script を、VM 直下（`sbx exec`）、既定の bridge network の container（`docker run`）、`docker run --network host`、`docker build` の `RUN`（既定と `--network host`）で走らせた。script は curl で、proxy を使わない通信（`--noproxy '*'`）と、proxy（`-x http://gateway.docker.internal:3128`）を明示した通信を 1 往復ずつ試す
+- container には proxy の環境変数（`HTTPS_PROXY` など）も proxy の CA も入らない。VM 直下には入る。container の既定の通信は、proxy を使わない形になる
+
+結果（括弧で断った行のほかは、どの経路でも同じだった）:
+
+| 通信 | 結果 |
+|---|---|
+| proxy なし、`https://github.com`（許可先） | 200 |
+| proxy なし、`https://example.com` / `http://example.com` | curl exit 6（`Could not resolve host: example.com`） |
+| proxy なし、example.com の IP へ `--resolve` で `https://` | curl exit 35（TLS の接続が切れる） |
+| proxy なし、example.com の IP へ `--resolve` で `http://` | curl exit 52（`Empty reply from server`。container で確かめた） |
+| proxy なし、`https://1.1.1.1` | curl exit 35 |
+| proxy なし、`8.8.8.8` への DNS（UDP 53。container で確かめた） | `Connection refused` で応答なし |
+| proxy あり、`https://github.com` | 200（VM 直下と、proxy の CA を渡さない container で確かめた。`docker build` では CA だけを信頼させて試し、curl exit 60 だった）。許可先の TLS は proxy が終端せず、`sbx policy log` の PROXY は `forward-bypass` |
+| proxy あり、`https://example.com` | 403、body の 1 行目は `Approval required for example.com:443.`（container と `docker build` には proxy の CA を渡した。渡さないと curl exit 60（`self-signed certificate in certificate chain`）） |
+| proxy あり、`http://example.com` | 403、body の 1 行目は `Approval required for example.com:80.` |
+
+- `sbx policy log <VM>` は、proxy を使わない通信を PROXY `transparent`、proxy を明示した通信を `forward` で記録し、どちらの拒否も `No matching allow rule (default deny)` だった。名前解決は `DNS lookup blocked by proxy policy`、UDP は `Direct UDP connections not allowed` で拒否された。IP を指定した `https://` も、TLS の SNI の `example.com:443` として判定された
+- 拒否された宛先は承認待ち（`sbx policy approval ls`）に載った。`sbx env rm` の後は `No pending approvals.` になった
+- VM 直下でも、proxy を使わない通信は container と同じく exit 6 と exit 35 で終わる。拒否の形を分けるのは、container か VM 直下かではなく、proxy を使うかどうか
