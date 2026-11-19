@@ -87,14 +87,14 @@ sbx exec -w "$FIXTURE" sbxr-fixture -- wc -l .sbxr-init-marker .sbxr-boot-marker
 sbx ls                            # sbxr-fixture が stopped
 ```
 
-## 4. start（sbx の起動コマンドを直接使う）
-
-sbxr に start は無い。`sbx exec` は、止まった sandbox を先に起動してからコマンドを実行する（`sbx exec --help`）。この起動でも kit の startup が走る（2026-09-26、sbx v0.45.1 で確認）。
+## 4. start
 
 ```sh
-sbx exec sbxr-fixture -- true     # Sandbox sbxr-fixture started successfully
+"$WORK/sbxr" start "$FIXTURE"     # sandbox VM sbxr-fixture を起こした
 sbx ls                            # sbxr-fixture が running
 ```
+
+確認プロンプトは出ない。`sbxr start` は、止まった VM を `sbx exec sbxr-fixture -- true` で起こす（`sbx exec` は止まった sandbox を先に起動してからコマンドを実行する。`sbx exec --help`）。この起動でも kit の startup が走る（2026-09-26、sbx v0.45.1 で確認）。`sbxr start` は startup の完了を待たずに終わるので、5 の確かめ方は startup が終わってから読む。
 
 ## 5. boot の再実行を確かめる
 
