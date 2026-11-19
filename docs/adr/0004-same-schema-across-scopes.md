@@ -33,3 +33,8 @@ egress は sbxr 独自の形式で書き、実行基盤の rule へは adapter �
 - merge の規則は 1 か所に置く。global rule と secret 定義だけを使う操作（`sbxr policy sync`・`sbxr secret setup`）も、repo を空の宣言として同じ merge を通す。git identity の要求は merge ではなく、それを使う側が確かめる
 - config は、検証済みの型（global rule の宛先・sandbox スコープ rule の宛先・secret 定義）を返す。利用者は egress と secret の検証を組み直さない
 - `create --yes` で落とす repo の egress も検証し、不正なら止める。落とすかどうかで、plan と create の error を変えない
+
+## 改訂（2026-11-19）
+
+- 投入方式は clone と copy の 2 つにした（[decision/0024](../design/sbxr/decision/0024-workspace-mount-withdrawn.md)）。上の改訂の「repo の投入方式（clone・copy・mount）」から mount を外す。宣言の key にせず create の flag でだけ選ぶことは変えない
+- key 体系に `run`（コマンドの list）を足す。create と start の終わりに VM の中で裏で始める（[decision/0028](../design/sbxr/decision/0028-run-and-attach-after-create-and-start.md)）。3 スコープで書け、init・boot と同じく並べて足す。cache 層の `template.run` とは別の key である

@@ -17,3 +17,7 @@ secret には「host 側で値をどこから読むか（取得元）」と「VM
 
 - 投入方式 copy は、ignored のファイルと、`.git/config` の認証にかかわる設定（URL の userinfo・credential・`http.extraHeader` など）を VM に持ち込まない。実値を VM に入れないという上の判断を、repo の持ち込みにも当てはめる
 - 投入方式 mount では、host の作業ツリーの ignored のファイル（`.env` など）も VM から見える。利用者が create の flag で明示し、確認関門でそのことを示したときだけ許す
+
+## 改訂（2026-11-19）
+
+投入方式 mount を取り下げた（[decision/0024](../design/sbxr/decision/0024-workspace-mount-withdrawn.md)）。上の改訂の「投入方式 mount では…確認関門でそのことを示したときだけ許す」は効かない。host の作業ツリーを VM へ直接見せる構成を、sbxr は作らない。投入方式 copy の扱いは変えない。

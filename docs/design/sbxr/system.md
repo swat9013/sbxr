@@ -76,7 +76,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →start→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
 
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
-- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることは、遷移の action として書く
+- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることは、遷移の action として書く
 - recreate は新しいイベントにせず、stop → destroy → create を続けて起こすものとして扱う（decision/0026）
 - plan・policy sync・secret setup・doctor は VM の状態を変えないので、イベントに含めない
 
@@ -86,7 +86,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 
 ## 解こうとしている構造課題
 
-- VM 内の commit の push（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は未 push の作業に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)。destroy が未 push の作業を検査する決定（decision/0003・0021）は取り下げた → [decision/0023](decision/0023-purpose-isolation-development-ease.md)
+- VM 内の commit の push（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は、origin に push していない commit と変更に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)。destroy がそれを検査する決定（decision/0003・0021）は取り下げた → [decision/0023](decision/0023-purpose-isolation-development-ease.md)
 - 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)。mount は取り下げた → [decision/0024](decision/0024-workspace-mount-withdrawn.md)
 - init の重さ（#13）: 重い tool の導入が create のたびに init で走る。→ [decision/0004](decision/0004-template-per-repo-built-in-create.md)・[decision/0005](decision/0005-template-build-inputs-and-refresh.md)
 - egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)・[decision/0016](decision/0016-proxy-denial-is-approval-pending-or-local-rule-block.md)
@@ -100,7 +100,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 実装の前に実 sbx で確かめる。確かめられなければ、該当する決定を見直す。
 
 1. sbxenv.yaml で template（image）を指定できるか。`sbx env --help`（v0.45.1）に記述が無い。できなければ、#13 は作成の経路（ADR 0006 の `sbx env create`）から見直す
-2. clone 方式（`workspace.clone: true`）の VM 内の repo の origin が、host 側 repo の origin URL を指すか。指さなければ、VM からの push と未 push の作業の検査が成り立たない
+2. clone 方式（`workspace.clone: true`）の VM 内の repo の origin が、host 側 repo の origin URL を指すか。指さなければ、VM からの push が成り立たない
 3. VM が使っている template の image を `sbx template rm` で消せるか（旧い template の片付け）
 4. copy 方式の持ち込み: `sbx cp` は host の uid と mode のまま置く（ADR 0006）。`sbx exec -i` の stdin で流し込み、VM の agent から読み書きできるか
 5. mount 方式: env 定義で `workspace.clone: false` にしたとき、host の作業ツリーが VM の agent から読み書きできる uid で見えるか
@@ -113,12 +113,12 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 12. v3 の source kit の build（`docker.io/docker/sandbox-kit:3` の pull）が、sbxr の default の global rule のもとで通るか。→ build は通る。ただし build と pull は VM ではなく host の docker が行い、sbx の proxy を通らない（下の 2026-11-17 の実測）。host に docker が無いときは、sbx の builder sandbox が build する（下の 2026-11-17 の実測の #116）
 13. host の docker が PATH にあるが daemon に繋がらず、kit の build cache も無いとき、v3 の埋め込み kit を使う `sbxr create` が kit の build で失敗するか。実装の前提ではないので、確かめずに置く。create が docker への接続で失敗した報告が 1 件出たら確かめ、doctor に注記を足す案（usecases.md の UC8 の却下）を見直す。下の #116 の実測は、descriptor に誤りのある kit と `sbx kit validate` でしか確かめていない
 14. `sbx template save` した image について、`sbx template ls --json` の `created_at` が save の時刻になるか（decision/0020）。ならなければ、template の記録を持つ形（decision/0004）へ戻す
-15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy・mount の VM を作れるか（decision/0022）
+15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
 17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す
 18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る
 
-5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。2 は、未 push の作業の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
+5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。15 の mount の部分も同じく確かめない。2 は、destroy の前の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
 
 Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/0018](decision/0018-embedded-kits-move-to-kit-spec-v3.md)。11 と 12 は、移行の実装の前に確かめる。
 

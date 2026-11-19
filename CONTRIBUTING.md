@@ -89,7 +89,7 @@ v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/R
 ### sbx の新しい版への追従
 
 - sbx の stable が実測済みの上限より新しくなったら、[docs/real-sbx-walkthrough-macos.md](./docs/real-sbx-walkthrough-macos.md) の 1 周をその版で通し、実測済みの上限を上げて release する。通らなければ、直してから上げる
-- 新しい stable の検知は、週 1 回の workflow が issue を立てて知らせる
+- 新しい stable の検知は、週 1 回の workflow が issue を立てて知らせる。workflow は #130 で足す。それまでは、release の前に [sbx の release](https://github.com/docker/sbx-releases/releases) を見て確かめる
 
 ## issue の範囲
 

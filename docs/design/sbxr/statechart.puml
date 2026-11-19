@@ -5,7 +5,7 @@
 ' 2. 状態 id は ASCII、表示名は CONTEXT.md の語。イベント名は空白を含めない
 ' 3. 同じイベントの結果の分岐は [guard] で、遷移に伴う副作用は / action で書く
 ' 4. 管理外・別出所の VM はこの状態機械の外 (create / stop / start / destroy のどれも触らずに止まる)
-' 6. recreate はイベントにしない。stop → destroy → create を続けて起こす (decision/0026)
+' 6. recreate はイベントにしない。VM が稼働していれば stop を、続けて destroy と create を起こす (decision/0026)
 ' 5. 検査は必ず exit code で判定する。-tsvg / -tpng は syntax error でもエラー画像を生成して exit 0 を返しうる
 hide empty description
 
@@ -19,7 +19,7 @@ state "VM 消失" as VMGone
 [*] --> Absent
 
 ' --- create ---
-Absent --> Running : create [成功] / template を用意・VM の中を確かめる・作成時の宣言を書く・herdr machine を登録 (失敗しても稼働中)
+Absent --> Running : create [成功] / template を用意・VM の中を確かめる・作成時の宣言を書く・herdr machine を登録 (失敗しても稼働中)・run を始める
 Absent --> Absent : create [出所の記録前に失敗] / 書きかけの状態ディレクトリ・cache clone・build 用 VM を片付ける
 Absent --> IncompleteStopped : create [VM 作成前に失敗]
 Absent --> IncompleteRunning : create [VM 作成後に失敗] / VM を調べられるよう残す
@@ -42,7 +42,7 @@ Absent --> Absent : start / 拒否 (create を促す)
 IncompleteStopped --> IncompleteStopped : start / 拒否 (destroy を促す)
 IncompleteRunning --> IncompleteRunning : start / 拒否 (stop → destroy を促す)
 Running --> Running : start / 動いている (VM に触れない)・VM の中を確かめる・herdr machine を有効に戻す
-Stopped --> Running : start [VM を起こせた] / VM の中を確かめる (成り立たなければ非 0)・herdr machine を有効に戻す
+Stopped --> Running : start [VM を起こせた] / VM の中を確かめる (成り立たなければ非 0)・herdr machine を有効に戻す・run を始める
 Stopped --> Stopped : start [VM を起こせない] / 拒否
 VMGone --> VMGone : start / 拒否 (destroy を促す)
 

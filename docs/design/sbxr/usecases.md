@@ -66,7 +66,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 6. sbxr が sandbox スコープの secret を置いてから template で sandbox VM を作り、repo を投入方式で渡し、作った後に sandbox スコープ rule を足す
 7. sbxr が VM の中を宣言どおりにする（materialize → init → boot）
 8. sbxr が VM 内から egress 自己検証を行い、VM の中で agent と Docker が使えることを確かめる
-9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）。最後に、宣言の run を VM 内の作業ツリーで裏で始める（decision/0028）
+9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）。最後に、宣言の run を VM 内の作業ツリーで裏で始め、始めたことと、出力が残る VM 内の log の場所を示す（decision/0028）
 
 ### Extensions
 
@@ -163,7 +163,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 6a. VM を消せない: sbxr は状態ディレクトリを残して止まる（撤去には env 定義が要るため）
 - 7a. cache clone か状態ディレクトリを消せない: sbxr は警告し、非 0 で終える
 
-却下: 撤去の前に VM を一時起動し、未 push の作業を検査する。理由: 作業の保全は目的に無く、利用者が VM の中から origin へ push すれば残せる（decision/0023）。
+却下: 撤去の前に停止中の VM を起こし、origin に push していない commit と変更を検査する。理由: 作業の保全は目的に無く、利用者が VM の中から origin へ push すれば残せる（decision/0023）。
 
 ## UC5 全 VM 共通の egress 許可を宣言に揃える
 
@@ -232,7 +232,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 3. 利用者が、VM の作り直しを求める（`sbxr recreate`）
 4. sbxr が、作る内容と、VM 内の commit と変更が失われることを一緒に示し、承認を求める
 5. 利用者が承認する
-6. sbxr が VM を止めて撤去する（UC3・UC4 の、確認より後の段）
+6. sbxr が VM を止めて撤去する（UC3・UC4 の、確認より後の段。VM が稼働していなければ、止める段を省く）
 7. sbxr が VM を作り直す（UC2 の、確認より後の段）
 
 ### Extensions
@@ -241,6 +241,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 2b. 変えたのが user 設定の egress だけ（global rule）: 利用者は UC5 で揃える（既存の VM にも効く）。ここで終える
 - 3a. VM が未作成: sbxr は create を促して止まる
 - 3b. 同じ名前の VM が管理外か別出所: sbxr は触らずに止まる
+- 3c. `--attach` を付けたのに端末が無い: sbxr は VM に触れずに止まる
 - 4a. `--yes`: sbxr は確認を省いて 6 へ（git URL なら repo の egress を落とす。UC2 の 3b）
 - 4b. 端末が無い: sbxr は止まる（`--yes` を案内する）
 - 4c. 現在の宣言が不正か、配線する secret の値が無い: sbxr は VM に触れずに止まる（作り直せないと分かっている VM を消さない）
@@ -248,6 +249,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 6a. 止められないか撤去できない: sbxr は UC3・UC4 の Extensions のとおりに止まる（作り直しへ進まない）
 - 7a. 作り直しの途中で失敗した: sbxr は UC2 の Extensions のとおりに止まる（前の VM は残っていない）
 - 7b. cache 層か inputs の内容が変わった: UC2 の 5 で新しい template を作り、旧いものを消す
+- 7c. `--attach`: sbxr は最後に、VM 内の作業ツリーで agent の対話 session に入る（UC2 の 9g）
 
 却下: 宣言の変更を sbxr が自動で反映する。理由: 利用者の確認なしに VM 内の変更が失われる（decision/0026）。
 
@@ -332,7 +334,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 3. sbxr が VM を起こす（boot が再生される）
 4. sbxr が、VM の中で agent と Docker が使えることを確かめる
 5. sbxr が herdr machine を有効に戻し、herdr の pane で agent を起動できることを確かめる
-6. sbxr が、作成時の宣言の run を VM 内の作業ツリーで裏で始める
+6. sbxr が、作成時の宣言の run を VM 内の作業ツリーで裏で始め、始めたことと、出力が残る VM 内の log の場所を示す
 
 ### Extensions
 
