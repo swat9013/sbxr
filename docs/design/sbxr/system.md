@@ -14,7 +14,7 @@ sbxr の境界と、境界の外の相手との接続を表で書く。語は [C
 
 sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だけである。そのため VM の中へ書くもの（agent runtime profile・git identity・boot）は、Runtime port 越しの出力として扱う。kit は sbxr の成果物だが、走らせるのは VM の dispatcher なので、境界をまたぐ資材として接続表に載せる。
 
-却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（sbxr start を通さない起動での boot の失敗は、次に sbxr start を打つまで VM の log に残るだけ。decision/0033）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
+却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（sbxr start を通さない起動での boot の失敗は VM の log に残るだけ。その VM が動いたまま sbxr start を打てば、start が log の最後の回として読む。decision/0033）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
 
 アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認プロンプトの根拠）。VM 内の agent は sbxr と接しない。host の agent が sbxr の案内で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは guide・doctor・plan の出力だけである（decision/0013・0030）。
 
