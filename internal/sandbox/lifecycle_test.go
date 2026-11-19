@@ -1242,12 +1242,13 @@ func TestStopOfAHalfCreatedVMDisablesALeftoverHerdrMachine(t *testing.T) {
 // start は作成途中の VM を拒むので、止めた後は start でなく destroy を示す。herdr の状態に依らない (decision/0029)。
 func TestStopOfAHalfCreatedVMShowsHowToDestroyItInsteadOfStart(t *testing.T) {
 	tests := map[string]struct {
-		userConfig string
-		machines   func(w *world) []herdr.Machine
+		userConfig   string
+		machines     func(w *world) []herdr.Machine
+		wantDisabled bool
 	}{
 		"herdr 連携なし":          {userConfig: testUserConfig},
 		"herdr machine の登録なし": {userConfig: herdrUserConfig},
-		"前の VM の登録が残っている": {userConfig: herdrUserConfig, machines: func(w *world) []herdr.Machine {
+		"前の VM の登録が残っている": {userConfig: herdrUserConfig, wantDisabled: true, machines: func(w *world) []herdr.Machine {
 			return []herdr.Machine{{ID: "old", Target: w.vms.SSHTarget("app"), Enabled: true}}
 		}},
 	}
@@ -1264,8 +1265,12 @@ func TestStopOfAHalfCreatedVMShowsHowToDestroyItInsteadOfStart(t *testing.T) {
 			if err != nil || outcome != Stopped {
 				t.Fatalf("Stop() = %v, %v, want the VM stopped", outcome, err)
 			}
-			if out := w.out.String(); !strings.Contains(out, "sbxr destroy "+w.repo()) || strings.Contains(out, "sbxr start") {
-				t.Errorf("output = %q, want how to destroy the VM and no sbxr start", out)
+			out := w.out.String()
+			if !strings.Contains(out, "sbxr destroy "+w.repo()+" で片付けてから sbxr create "+w.repo()+" で作る") || strings.Contains(out, "sbxr start") {
+				t.Errorf("output = %q, want how to destroy and create the VM again and no sbxr start", out)
+			}
+			if got := strings.Contains(out, "herdr machine を無効にした"); got != tt.wantDisabled {
+				t.Errorf("output = %q, says the herdr machine was disabled: %v, want %v", out, got, tt.wantDisabled)
 			}
 		})
 	}

@@ -221,16 +221,16 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 	name := target.Name
 	switch observed.state {
 	case stateRunning:
-		enable, err := l.stopRunning(ctx, name)
-		if err == nil {
-			l.reportDisabled(name, repo, enable)
+		disabled, err := l.stopRunning(ctx, name)
+		if err == nil && disabled {
+			l.reportDisabled(name, repo)
 		}
 		return stopResult(name, Stopped, err)
 	case stateIncompleteRunning:
 		// 作成途中の VM の herdr machine は未登録だが、同じ名前の前の VM の登録が残っていれば無効にする
-		enable, err := l.stopRunning(ctx, name)
+		disabled, err := l.stopRunning(ctx, name)
 		if err == nil {
-			l.reportHalfCreatedStopped(name, repo, enable)
+			l.reportHalfCreatedStopped(name, repo, disabled)
 		}
 		return stopResult(name, Stopped, err)
 	case stateStopped:
@@ -681,9 +681,9 @@ func halfCreatedStoppedGuidance(name, repo string) string {
 // reportHalfCreatedStopped は、止めた作成途中の VM を片付けてから作り直す手順を、herdr の状態に依らずに示す。
 // herdr machine を無効にしたなら、無効にしたことだけを示す。有効に戻す sbxr start は示さない
 // (start は作成途中の VM を拒む。decision/0029)。
-func (l Lifecycle) reportHalfCreatedStopped(name, repo, enable string) {
-	if enable != "" {
-		logf(l.Output, "herdr: %s の herdr machine を無効にした\n", name)
+func (l Lifecycle) reportHalfCreatedStopped(name, repo string, herdrDisabled bool) {
+	if herdrDisabled {
+		logf(l.Output, "%s\n", disabledNotice(name))
 	}
 	logf(l.Output, "%s\n", halfCreatedStoppedGuidance(name, repo))
 }
