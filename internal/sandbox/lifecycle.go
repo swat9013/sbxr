@@ -275,7 +275,7 @@ func (l Lifecycle) Start(ctx context.Context, repo string) (StartResult, error) 
 		// run は作成時の宣言のものを始め、宣言を読み直さない (boot と同じ。decision/0028)
 		return startResult(name, Started, l.startStopped(ctx, name, repo, target.Repo, observed.record.Declaration.Run))
 	case stateRunning: // 動いている run を二重に始めないよう、run は始めない
-		return startResult(name, AlreadyRunning, l.startRunning(ctx, name, repo))
+		return startResult(name, AlreadyRunning, l.startRunning(ctx, name, repo, target.Repo))
 	case stateAbsent:
 		return StartResult{}, fmt.Errorf("sandbox VM %s は無い。sbxr create %s で作る", name, repo)
 	case stateIncompleteStopped, stateIncompleteRunning:

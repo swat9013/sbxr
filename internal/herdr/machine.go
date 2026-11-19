@@ -124,15 +124,17 @@ func (r Registry) Disable(ctx context.Context, sandbox string, progress io.Write
 
 // Enable は、起こした (か動いている) sandbox VM の無効な herdr machine を有効に戻す (decision/0025)。VM には触れない。
 // 有効なら何もしない。登録が無ければ (利用者が手で解除した等)、登録し直す手順を添えた error (UC10 の 5b)。
-// 有効に戻せなければ、手で戻すコマンドを添えた error。
-func (r Registry) Enable(ctx context.Context, sandbox string, progress io.Writer) error {
+// 手順は、登録で起動し直した VM 内の server の最初の workspace を、VM 内の作業ツリー worktree で開き直す段まで含む
+// (decision/0015。その server は最初の workspace を作業ツリーの外で作る)。有効に戻せなければ、手で戻すコマンドを添えた error。
+func (r Registry) Enable(ctx context.Context, sandbox, worktree string, progress io.Writer) error {
 	target := r.VM.SSHTarget(sandbox)
 	machine, found, err := r.find(ctx, target)
 	if err != nil {
 		return fmt.Errorf("herdr machine を有効に戻せない: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s", target, registerByHand(sandbox, target))
+		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s。登録したら、最初の workspace を作業ツリーで開き直す: %s",
+			target, registerByHand(sandbox, target), reopenByHand(sandbox, worktree))
 	}
 	if machine.Enabled {
 		return nil

@@ -1,18 +1,13 @@
----
-name: sbxr-config
-description: sbxr の設定 (repo 宣言 sbxr.yaml と user 設定 ~/.config/sbxr/config.yaml) を書き、sbxr doctor が通るまで直す。Use when sbxr の設定を作る・直す、sbxr.yaml を書く、sbxr を repo で使い始める。
----
-
 # sbxr の設定を書く
 
-sbxr は repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI。設定は 2 つあり、別々に作る。
+この案内は、host の AI coding agent が sbxr の設定を書くためのもの。sbxr は repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI。設定は 2 つあり、別々に作る。
 
 | 対象 | 置き場 | 中身の出所 |
 |---|---|---|
 | user 設定 | `~/.config/sbxr/config.yaml` | 人に聞く (全 sandbox VM に効く個人の値) |
 | repo 宣言 | `<repo>/sbxr.yaml` | repo の中身から推測する (その repo の VM にだけ効く) |
 
-判定の正本は `sbxr doctor`。この skill は書き方の最小の規則だけを持ち、schema の細部と版ごとの違いは doctor が fail の項目に付ける直し方に従う。
+判定の正本は `sbxr doctor`。この案内は、入っている sbxr と同じ版の書き方を持つ。値の書式の細部は、doctor が fail の項目に付ける直し方に従う。
 
 ## 書き込みの規則
 
@@ -45,7 +40,7 @@ sbxr は repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI
 - herdr 連携を使うか (`herdr.enabled`)
 - VM 内の Claude Code の個人設定 (`profile.language` など。repo 宣言では書けない)
 
-egress は default スコープの同梱 group に任せ、user 設定には書かない — user 設定の egress は全 sandbox VM の許可になる (書き換えは人が行う。「書き込みの規則」)。
+egress は同梱の group に任せ、user 設定には書かない — user 設定の egress は全 sandbox VM の許可になる (書き換えは人が行う。「書き込みの規則」)。
 
 ```yaml
 version: 1
@@ -61,15 +56,7 @@ herdr:
 
 ## repo 宣言
 
-repo 宣言は untrusted な入力として扱われ、書ける key が限られる。**書くのは次の key だけ**:
-
-- `version: 1`
-- `profile.model` / `profile.effortLevel` / `profile.enabledPlugins` (値は `true` だけ)
-- `egress.<group>.rationale` / `egress.<group>.allow`
-- `init` / `boot` / `run` (シェルのコマンドの list)
-- `secrets` (user 設定か同梱で定義された secret の名前)
-
-`git.name` / `git.email` も repo 宣言に書けるが、個人の値なので user 設定に置く。
+repo 宣言は untrusted な入力として扱われ、書ける key が限られる。書けるかは「key の一覧」の表の「repo 宣言」の列に従う。`git.name` / `git.email` も repo 宣言に書けるが、個人の値なので user 設定に置く。
 
 推測の手がかり:
 
@@ -89,3 +76,47 @@ egress:
     allow:
       - o123.ingest.sentry.io:443
 ```
+
+## key の一覧
+
+user 設定と repo 宣言は同じ key を持つ。1 行 1 key で、親の key を `.` でつなぐ。`*` は利用者が名前を付ける key (egress の group 名、secret 定義の名前)。「repo 宣言」の列が「書けない」の key は user 設定にだけ書く。
+
+| key | 意味 | repo 宣言 |
+|---|---|---|
+| `version` | 宣言の schema の版。`1` を書く | 書ける |
+| `profile` | VM 内の Claude Code の settings.json へ入る値 | 書ける |
+| `profile.model` | VM 内の Claude Code が使う model | 書ける |
+| `profile.effortLevel` | VM 内の Claude Code の effort level | 書ける |
+| `profile.enabledPlugins` | 有効にする plugin (`<plugin>@<marketplace>: true`。値は `true` だけ) | 書ける |
+| `profile.language` | VM 内の Claude Code が応答に使う言語 | 書けない |
+| `profile.outputStyle` | VM 内の Claude Code の output style | 書けない |
+| `profile.feedbackDrafts` | feedback の下書きの扱い | 書けない |
+| `profile.awaySummaryEnabled` | 離席後の session recap を作るか | 書けない |
+| `profile.autoMemoryEnabled` | auto-memory を使うか | 書けない |
+| `profile.autoDreamEnabled` | background の memory consolidation を使うか | 書けない |
+| `profile.promptSuggestionEnabled` | 入力欄の prompt 候補を出すか | 書けない |
+| `profile.spinnerTipsEnabled` | spinner の tips を出すか | 書けない |
+| `profile.env` | VM 内の Claude Code に渡す環境変数 (名前 → 値) | 書けない |
+| `profile.extraKnownMarketplaces` | VM 内の Claude Code が知る plugin marketplace | 書けない |
+| `git` | VM 内の commit に使う git identity | 書ける |
+| `git.name` | commit の author 名 | 書ける |
+| `git.email` | commit の author の email | 書ける |
+| `egress` | VM から通信できる宛先の group | 書ける |
+| `egress.*` | 1 つの group (用途ごとに 1 つ) | 書ける |
+| `egress.*.rationale` | その group を許可する理由 | 書ける |
+| `egress.*.allow` | 許可する宛先 (`host:port`) の list | 書ける |
+| `egress.*.enabled` | `false` で同じ名前の group を外す | 書けない |
+| `init` | 作成時に 1 回、repo root で走るシェルのコマンドの list | 書ける |
+| `boot` | VM の起動ごとに走るシェルのコマンドの list | 書ける |
+| `run` | create と、止めた VM を起こした start の終わりに裏で始まるシェルのコマンドの list | 書ける |
+| `secret_defs` | secret 定義 (名前 → 定義) | 書けない |
+| `secret_defs.*` | 1 つの secret 定義 | 書けない |
+| `secret_defs.*.service` | sbx 組み込みの service の名前 (例 `github`)。書かなければ host 指定で token を差し込む | 書けない |
+| `secret_defs.*.key` | secret ファイルの key (英数字と `_`) | 書けない |
+| `secret_defs.*.hosts` | token を差し込む host の list (小文字の host 名。glob と port は書けない) | 書けない |
+| `secret_defs.*.env` | VM に placeholder を入れる環境変数名 (host 指定のときだけ書く) | 書けない |
+| `secret_defs.*.vars` | secret と一緒に VM へ渡す、秘密でない値 (環境変数名 → 値) | 書けない |
+| `secrets` | 使う secret の名前の list (user 設定か同梱で定義されたもの) | 書ける |
+| `herdr` | host の herdr との連携 | 書けない |
+| `herdr.enabled` | `true` で VM に herdr を入れ、host の herdr に登録する | 書けない |
+| `herdr.version` | VM に入れる herdr の版 (`v<major>.<minor>.<patch>`) | 書けない |
