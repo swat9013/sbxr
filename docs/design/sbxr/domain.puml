@@ -227,6 +227,8 @@ end note
 note left of HerdrMachine
   herdr 連携を有効にして作った VM にだけある。
   sbxr が登録したものにだけ触れる (同じ target の登録が既にあれば止まる)。
-  sbxr stop の後は無効、sbxr start の後は有効。
+  sbxr stop の後は無効、sbxr start が成功した後は有効
+  (起動時の処理が失敗したか時間切れのとき、
+  または VM の中の確認が成り立たずに止まったときは、有効に戻さない)。
 end note
 @enduml

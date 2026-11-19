@@ -14,7 +14,7 @@ sbxr の境界と、境界の外の相手との接続を表で書く。語は [C
 
 sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だけである。そのため VM の中へ書くもの（agent runtime profile・git identity・boot）は、Runtime port 越しの出力として扱う。kit は sbxr の成果物だが、走らせるのは VM の dispatcher なので、境界をまたぐ資材として接続表に載せる。
 
-却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（2 回目以降の boot の失敗は VM の log に残るだけ）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
+却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（sbxr start を通さない起動での boot の失敗は VM の log に残るだけ。その VM が動いたまま sbxr start を打てば、start が log の最後の回として読む。decision/0033）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
 
 アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認プロンプトの根拠）。VM 内の agent は sbxr と接しない。host の agent が sbxr の案内で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは guide・doctor・plan の出力だけである（decision/0013・0030）。
 
@@ -77,7 +77,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →start→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
 
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
-- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることは、遷移の action として書く
+- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることと run を始めることと、start で起動時の処理の結果を読み、失敗か時間切れを示すことは、遷移の action として書く
 - recreate は新しいイベントにせず、stop → destroy → create を続けて起こすものとして扱う（decision/0026）
 - plan・policy sync・secret setup・doctor は VM の状態を変えないので、イベントに含めない
 
@@ -117,7 +117,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
 17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す。→ sbx v0.53.0 では、container の通信も VM 直下と同じ global rule で判定され、許可外に届く経路は見つからなかった。ただし container の既定の通信は proxy の `transparent` を通り、egress 自己検証が通る `forward` とは proxy の中の経路が違う。これを別の経路とみなし、egress 自己検証に container からの確認を足した（下の 2026-11-19 の実測）→ [decision/0031](decision/0031-egress-self-check-from-container-in-vm.md)
-18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る。→ sbx v0.53.0 では成り立つ。`sbx exec <VM> -- true` は起こした回の startup が終わるか止まるまで戻らず、戻った後の log の最後の回はその回だった。startup が失敗しても exit 0 で戻る（下の 2026-11-19 の実測の #133）
+18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る。→ sbx v0.53.0 では成り立つ。`sbx exec <VM> -- true` は起こした回の startup が終わるか止まるまで戻らず、戻った後の log の最後の回はその回だった。startup が失敗しても exit 0 で戻る（下の 2026-11-19 の実測の #133）。start がこの結果をどう扱うかは decision/0033
 
 5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。15 の mount の部分も同じく確かめない。2 は、destroy の前の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
 
