@@ -307,6 +307,14 @@ func (l Lifecycle) Attach(ctx context.Context, repo string) error {
 	return nil
 }
 
+// restartRun は run を始められなかったときに、run を始め直す手順を示す (動いている VM への start は run を始めない)。
+func restartRun(repo string) string {
+	return fmt.Sprintf("復旧: 直してから sbxr stop %s → sbxr start %s で run を始め直す", repo, repo)
+}
+
+// agentSession は --attach で入る agent の対話 session のコマンド。
+var agentSession = []string{"claude"}
+
 // Destroy は確認プロンプトを通して sandbox VM を撤去し、herdr machine・cache clone・状態ディレクトリを片付ける。
 // 稼働中の VM は running に従う。確認の間に起動した VM に備えて、撤去の直前に状態を読み直す。
 // VM が無くても実行基盤の撤去を頼む (作成前に置いた sandbox スコープの secret を消すため。ADR 0006)。
@@ -512,7 +520,7 @@ func (l Lifecycle) createRecorded(ctx context.Context, prepared preparation, spe
 	}
 	// run は VM の中の確認と herdr machine の登録の後に始める (decision/0028)
 	if err := startRun(ctx, rt, name, spec.Worktree(), prepared.Declaration.Run, l.Output); err != nil {
-		return fmt.Errorf("%w\nsandbox VM %s は作った", err, name)
+		return fmt.Errorf("%w\nsandbox VM %s は作った。%s", err, name, restartRun(repo))
 	}
 	return nil
 }

@@ -91,7 +91,7 @@ func (l Lifecycle) startStopped(ctx context.Context, name, repo, worktree string
 		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
 	}
 	if err := startRun(ctx, l.Runtime, name, worktree, run, l.Output); err != nil {
-		return fmt.Errorf("%w\nsandbox VM %s は起こした", err, name)
+		return fmt.Errorf("%w\nsandbox VM %s は起こした。%s", err, name, restartRun(repo))
 	}
 	return nil
 }

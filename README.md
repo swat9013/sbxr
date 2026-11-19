@@ -50,11 +50,11 @@ run:
 ```
 
 - `run` はコマンドの list で、user 設定と repo 宣言のどちらにも書ける（`init`・`boot` と同じく、default・user・repo の順に並べて足す）。確認プロンプトと `sbxr plan` が内容を示す。長く走る作業（agent の非対話の実行や script）はここに置く。`init`・`boot` は準備で終わる
-- `sbxr create` は最後に（egress 自己検証・VM の中の確認・herdr machine の登録の後に）、`run` を VM 内の作業ツリーで裏で始め、始めたことと出力が残る VM 内の log の場所（`~/.local/state/sbxr/run.log`）を示して終わる。終わるのを待たない。コマンドは順に走り、1 件が失敗しても次へ進む。各コマンドの終了は log に `run[N] exit=<code>` で残る（sbxr が示す `sbx exec <name> -- tail -f <log>` で読む）
+- `sbxr create` は最後に（egress 自己検証・VM の中の確認・herdr machine の登録の後に）、`run` を VM 内の作業ツリーで裏で始め、始めたことと出力が残る VM 内の log の場所（`~/.local/state/sbxr/run.log`）を示して終わる。終わるのを待たない。コマンドは順に走り、1 件が失敗しても次へ進む。各コマンドの開始と終了は log に時刻付きで `run[N] start` と `run[N] exit=<code>` の行で残る（sbxr が示す `sbx exec <name> -- tail -f <log>` で読む）
 - `sbxr start` は VM を起こしたときに、作成時の宣言の `run` を始める（宣言を読み直さない）。VM が既に動いていたら、動いている run を二重に始めないよう始めない。sbxr の外での起動（`sbx exec`・herdr の再接続）では始まらない。start は起動ごとの boot の完了を待たないので、run は boot より先に走りうる
-- `run` を始められなければ、VM を残して非 0 で終える
+- `run` を始められなければ（VM の中で log を書けない・`setsid` が無いなど）、VM を残して非 0 で終える。始め直すには `sbxr stop` → `sbxr start` を打つ（動いている VM への start は run を始めない）
 - `run` は作成時の宣言に記録され、変えると drift に出る
-- `--attach`（`sbxr create`・`sbxr start`）は最後に、VM 内の作業ツリーで agent（Claude Code）の対話 session に入る（`run` があれば、始めた後に入る）。抜けても VM は動いたまま。端末が無ければ、VM に触れる前に止まる。create で VM が既にあったときは入らない
+- `--attach`（`sbxr create`・`sbxr start`）は最後に、VM 内の作業ツリーで agent（Claude Code）の対話 session に入る（`run` があれば、始めた後に入る）。抜けても VM は動いたまま。端末が無ければ、VM に触れる前に止まる。create で VM が既にあったときは入らず、`sbxr start <repo> --attach` を案内する
 
 ## herdr 連携（opt-in）
 

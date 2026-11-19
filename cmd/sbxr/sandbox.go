@@ -70,6 +70,9 @@ func newCreateCmd(deps dependencies) *cobra.Command {
 				}
 			case sandbox.AlreadyCreated: // 作っていないので、--attach でも session に入らない
 				printf(cmd, "sandbox VM %s は既にある\n", result.Name)
+				if attach {
+					printf(cmd, "--attach: 作った VM ではないので agent の対話 session に入らない。入るなら sbxr start %s --attach\n", args[0])
+				}
 			}
 			return nil
 		},

@@ -250,17 +250,42 @@ func TestAttachWithoutATerminalStopsBeforeTouchingTheVM(t *testing.T) {
 	}
 }
 
-func TestStartStartsTheRecordedRunOnlyWhenItStartsTheVMAndAttachEntersEitherWay(t *testing.T) {
+func TestStartOfAStoppedVMStartsTheRecordedRunAndAttaches(t *testing.T) {
 	lc := newLifecycle(t, lifecycleUserConfig)
 	repo := localRepo(t, "app", repoWithRun)
 	lc.mustRun(t, "create", repo, "--yes")
 	lc.mustRun(t, "stop", repo)
+	startedByCreate := len(lc.stub.VM.Started)
 
 	lc.mustRun(t, "start", repo, "--attach")
-	lc.mustRun(t, "start", repo, "--attach") // 動いている VM: run は二重に始めない
 
-	if len(lc.stub.VM.Started) != 2 || len(lc.stub.Sessions) != 2 {
-		t.Errorf("started = %q, sessions = %q, want the run started by create and the first start only, and two sessions", lc.stub.VM.Started, lc.stub.Sessions)
+	if len(lc.stub.VM.Started) != startedByCreate+1 || len(lc.stub.Sessions) != 1 {
+		t.Errorf("started = %q, sessions = %q, want the run started once more and one session", lc.stub.VM.Started, lc.stub.Sessions)
+	}
+}
+
+func TestStartOfARunningVMAttachesWithoutStartingTheRunAgain(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", repoWithRun)
+	lc.mustRun(t, "create", repo, "--yes")
+	startedByCreate := len(lc.stub.VM.Started)
+
+	lc.mustRun(t, "start", repo, "--attach")
+
+	if len(lc.stub.VM.Started) != startedByCreate || len(lc.stub.Sessions) != 1 {
+		t.Errorf("started = %q, sessions = %q, want no run started again and one session", lc.stub.VM.Started, lc.stub.Sessions)
+	}
+}
+
+func TestCreateAttachOfAnExistingSandboxPointsAtStartInsteadOfAttaching(t *testing.T) {
+	lc := newLifecycle(t, lifecycleUserConfig)
+	repo := localRepo(t, "app", "")
+	lc.mustRun(t, "create", repo, "--yes")
+
+	out := lc.mustRun(t, "create", repo, "--yes", "--attach")
+
+	if len(lc.stub.Sessions) != 0 || !strings.Contains(out, "sbxr start "+repo+" --attach") {
+		t.Errorf("sessions = %q, output = %q, want no session and start --attach suggested", lc.stub.Sessions, out)
 	}
 }
 

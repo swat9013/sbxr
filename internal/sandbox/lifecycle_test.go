@@ -13,7 +13,6 @@ import (
 	"github.com/swat9013/sbxr/internal/herdr"
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/secret"
-	"github.com/swat9013/sbxr/internal/shell"
 )
 
 // 遷移表 (transitions_test.go) が見ない、遷移に伴う action と、状態機械の外 (管理外・別出所) の振る舞い。
@@ -707,7 +706,7 @@ func TestCreateStartsTheRunInTheWorktreeInTheBackgroundLastAndShowsTheLog(t *tes
 		t.Errorf("runs started = %d, last command = %q, herdr machines = %v, want the run started once after the herdr machine was registered", w.runsStarted(), last.Args, w.herdr.Machines)
 	}
 	script := w.runScriptInVM()
-	for _, want := range []string{"cd " + shell.Quote(repo), "bash -c " + shell.Quote("claude -p 'fix the build'"), "bash -c 'make watch'"} {
+	for _, want := range []string{"cd '" + repo + "'", `bash -c 'claude -p '\''fix the build'\'''`, "bash -c 'make watch'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("run script = %q, want it to contain %q", script, want)
 		}
@@ -734,8 +733,9 @@ func TestCreateThatCannotStartTheRunKeepsTheCreatedVMAndFails(t *testing.T) {
 
 	_, err := w.create(repo, unattended())
 
-	if err == nil || !strings.Contains(err.Error(), "run を始められない") || !strings.Contains(err.Error(), "sandbox VM app は作った") {
-		t.Errorf("Create() error = %v, want the run failure with the VM reported as created", err)
+	if err == nil || !strings.Contains(err.Error(), "run を始められない") || !strings.Contains(err.Error(), "sandbox VM app は作った") ||
+		!strings.Contains(err.Error(), "sbxr stop "+repo+" → sbxr start "+repo) {
+		t.Errorf("Create() error = %v, want the run failure with the VM reported as created and how to start the run again", err)
 	}
 	if got := w.stateOf(repo); got != stateRunning {
 		t.Errorf("state = %s, want the VM created and running", got)
@@ -809,8 +809,9 @@ func TestStartThatCannotStartTheRunFailsWithTheVMRunning(t *testing.T) {
 
 	_, err := w.start(repo)
 
-	if err == nil || !strings.Contains(err.Error(), "run を始められない") || w.stateOf(repo) != stateRunning {
-		t.Errorf("Start() error = %v, state = %s, want the run failure with the VM running", err, w.stateOf(repo))
+	if err == nil || !strings.Contains(err.Error(), "run を始められない") || !strings.Contains(err.Error(), "sbxr stop "+repo+" → sbxr start "+repo) ||
+		w.stateOf(repo) != stateRunning {
+		t.Errorf("Start() error = %v, state = %s, want the run failure with how to start it again and the VM running", err, w.stateOf(repo))
 	}
 }
 

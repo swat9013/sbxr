@@ -17,11 +17,12 @@ const (
 )
 
 // launchScript は $1 の script を、sbx exec が終わっても走り続けるよう新しい session で裏で始め、出力を $2 へ足していく。
-// 始めたらすぐに終わる (script の終わりを待たない)。
-const launchScript = `mkdir -p "$(dirname "$2")" && nohup setsid "$1" >> "$2" 2>&1 < /dev/null &`
-
-// agentSession は --attach で入る agent の対話 session のコマンド。
-var agentSession = []string{"claude"}
+// 始めたらすぐに終わる (script の終わりを待たない)。始められないこと (log を書けない・script を実行できない・setsid が無い) は
+// 裏へ回す前に確かめて 0 以外で終わる (裏へ回した後の失敗は終了コードに出ない)。
+const launchScript = `mkdir -p "$(dirname "$2")" && : >> "$2" || { echo "run の log $2 を書けない" >&2; exit 1; }
+[ -x "$1" ] || { echo "$1 を実行できない" >&2; exit 1; }
+command -v setsid > /dev/null || { echo "VM に setsid が無い" >&2; exit 1; }
+nohup setsid "$1" >> "$2" 2>&1 < /dev/null &`
 
 // startRun は作成時に確定した run を、VM 内の作業ツリーで裏で始める (decision/0028)。終わるのを待たない。
 // run が無ければ何もしない。始めたら、始めたことと出力が残る VM 内の log の場所を示す。
@@ -54,8 +55,8 @@ func runScript(worktree string, commands []string) string {
 	b.WriteString("echo \"=== sbxr run $(date -u +%Y-%m-%dT%H:%M:%SZ) ===\"\n")
 	fmt.Fprintf(&b, "cd %s || exit 1\n", shell.Quote(worktree))
 	for i, command := range commands {
-		fmt.Fprintf(&b, "echo 'run[%d]: start'\n", i+1)
-		fmt.Fprintf(&b, "bash -c %s < /dev/null; echo \"run[%d] exit=$?\"\n", shell.Quote(command), i+1)
+		fmt.Fprintf(&b, "echo \"run[%d] start $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)\"\n", i+1)
+		fmt.Fprintf(&b, "bash -c %s < /dev/null; echo \"run[%d] exit=$? $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)\"\n", shell.Quote(command), i+1)
 	}
 	return b.String()
 }
