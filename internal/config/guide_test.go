@@ -62,7 +62,7 @@ func guideKeyRows(t *testing.T) []guideKeyRow {
 		if !strings.HasPrefix(line, "| `") {
 			continue
 		}
-		cells := strings.Split(strings.Trim(line, "|"), "|")
+		cells := strings.Split(strings.Trim(strings.TrimSpace(line), "|"), "|")
 		if len(cells) != 3 {
 			t.Fatalf("the guide key table row has %d cells, want key・意味・repo 宣言 (a | in a cell shifts the columns): %s", len(cells), line)
 		}
