@@ -498,6 +498,16 @@ func TestEmbeddedDefaultShipsTheKnownEgressGroups(t *testing.T) {
 	}
 }
 
+// Docker Hub は image の blob の取得を CloudFront の CDN へ redirect する (#135 の実測)。
+// 塞がると VM の中の docker pull が 403 で落ちる。
+func TestEmbeddedDefaultAllowsTheDockerHubBlobCDN(t *testing.T) {
+	decl := embeddedDefault(t)
+
+	if allow := decl.Egress["docker-registry"].Allow; !slices.Contains(allow, "production.cloudfront.docker.com:443") {
+		t.Errorf("docker-registry allow = %v, want production.cloudfront.docker.com:443", allow)
+	}
+}
+
 func TestEmbeddedDefaultShipsTheGitHubSecretDefinitionThatSecretSetupWrites(t *testing.T) {
 	decl := embeddedDefault(t)
 
