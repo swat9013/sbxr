@@ -98,7 +98,7 @@ func (l Lifecycle) startStopped(ctx context.Context, name, repo, worktree string
 }
 
 // startRunning は稼働中の sandbox VM を起こさずに、VM の中を確かめてから herdr machine を有効に戻す (decision/0025)。
-// host に herdr が無ければ、VM に触れずに止まる。worktree は VM 内の作業ツリー (登録し直す手順で workspace を開き直す場所)。
+// host に herdr が無ければ、VM に触れずに止まる。worktree は VM 内の作業ツリー。
 func (l Lifecycle) startRunning(ctx context.Context, name, repo, worktree string) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
@@ -113,7 +113,7 @@ func (l Lifecycle) startRunning(ctx context.Context, name, repo, worktree string
 // readyStarted は稼働中の sandbox VM の中で agent と Docker が使えることを確かめ (decision/0027)、
 // herdr 連携を有効にして作った VM なら herdr machine を有効に戻す。確かめた項目が成り立たなければ、
 // herdr machine を有効に戻さずに、確かめ直す手順を添えて止まる (UC10 の 4a。VM は稼働中のまま)。
-// worktree は VM 内の作業ツリー (登録が無いときに示す、登録し直す手順で workspace を開き直す場所。UC10 の 5b)。
+// worktree は VM 内の作業ツリー。
 func (l Lifecycle) readyStarted(ctx context.Context, name, repo, worktree string, herdrEnabled bool) error {
 	if err := checkDevTools(ctx, l.Runtime, name, l.Output); err != nil {
 		var untouched string

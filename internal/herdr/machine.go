@@ -133,8 +133,8 @@ func (r Registry) Enable(ctx context.Context, sandbox, worktree string, progress
 		return fmt.Errorf("herdr machine を有効に戻せない: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s。登録したら、最初の workspace を作業ツリーで開き直す: VM %s の中で %s",
-			target, registerByHand(sandbox, target), sandbox, reopenByHand(worktree))
+		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s。登録したら、最初の workspace を作業ツリーで開き直す: %s",
+			target, registerByHand(sandbox, target), reopenByHand(sandbox, worktree))
 	}
 	if machine.Enabled {
 		return nil

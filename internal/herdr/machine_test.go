@@ -264,7 +264,7 @@ func TestEnableWithoutARegistrationFailsWithHowToRegisterAgain(t *testing.T) {
 }
 
 // 手で登録し直すと VM 内の server は最初の workspace を作業ツリーの外で作るので、示す手順は登録の後に
-// 作業ツリーで workspace を開き直し、それが通ったら前の workspace を閉じる (decision/0015・UC10 の 5b)。
+// 作業ツリーで workspace を開き直し、それが通ったら開く前に控えた workspace だけを閉じる (decision/0015・UC10 の 5b)。
 func TestEnableWithoutARegistrationShowsHowToReopenTheWorkspaceAtTheWorktreeAfterRegistering(t *testing.T) {
 	rt := runningApp()
 
@@ -275,10 +275,11 @@ func TestEnableWithoutARegistrationShowsHowToReopenTheWorkspaceAtTheWorktreeAfte
 	}
 	msg := err.Error()
 	add := strings.Index(msg, "herdr machine add app.inmemory --label app")
+	list := strings.Index(msg, "VM app の中で herdr workspace list で今ある workspace の id を控え")
 	create := strings.Index(msg, "herdr workspace create --cwd "+quotedWorktree+" --focus を実行し、それが通ったら、")
-	closeOthers := strings.Index(msg, "herdr workspace list に出る他の workspace を id ごとに herdr workspace close <id> で閉じる")
-	if add < 0 || create <= add || closeOthers <= create {
-		t.Errorf("Enable() error = %q, want the workspace reopened at the worktree after registering, then the others closed", msg)
+	closeRecorded := strings.Index(msg, "控えた id の workspace を herdr workspace close <id> で閉じる")
+	if add < 0 || list <= add || create <= list || closeRecorded <= create {
+		t.Errorf("Enable() error = %q, want the workspaces recorded and reopened at the worktree after registering, then the recorded ones closed", msg)
 	}
 }
 

@@ -747,21 +747,31 @@ func TestStartThatFailsTheCheckShowsHowToCheckAgain(t *testing.T) {
 // 利用者が herdr machine を手で解除していたら、登録し直す手順を示して非 0 で終える (UC10 の 5b)。
 func TestStartWithoutAHerdrRegistrationShowsHowToRegisterAgain(t *testing.T) {
 	for _, from := range []state{stateStopped, stateRunning} {
-		t.Run(from.String(), func(t *testing.T) {
-			w := newWorld(t, herdrUserConfig)
-			w.arrive(from)
-			w.herdr.Machines = nil
+		for _, source := range []string{"local", "git URL"} {
+			t.Run(from.String()+"/"+source, func(t *testing.T) {
+				w := newWorld(t, herdrUserConfig)
+				if source == "git URL" { // <repo> (URL) と VM 内の作業ツリー (cache clone) が別の値になる
+					w.repoPath = appURL
+				}
+				w.arrive(from)
+				w.herdr.Machines = nil
+				worktree := w.repo()
+				if source == "git URL" {
+					worktree = filepath.Join(w.places.CacheRoot, "app")
+				}
 
-			_, err := w.start(w.repo())
+				_, err := w.start(w.repo())
 
-			if err == nil || !strings.Contains(err.Error(), "herdr machine add app.inmemory --label app") || w.stateOf(w.repo()) != stateRunning {
-				t.Errorf("Start() error = %v, state = %s, want the VM running and how to register the machine again", err, w.stateOf(w.repo()))
-			}
-			// 登録し直した後に、VM 内の作業ツリーで最初の workspace を開き直す (decision/0015)
-			if reopen := "herdr workspace create --cwd " + shell.Quote(w.repo()) + " --focus"; err != nil && !strings.Contains(err.Error(), reopen) {
-				t.Errorf("Start() error = %v, want %q to reopen the workspace at the worktree", err, reopen)
-			}
-		})
+				if err == nil || !strings.Contains(err.Error(), "herdr machine add app.inmemory --label app") || w.stateOf(w.repo()) != stateRunning {
+					t.Fatalf("Start() error = %v, state = %s, want the VM running and how to register the machine again", err, w.stateOf(w.repo()))
+				}
+				// 登録し直した後に、VM 内の作業ツリーで最初の workspace を開き直す (decision/0015)
+				reopen := "herdr workspace create --cwd " + shell.Quote(worktree) + " --focus"
+				if add := strings.Index(err.Error(), "herdr machine add"); strings.Index(err.Error(), reopen) <= add {
+					t.Errorf("Start() error = %v, want %q after registering again", err, reopen)
+				}
+			})
+		}
 	}
 }
 
