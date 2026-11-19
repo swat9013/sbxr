@@ -281,6 +281,47 @@ func TestCreateFailureAfterTheVMAsksToStopBeforeDestroying(t *testing.T) {
 	}
 }
 
+func TestCreateChecksTheAgentAndDockerInTheVMAfterTheEgressCheck(t *testing.T) {
+	w := newWorld(t, testUserConfig)
+	repo := localRepo(t, "app", "")
+
+	w.mustCreate(repo)
+
+	lastProbe, firstCheck := -1, -1
+	for i, command := range w.vms.Commands {
+		if slices.Contains(command.Args, probeScript) {
+			lastProbe = i
+		}
+		if firstCheck < 0 && slices.Equal(command.Args, devChecks[0].command) {
+			firstCheck = i
+		}
+	}
+	if got := w.devChecksRan(); !slices.Equal(got, []string{"claude", "docker"}) || lastProbe < 0 || firstCheck < lastProbe {
+		t.Errorf("checks = %v (first at %d, last probe at %d), want the agent and Docker checked after the egress check", got, firstCheck, lastProbe)
+	}
+}
+
+func TestCreateKeepsTheVMWithoutRecordingTheDeclarationWhenTheAgentOrDockerIsUnusable(t *testing.T) {
+	for command, unmet := range map[string]string{"claude": "agent (Claude Code) を起動できない", "docker": "Docker を使えない"} {
+		t.Run(command, func(t *testing.T) {
+			w := newWorld(t, testUserConfig)
+			w.unusableInVM = []string{command}
+			repo := localRepo(t, "app", "")
+
+			_, err := w.create(repo, unattended())
+
+			var stageErr *StageError
+			if !errors.As(err, &stageErr) || stageErr.Stage != StageDevTools || !strings.Contains(err.Error(), unmet) ||
+				!strings.Contains(err.Error(), "sbxr stop "+repo+" → sbxr destroy "+repo) {
+				t.Errorf("Create() error = %v, want the %s stage naming %q and stop before destroy", err, StageDevTools, unmet)
+			}
+			if got := w.stateOf(repo); got != stateIncompleteRunning {
+				t.Errorf("state = %s, want the VM left running without the declaration recorded", got)
+			}
+		})
+	}
+}
+
 func TestCreateOfAHalfCreatedSandboxAsksToCleanItUpFirst(t *testing.T) {
 	w := newWorld(t, testUserConfig)
 	w.arrive(stateIncompleteRunning)
@@ -529,6 +570,72 @@ func TestStartReportsTheVMStartedWhenTheHerdrMachineCannotBeEnabled(t *testing.T
 
 	if err == nil || !strings.Contains(err.Error(), "herdr machine enable id1") || w.stateOf(w.repo()) != stateRunning {
 		t.Errorf("Start() error = %v, state = %s, want the VM running and how to enable the machine by hand", err, w.stateOf(w.repo()))
+	}
+}
+
+func TestStartChecksTheAgentAndDockerInTheVM(t *testing.T) {
+	for _, from := range []state{stateStopped, stateRunning} {
+		t.Run(from.String(), func(t *testing.T) {
+			w := newWorld(t, testUserConfig)
+			w.arrive(from)
+			w.vms.Commands = nil
+
+			_, err := w.start(w.repo())
+
+			if got := w.devChecksRan(); err != nil || !slices.Equal(got, []string{"claude", "docker"}) {
+				t.Errorf("Start() error = %v, checks = %v, want the agent and Docker checked", err, got)
+			}
+		})
+	}
+}
+
+func TestStartShowsEveryUnusableToolAndLeavesTheVMRunningWithTheHerdrMachineDisabled(t *testing.T) {
+	for _, from := range []state{stateStopped, stateRunning} {
+		t.Run(from.String(), func(t *testing.T) {
+			w := newWorld(t, herdrUserConfig)
+			w.arrive(from)
+			disableTheHerdrMachine(w)
+			w.unusableInVM = []string{"claude", "docker"}
+
+			_, err := w.start(w.repo())
+
+			if err == nil || !strings.Contains(err.Error(), "agent (Claude Code) を起動できない") || !strings.Contains(err.Error(), "Docker を使えない") {
+				t.Errorf("Start() error = %v, want both unusable tools shown", err)
+			}
+			if w.stateOf(w.repo()) != stateRunning || len(w.herdr.Machines) != 1 || w.herdr.Machines[0].Enabled {
+				t.Errorf("state = %s, herdr machines = %v, want the VM running and the machine left disabled", w.stateOf(w.repo()), w.herdr.Machines)
+			}
+		})
+	}
+}
+
+func TestStartThatFailsTheCheckShowsHowToCheckAgain(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		userConfig string
+		from       state
+		want       string
+	}{
+		// herdr machine は有効なまま (無効だと決めつけて示さない)
+		{"herdr 連携・稼働中", herdrUserConfig, stateRunning, " (herdr machine の有効・無効は変えていない)"},
+		{"herdr 連携なし・停止中", testUserConfig, stateStopped, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newWorld(t, tt.userConfig)
+			w.arrive(tt.from)
+			enabledBefore := slices.Clone(w.herdr.Machines)
+			w.unusableInVM = []string{"docker"}
+
+			_, err := w.start(w.repo())
+
+			hint := "直してから sbxr start " + w.repo() + " で確かめ直す" + tt.want + "\n"
+			if err == nil || !strings.Contains(err.Error()+"\n", hint) || (tt.want == "" && strings.Contains(err.Error(), "herdr machine")) {
+				t.Errorf("Start() error = %v, want a line %q", err, hint)
+			}
+			if !slices.Equal(w.herdr.Machines, enabledBefore) {
+				t.Errorf("herdr machines = %v → %v, want them untouched", enabledBefore, w.herdr.Machines)
+			}
+		})
 	}
 }
 

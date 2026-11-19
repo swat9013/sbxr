@@ -77,6 +77,7 @@ const (
 	StageInit          Stage = "init"
 	StageBoot          Stage = "boot"
 	StageEgressCheck   Stage = "egress 自己検証"
+	StageDevTools      Stage = "agent と Docker の確認"
 )
 
 // StageError は sandbox VM を作った後のどの段で失敗したかを持つ。この error のとき VM は残っている。
@@ -95,7 +96,8 @@ func stageError(stage Stage, err error) error {
 	return &StageError{Stage: stage, Err: err}
 }
 
-// setUpInside は作った VM の中を宣言どおりにし、egress を確かめる: materialize → read-back → init → boot → egress 自己検証 (create 時の 1 回)。
+// setUpInside は作った VM の中を宣言どおりにし、egress と、agent と Docker が使えることを確かめる:
+// materialize → read-back → init → boot → egress 自己検証 → agent と Docker の確認 (create 時の 1 回)。
 func setUpInside(ctx context.Context, rt runtime.Runtime, prepared preparation, progress io.Writer) error {
 	v, err := openVM(ctx, rt, prepared.Target.Name)
 	if err != nil {
@@ -119,7 +121,10 @@ func setUpInside(ctx context.Context, rt runtime.Runtime, prepared preparation, 
 	if err := stageError(StageBoot, runBoot(ctx, v, prepared.Target.Repo, decl.Boot, progress)); err != nil {
 		return err
 	}
-	return stageError(StageEgressCheck, checkEgress(ctx, v, prepared, progress))
+	if err := stageError(StageEgressCheck, checkEgress(ctx, v, prepared, progress)); err != nil {
+		return err
+	}
+	return stageError(StageDevTools, checkDevTools(ctx, rt, prepared.Target.Name, progress))
 }
 
 func logf(w io.Writer, format string, args ...any) {
