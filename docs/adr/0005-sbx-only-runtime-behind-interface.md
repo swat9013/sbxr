@@ -19,3 +19,15 @@ test 用に、in-memory の Runtime adapter を足す。
 - VM の状態は型付きにし、sbx の status の解釈は Sbx adapter が決める。状態を得られなかったときは、無いとも止まっているとも読ませない値を返す（destroy を許す側に倒さないため）
 - VM のファイルの書き込みは、mode を変えない指定を持つ（settings.json は sbx が置いた mode を保つ）
 - interface が「作る内容」を domain の言葉で受け取り、kit・startup log・順序の制約を adapter に持たせることは [decision/0009](../design/sbxr/decision/0009-runtime-receives-sandbox-spec.md) に書いた
+
+## 改訂（2026-11-19）
+
+実行基盤に sbx を選ぶ理由と、調べて採らなかった候補を書き足す。
+
+- sbx は sandbox VM ごとに専用の Docker Engine を持ち、VM の中で agent が Docker を使える。プロセス単位の隔離（OS-level sandbox）では、Docker を使えるようにすると Docker 経由で制限を抜けられた。VM 単位の隔離の中に Docker を置けることが、sbx を選ぶ理由である（[decision/0023](../design/sbxr/decision/0023-purpose-isolation-development-ease.md)）
+- 別の実行基盤の候補として microsandbox（v0.7.16）を調べ、採らないと決めた
+  - VM の中で Docker は動くが、標準の機能ではなく、image と起動の仕組みを自前で持つ必要がある
+  - VM の起動ごとに走る処理を宣言する仕組みが見当たらない（boot の再生と herdr の起動が立つ仕組み）
+  - egress の許可を迂回できる不具合の advisory が、2026-09〜10 に複数出ている
+  - 調べたのは docs・source・release の記述で、実機では確かめていない
+- Consequences の「別の実行基盤（例: microsandbox）の実装を足すまで対象外」は、microsandbox を足す予定があることを意味しない

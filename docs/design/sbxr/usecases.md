@@ -17,11 +17,12 @@
 | UC4 | sandbox VM を撤去する | `sbxr destroy` |
 | UC5 | 全 VM 共通の egress 許可を宣言に揃える | `sbxr policy sync` |
 | UC6 | secret の値を登録する | `sbxr secret setup` |
-| UC7 | 宣言の変更を反映する | plan → stop → destroy → create |
+| UC7 | 宣言の変更を反映する | `sbxr plan` → `sbxr recreate` |
 | UC8 | 設定と host の前提を診断する | `sbxr doctor` |
 | UC9 | AI に設定を書かせる | skill `sbxr-config` → `sbxr doctor` |
+| UC10 | 止めた sandbox VM を起こし直す | `sbxr start` |
 
-sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行うので、ユースケースにしない。
+sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケースにしない。状態機械の外部起動として扱う。
 
 ## UC1 作られる内容を事前に確かめる
 
@@ -41,7 +42,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 
 ### Extensions
 
-- 1a. git URL に copy か mount を指定した: sbxr は止まる
+- 1a. git URL に copy を指定した: sbxr は止まる
 - 2a. 宣言が不正か、secret 要求に定義が無い: sbxr は理由を示して止まる
 - 2b. origin を読めない: sbxr は警告し（VM の git で ssh 形を https に書き換えないだけ）、3 へ
 - 4a. 作成済みの VM が無い（未作成・作成途中・別出所）: sbxr は drift を見せずに終える
@@ -53,7 +54,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - Level: user-goal
 - Trigger: 利用者が、repo で AI coding agent を動かす隔離環境を欲しい
 - 事前条件: sbx が使える。herdr 連携が有効なら host に herdr がある
-- 成功保証: sandbox VM が宣言どおりに構成されて稼働し、egress 自己検証が通り、作成時の宣言が状態ディレクトリに記録されている
+- 成功保証: sandbox VM が宣言どおりに構成されて稼働し、egress 自己検証が通り、作成時の宣言が状態ディレクトリに記録されている。VM の中で agent（Claude Code）を起動でき、Docker を使える。herdr 連携の VM では、herdr の pane で agent を起動できる（decision/0027）。宣言の run が VM の中で始まっている（decision/0028）
 
 ### Main Success Scenario
 
@@ -64,8 +65,8 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 5. sbxr が cache 層の template を用意する（hash に合う template が無いか期限を過ぎていれば、build 用 VM で作って snapshot し、旧いものを消す）
 6. sbxr が sandbox スコープの secret を置いてから template で sandbox VM を作り、repo を投入方式で渡し、作った後に sandbox スコープ rule を足す
 7. sbxr が VM の中を宣言どおりにする（materialize → init → boot）
-8. sbxr が VM 内から egress 自己検証を行う
-9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）
+8. sbxr が VM 内から egress 自己検証を行い、VM の中で agent と Docker が使えることを確かめる
+9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）。最後に、宣言の run を VM 内の作業ツリーで裏で始め、始めたことと、出力が残る VM 内の log の場所を示す（decision/0028）
 
 ### Extensions
 
@@ -73,11 +74,11 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 1b. 作成途中の VM がある: sbxr は destroy を促して止まる
 - 1c. 同じ名前の VM が管理外か別出所: sbxr は触らずに止まる
 - 1d. VM 消失（作成時の宣言はあるが VM が無い）: sbxr は destroy を促して止まる
-- 1e. git URL に copy か mount を指定した: sbxr は止まる
+- 1e. git URL に copy を指定した: sbxr は止まる
+- 1f. `--attach` を付けたのに端末が無い: sbxr は止まる
 - 2a. 宣言が不正か、secret 要求に定義が無い: sbxr は理由を示して止まる
 - 2b. 要求された secret の注入先 host が egress で許可されていない: sbxr はその secret を配線から外し、作る内容に載せて 3 へ
 - 2c. herdr 連携が有効なのに host に herdr が無い: sbxr は確認プロンプトの前に止まる
-- 3a. 投入方式が mount: sbxr は確認プロンプトで、VM から host の作業ツリー（`.git` を含む）を書き換えられることと、ignored のファイル（`.env`、個人設定の `.claude/settings.local.json` など）も VM から見えることを示す
 - 3b. `--yes`: sbxr は確認プロンプトを省く。git URL なら repo の egress を落とし、落とした宛先を示して 5 へ
 - 3c. 端末が無い: sbxr は止まる（`--yes` を案内する）
 - 4a. 利用者が承認しない: sbxr は何も残さずに止まる（git URL の cache clone も消す）
@@ -87,13 +88,18 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 5d. 旧い template を消せない（使っている VM がある等）: sbxr は警告して 6 へ
 - 6a. 状態ディレクトリに出所を記録する前（実行基盤の定義か作成の最初の記録を書けない。herdr 連携を有効にして、kit へ渡せない path の repo を作ろうとした場合を含む。decision/0015）に失敗した: sbxr は書きかけの状態ディレクトリと git URL の cache clone を消し、未作成に戻して止まる（sbx の側にはまだ何も置いていない。decision/0011）
 - 6b. secret を置けないか、VM を作れない: sbxr は状態ディレクトリを残して止まる（UC4 で片付ける）
-- 7a. VM の中の段（sandbox スコープ rule・kit の startup・materialize・init・boot）が失敗した: sbxr は VM を調べられるよう稼働したまま残し、stop → destroy → create の復旧手順を示して止まる
+- 7a. VM の中の段（sandbox スコープ rule・kit の startup・materialize・init・boot）が失敗した: sbxr は VM を調べられるよう稼働したまま残し、復旧手順（`sbxr recreate`）を示して止まる
 - 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と、body の 1 行目の `Approval required for <宛先>.` か `Blocked by local rule for <宛先>`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007・0016）
 - 8b. 許可集合に、glob を含まず 443 を通す宛先が無い: sbxr は許可先の確認を省いたことを示し、許可外の確認だけを行う
 - 8c. 許可外の候補（`example.com`・`example.net`・`example.org`）がすべて許可されている: sbxr は許可外の確認を省いたことを示し、許可先の確認だけを行う
+- 8d. VM の中で agent か Docker が使えない: 7a と同じく止まる
 - 9a. herdr machine の登録に失敗した: VM は作成済みとして残り、sbxr は登録し直す手順を示して非 0 で終える
 - 9b. 同じ `<名前>.sbx` の登録が既にある: sbxr はその登録に触れずに止まり、解除してから登録し直す手順を示す
 - 9c. 最初の workspace を VM 内の作業ツリーで開き直せない: VM と herdr machine の登録は残り、sbxr は VM 内で開き直す手順を示して非 0 で終える
+- 9d. herdr の pane で agent を起動できない: VM と herdr machine の登録は残り、sbxr は成り立たなかった項目を示して非 0 で終える
+- 9e. 宣言に run が無い: sbxr は何も始めない
+- 9f. run を始められない: VM は作成済みとして残り、sbxr は非 0 で終える
+- 9g. `--attach`: sbxr は最後に、VM 内の作業ツリーで agent の対話 session に入る。利用者が抜けても VM は動いたままにする
 
 ## UC3 sandbox VM を止める
 
@@ -110,7 +116,7 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 2. sbxr が、sbxr の作った VM であることを確かめる
 3. sbxr が herdr machine を無効にする
 4. sbxr が VM を止める
-5. sbxr が、起動し直した後に herdr machine を有効に戻すコマンドを示す
+5. sbxr が、起こし直すコマンド（`sbxr start`）を示す
 
 ### Extensions
 
@@ -131,35 +137,33 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - Level: user-goal
 - Trigger: 利用者が、VM での作業を終えたか、作り直したい
 - 事前条件: sbxr が作った VM（作成途中・VM 消失を含む）の状態ディレクトリがある
-- 成功保証: VM と、その sandbox スコープの secret・rule、herdr machine、cache clone、状態ディレクトリが無い。作成済みの clone・copy の VM は、未 push の作業が無いことを確かめてから撤去されている
+- 成功保証: VM と、その sandbox スコープの secret・rule、herdr machine、cache clone、状態ディレクトリが無い
 
 ### Main Success Scenario
 
 1. 利用者が VM の撤去を求める
 2. sbxr が、sbxr の作った VM で、止まっていることを確かめる
-3. sbxr が VM を一時起動し、未 push の作業が無いことを確かめて、止め直す
-4. sbxr が、VM 内の変更が失われることを示して承認を求める
-5. 利用者が承認する
-6. sbxr が herdr machine を解除する
-7. sbxr が VM を、sandbox スコープの secret・rule ごと撤去する
-8. sbxr が cache clone と状態ディレクトリを片付ける
+3. sbxr が、VM 内の commit と変更が失われることを示して承認を求める
+4. 利用者が承認する
+5. sbxr が herdr machine を解除する
+6. sbxr が VM を、sandbox スコープの secret・rule ごと撤去する
+7. sbxr が cache clone と状態ディレクトリを片付ける
 
 ### Extensions
 
 - 2a. VM の状態ディレクトリが無いか、別出所: sbxr は止まる
 - 2b. VM が稼働中（作成途中・稼働を含む）: sbxr は、stop してから撤去するか `--force` を付けるよう示して止まる
-- 2c. `--force`: sbxr は稼働中でも進み、3 を省いて 4 へ
+- 2c. `--force`: sbxr は稼働中でも 3 へ進む
 - 2d. herdr 連携を有効にして作った VM で、host に herdr が無い: sbxr は止まる
-- 3a. 投入方式が mount・作成途中の VM・VM 消失: sbxr は検査せずに 4 へ（mount の作業は host の作業ツリーにあり、作成途中の VM は agent に渡していない）
-- 3b. 未 push の作業がある: sbxr は、branch ごとの未 push の commit（branch に無いものは detached HEAD として）・未 commit の変更・stash を示し、VM を止め直して止まる。利用者は VM 内から origin へ push して 1 からやり直すか、`--force` を付ける
-- 3c. 一時起動か検査が失敗した（origin に届かない等）: sbxr は VM を止め直して止まる（`--force` で省ける）。origin の host の egress 許可か secret の配線が無い repo では、毎回ここで止まる
-- 4a. `--yes`: sbxr は確認を省いて 6 へ
-- 4b. 端末が無い: sbxr は止まる（`--yes` を案内する）
-- 5a. 利用者が承認しない: sbxr は止まる
-- 5b. 確認の間に VM が起動した: sbxr は 2b と同じく止まる
-- 6a. herdr machine を解除できない: sbxr は解除の手順を警告して 7 へ進み、最後に非 0 で終える
-- 7a. VM を消せない: sbxr は状態ディレクトリを残して止まる（撤去には env 定義が要るため）
-- 8a. cache clone か状態ディレクトリを消せない: sbxr は警告し、非 0 で終える
+- 3a. `--yes`: sbxr は確認を省いて 5 へ
+- 3b. 端末が無い: sbxr は止まる（`--yes` を案内する）
+- 4a. 利用者が承認しない: sbxr は止まる
+- 4b. 確認の間に VM が起動した: sbxr は 2b と同じく止まる
+- 5a. herdr machine を解除できない: sbxr は解除の手順を警告して 6 へ進み、最後に非 0 で終える
+- 6a. VM を消せない: sbxr は状態ディレクトリを残して止まる（撤去には env 定義が要るため）
+- 7a. cache clone か状態ディレクトリを消せない: sbxr は警告し、非 0 で終える
+
+却下: 撤去の前に停止中の VM を起こし、origin に push していない commit と変更を検査する。理由: 作業の保全は目的に無く、利用者が VM の中から origin へ push すれば残せる（decision/0023）。
 
 ## UC5 全 VM 共通の egress 許可を宣言に揃える
 
@@ -218,26 +222,36 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - Scope: sbxr
 - Level: user-goal
 - Trigger: 利用者が、repo 宣言か user 設定を変えた
-- 事前条件: 作成済みの VM がある
-- 成功保証: VM が現在の宣言から作り直されている。clone・copy の VM の作業は origin に残っている
+- 事前条件: sbxr が作った VM（作成途中・VM 消失を含む）の状態ディレクトリがある
+- 成功保証: VM が現在の宣言から作り直されている（UC2 の成功保証が成り立つ）
 
 ### Main Success Scenario
 
 1. 利用者が、repo 宣言か user 設定を変える
 2. 利用者が、作られる内容と drift を確かめる（UC1）
-3. 利用者が、VM 内の作業を origin へ push する
-4. 利用者が、VM を止めて撤去する（UC3 → UC4）
-5. 利用者が、VM を作り直す（UC2）
+3. 利用者が、VM の作り直しを求める（`sbxr recreate`）
+4. sbxr が、作る内容と、VM 内の commit と変更が失われることを一緒に示し、承認を求める
+5. 利用者が承認する
+6. sbxr が VM を止めて撤去する（UC3・UC4 の、確認より後の段。VM が稼働していなければ、止める段を省く）
+7. sbxr が VM を作り直す（UC2 の、確認より後の段）
 
 ### Extensions
 
 - 2a. drift が無い: ここで終える
 - 2b. 変えたのが user 設定の egress だけ（global rule）: 利用者は UC5 で揃える（既存の VM にも効く）。ここで終える
-- 3a. 投入方式が mount: push は要らない（作業は host の作業ツリーにある）。4 へ
-- 4a. 未 push の作業が残っている: UC4 の 3b で止まる。3 へ戻る
-- 5a. cache 層か inputs の内容が変わった: UC2 の 5 で新しい template を作り、旧いものを消す
+- 3a. VM が未作成: sbxr は create を促して止まる
+- 3b. 同じ名前の VM が管理外か別出所: sbxr は触らずに止まる
+- 3c. `--attach` を付けたのに端末が無い: sbxr は VM に触れずに止まる
+- 4a. `--yes`: sbxr は確認を省いて 6 へ（git URL なら repo の egress を落とす。UC2 の 3b）
+- 4b. 端末が無い: sbxr は止まる（`--yes` を案内する）
+- 4c. 現在の宣言が不正か、配線する secret の値が無い: sbxr は VM に触れずに止まる（作り直せないと分かっている VM を消さない）
+- 5a. 利用者が承認しない: sbxr は何も変えずに止まる
+- 6a. 止められないか撤去できない: sbxr は UC3・UC4 の Extensions のとおりに止まる（作り直しへ進まない）
+- 7a. 作り直しの途中で失敗した: sbxr は UC2 の Extensions のとおりに止まる（前の VM は残っていない）
+- 7b. cache 層か inputs の内容が変わった: UC2 の 5 で新しい template を作り、旧いものを消す
+- 7c. `--attach`: sbxr は最後に、VM 内の作業ツリーで agent の対話 session に入る（UC2 の 9g）
 
-却下: 作り直しを 1 コマンドにする（`sbxr recreate`）。理由: destroy を自動では実行しない方針（README の drift 節）を保ち、未 push の作業をどう扱うかの判断を利用者の手に残す。
+却下: 宣言の変更を sbxr が自動で反映する。理由: 利用者の確認なしに VM 内の変更が失われる（decision/0026）。
 
 ## UC8 設定と host の前提を診断する
 
@@ -303,3 +317,40 @@ sandbox VM の再起動は sbxr の外（sbx exec・herdr の再接続）で行�
 - 5c. 推測が誤っていたが診断は通った: UC2 の確認プロンプトで利用者が止める
 
 却下: sbxr が agent を呼んで設定を生成する（`sbxr init` など）。理由: 汎用 CLI が agent を subprocess で呼ぶのは標準的でなく、どの agent をどの権限で呼ぶかを CLI が決めることになる（decision/0013）。
+
+## UC10 止めた sandbox VM を起こし直す
+
+- Primary Actor: 利用者
+- Scope: sbxr
+- Level: user-goal
+- Trigger: 利用者が、止めた VM での作業を再開したい
+- 事前条件: sbxr が作った、停止中か稼働中の VM がある
+- 成功保証: VM が稼働している。VM の中で agent（Claude Code）を起動でき、Docker を使える。herdr 連携の VM では herdr machine が有効で、herdr の pane で agent を起動できる（decision/0025・0027）。作成時の宣言の run が VM の中で始まっている（decision/0028）
+
+### Main Success Scenario
+
+1. 利用者が VM の起こし直しを求める
+2. sbxr が、sbxr の作った VM で、作成済みであることを確かめる
+3. sbxr が VM を起こす（boot が再生される）
+4. sbxr が、VM の中で agent と Docker が使えることを確かめる
+5. sbxr が herdr machine を有効に戻し、herdr の pane で agent を起動できることを確かめる
+6. sbxr が、作成時の宣言の run を VM 内の作業ツリーで裏で始め、始めたことと、出力が残る VM 内の log の場所を示す
+
+### Extensions
+
+- 1a. `--attach` を付けたのに端末が無い: sbxr は止まる
+- 2a. VM が未作成: sbxr は create を促して止まる
+- 2b. 作成途中の VM か VM 消失: sbxr は destroy を促して止まる
+- 2c. 同じ名前の VM が管理外か別出所: sbxr は触らずに止まる
+- 2d. herdr 連携を有効にして作った VM で、host に herdr が無い: sbxr は VM に触れずに止まる
+- 3a. VM が既に稼働している（外部起動の後など）: sbxr は VM に触れずに「動いている」と示し、4 へ
+- 3b. VM を起こせない: sbxr は止まる（VM は停止中のまま）
+- 4a. agent か Docker が使えない: sbxr は成り立たなかった項目を示して非 0 で終える（VM は稼働中のまま）
+- 5a. herdr 連携を有効にせずに作った VM: 5 を行わない
+- 5b. herdr machine の登録が無い（利用者が手で解除した等）: sbxr は登録し直す手順を示して非 0 で終える
+- 5c. herdr machine を有効に戻せないか、pane で agent を起動できない: sbxr は成り立たなかった項目を示して非 0 で終える（VM は稼働中のまま）
+- 6a. 作成時の宣言に run が無いか、VM が既に稼働していた（3a）: sbxr は何も始めない（動いている run を二重に始めない）
+- 6b. run を始められない: sbxr は非 0 で終える（VM は稼働中のまま）
+- 6c. `--attach`: sbxr は最後に、VM 内の作業ツリーで agent の対話 session に入る
+
+却下: create が停止中の VM を起こす。理由: 作成済みの VM への create は drift の報告で、同じコマンドに 2 つの意味が付く（decision/0025）。
