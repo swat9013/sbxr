@@ -87,7 +87,7 @@ func (l Lifecycle) startStopped(ctx context.Context, name, repo, worktree string
 	if err := l.Runtime.StartSandbox(ctx, name); err != nil {
 		return fmt.Errorf("sandbox VM %s を起こせない (VM は止まったまま): %w", name, err)
 	}
-	if err := l.readyStarted(ctx, name, repo, enabled); err != nil {
+	if err := l.readyStarted(ctx, name, repo, worktree, enabled); err != nil {
 		// VM は稼働中になったので、確かめ直す start は run を始めない。run を始めるには起こし直す
 		return fmt.Errorf("%w\nsandbox VM %s は起こした%s", err, name, runNotStarted(repo, run))
 	}
@@ -98,13 +98,13 @@ func (l Lifecycle) startStopped(ctx context.Context, name, repo, worktree string
 }
 
 // startRunning は稼働中の sandbox VM を起こさずに、VM の中を確かめてから herdr machine を有効に戻す (decision/0025)。
-// host に herdr が無ければ、VM に触れずに止まる。
-func (l Lifecycle) startRunning(ctx context.Context, name, repo string) error {
+// host に herdr が無ければ、VM に触れずに止まる。worktree は VM 内の作業ツリー (登録し直す手順で workspace を開き直す場所)。
+func (l Lifecycle) startRunning(ctx context.Context, name, repo, worktree string) error {
 	enabled, err := l.herdrRequired(name)
 	if err != nil {
 		return err
 	}
-	if err := l.readyStarted(ctx, name, repo, enabled); err != nil {
+	if err := l.readyStarted(ctx, name, repo, worktree, enabled); err != nil {
 		return fmt.Errorf("%w\nsandbox VM %s は動いている (VM には触れていない)", err, name)
 	}
 	return nil
@@ -113,7 +113,8 @@ func (l Lifecycle) startRunning(ctx context.Context, name, repo string) error {
 // readyStarted は稼働中の sandbox VM の中で agent と Docker が使えることを確かめ (decision/0027)、
 // herdr 連携を有効にして作った VM なら herdr machine を有効に戻す。確かめた項目が成り立たなければ、
 // herdr machine を有効に戻さずに、確かめ直す手順を添えて止まる (UC10 の 4a。VM は稼働中のまま)。
-func (l Lifecycle) readyStarted(ctx context.Context, name, repo string, herdrEnabled bool) error {
+// worktree は VM 内の作業ツリー (登録が無いときに示す、登録し直す手順で workspace を開き直す場所。UC10 の 5b)。
+func (l Lifecycle) readyStarted(ctx context.Context, name, repo, worktree string, herdrEnabled bool) error {
 	if err := checkDevTools(ctx, l.Runtime, name, l.Output); err != nil {
 		var untouched string
 		if herdrEnabled { // 有効か無効かは読んでいないので、変えていないことだけを示す
@@ -124,7 +125,7 @@ func (l Lifecycle) readyStarted(ctx context.Context, name, repo string, herdrEna
 	if !herdrEnabled {
 		return nil
 	}
-	return l.registry().Enable(ctx, name, l.Output)
+	return l.registry().Enable(ctx, name, worktree, l.Output)
 }
 
 // removeHerdrMachine は herdr 連携を有効にして作った VM の herdr machine を解除する。登録が無ければ何もしない。

@@ -234,7 +234,7 @@ func TestEnableEnablesADisabledMachine(t *testing.T) {
 	host.Machines[0].Enabled = false
 	var progress strings.Builder
 
-	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", &progress)
+	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", worktree, &progress)
 
 	if err != nil || !host.Machines[0].Enabled || !strings.Contains(progress.String(), "有効に戻した") {
 		t.Errorf("Enable() = %v, machine = %+v, progress = %q, want it enabled and reported", err, host.Machines[0], progress.String())
@@ -245,7 +245,7 @@ func TestEnableLeavesAnEnabledMachineAlone(t *testing.T) {
 	rt := runningApp()
 	host := hostWithEnabledMachine(rt)
 
-	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", io.Discard)
+	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", worktree, io.Discard)
 
 	if err != nil || slices.Contains(host.Calls, "enable m1") {
 		t.Errorf("Enable() = %v, calls = %v, want nothing to enable", err, host.Calls)
@@ -256,10 +256,29 @@ func TestEnableLeavesAnEnabledMachineAlone(t *testing.T) {
 func TestEnableWithoutARegistrationFailsWithHowToRegisterAgain(t *testing.T) {
 	rt := runningApp()
 
-	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.Enable(context.Background(), "app", io.Discard)
+	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.Enable(context.Background(), "app", worktree, io.Discard)
 
 	if err == nil || !strings.Contains(err.Error(), "pkill -x herdr を実行してから herdr machine add app.inmemory --label app") {
 		t.Errorf("Enable() error = %v, want how to register the machine again", err)
+	}
+}
+
+// 手で登録し直すと VM 内の server は最初の workspace を作業ツリーの外で作るので、示す手順は登録の後に
+// 作業ツリーで workspace を開き直し、それが通ったら前の workspace を閉じる (decision/0015・UC10 の 5b)。
+func TestEnableWithoutARegistrationShowsHowToReopenTheWorkspaceAtTheWorktreeAfterRegistering(t *testing.T) {
+	rt := runningApp()
+
+	err := herdr.Registry{Client: &herdrtest.Fake{}, VM: rt}.Enable(context.Background(), "app", worktree, io.Discard)
+
+	if err == nil {
+		t.Fatal("Enable() error = nil, want how to register the machine again")
+	}
+	msg := err.Error()
+	add := strings.Index(msg, "herdr machine add app.inmemory --label app")
+	create := strings.Index(msg, "herdr workspace create --cwd "+quotedWorktree+" --focus を実行し、それが通ったら、")
+	closeOthers := strings.Index(msg, "herdr workspace list に出る他の workspace を id ごとに herdr workspace close <id> で閉じる")
+	if add < 0 || create <= add || closeOthers <= create {
+		t.Errorf("Enable() error = %q, want the workspace reopened at the worktree after registering, then the others closed", msg)
 	}
 }
 
@@ -269,7 +288,7 @@ func TestEnableFailsWithHowToEnableByHandWhenTheMachineCannotBeEnabled(t *testin
 	host.Machines[0].Enabled = false
 	host.FailEnable = true
 
-	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", io.Discard)
+	err := herdr.Registry{Client: host, VM: rt}.Enable(context.Background(), "app", worktree, io.Discard)
 
 	if err == nil || !strings.Contains(err.Error(), "herdr machine enable m1") {
 		t.Errorf("Enable() error = %v, want the failure with how to enable by hand", err)

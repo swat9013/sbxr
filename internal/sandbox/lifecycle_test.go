@@ -14,6 +14,7 @@ import (
 	"github.com/swat9013/sbxr/internal/runtime"
 	"github.com/swat9013/sbxr/internal/runtime/inmemory"
 	"github.com/swat9013/sbxr/internal/secret"
+	"github.com/swat9013/sbxr/internal/shell"
 )
 
 // 遷移表 (transitions_test.go) が見ない、遷移に伴う action と、状態機械の外 (管理外・別出所) の振る舞い。
@@ -755,6 +756,10 @@ func TestStartWithoutAHerdrRegistrationShowsHowToRegisterAgain(t *testing.T) {
 
 			if err == nil || !strings.Contains(err.Error(), "herdr machine add app.inmemory --label app") || w.stateOf(w.repo()) != stateRunning {
 				t.Errorf("Start() error = %v, state = %s, want the VM running and how to register the machine again", err, w.stateOf(w.repo()))
+			}
+			// 登録し直した後に、VM 内の作業ツリーで最初の workspace を開き直す (decision/0015)
+			if reopen := "herdr workspace create --cwd " + shell.Quote(w.repo()) + " --focus"; err != nil && !strings.Contains(err.Error(), reopen) {
+				t.Errorf("Start() error = %v, want %q to reopen the workspace at the worktree", err, reopen)
 			}
 		})
 	}
