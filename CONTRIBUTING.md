@@ -59,6 +59,9 @@ sbxr-dev create .
   - `fix`・`perf` がある: patch を上げる
   - breaking の印（subject の `!` か footer の `BREAKING CHANGE:`）がある: 0.x の間に major をどう扱うかは未決なので、その都度決める
   - 利用者から見える変更が無い（docs・refactor・test・chore・ci だけ）: 出すかどうかをその都度決める
+- `v1.0.0`（実用版）の tag を打つのは、上の条件に加えて、milestone `v1.0.0` に open の issue が無いときだけ。それより前の 0.x の release は、milestone を待たずに出す
+  - milestone `v1.0.0` に入れるのは、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/README.md) の 4 つ）を満たすのに要る issue と、herdr 連携を含む create から destroy までの 1 周で利用者が当たる不具合。入れる・外すは人が決める
+  - 着手できる issue が複数あるときは、milestone `v1.0.0` の issue を先に取る
 - push した tag は公開済みとして扱い、消したり打ち直したりしない。release workflow が途中で失敗すると、GitHub Release や cask が途中まで出ていることがある
 - Claude で出すときは `release` skill（`.claude/skills/release/`）を使う
 
