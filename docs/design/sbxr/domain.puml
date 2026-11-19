@@ -15,7 +15,7 @@ package "集約: sandbox VM (1 つの出所から作った VM の管理)" as Agg
   class SandboxVM <<sandbox VM>> {
     {field} 名前 : 出所から決まる (英数字と . _ -)
     {field} 出所 : repo の絶対 path | git URL
-    {field} 投入方式 : clone | copy | mount
+    {field} 投入方式 : clone | copy
     {field} herdr 連携 : 有効 | 無効
     {field} 状態 : statechart.puml の 6 状態
   }
@@ -108,12 +108,6 @@ class HerdrMachine <<herdr machine>> {
   {field} 有効か
 }
 
-class UnpushedWork <<未 push の作業>> {
-  {field} 未 push の commit : origin から到達できない、local branch か HEAD の commit
-  {field} 未 commit の変更 : tracked の変更・ignored でない untracked
-  {field} stash
-}
-
 SandboxVM "1" *-- "0..1" CreationDeclaration : 作成時の宣言
 CreationDeclaration "1" *-- "0..n" WiredSecret
 SandboxVM "1" *-- "0..1" CacheClone : git URL のときだけ
@@ -128,7 +122,6 @@ Declaration "1" *-- "0..1" HerdrDeclaration
 Declaration "1..3" .down.> "1" CreationDeclaration : merge して現在の宣言を確定\n(作成時の宣言との差が drift)
 SandboxVM "0..n" .right.> "0..1" Template : ID参照 tag
 SandboxVM "1" .left.> "0..1" HerdrMachine : ID参照 target
-SandboxVM "1" .up.> "0..1" UnpushedWork : destroy の前に導出
 SecretRequest "0..n" ..> "1" SecretDefinition : ID参照 名前
 WiredSecret "0..n" ..> "1" SecretDefinition : ID参照 名前
 SecretDefinition "0..n" .down.> "1" SecretFile : ID参照 key
@@ -136,7 +129,7 @@ EgressGroup "0..n" ..> "0..n" GlobalRule : default・user の group が期待集
 
 note top of SandboxVM
   状態ディレクトリがあることが sbxr の管理下の印。
-  無い VM (管理外) と出所が違う VM (別出所) には create・stop・destroy のどれも触らない。
+  無い VM (管理外) と出所が違う VM (別出所) には create・stop・start・destroy のどれも触らない。
   名前 1 つに出所は 1 つ。
   出所・投入方式・herdr 連携の有無は作成の最初に状態ディレクトリへ記録する
   (作成途中の VM の stop・destroy もこれを読んで herdr machine を扱う)。
@@ -144,7 +137,6 @@ note top of SandboxVM
   作成時の宣言は egress 自己検証が通った後にだけ書く。
   git URL の VM の投入方式は clone だけ。
   destroy (--force 無し) は止まっている VM だけ。
-  作成済みの clone・copy の VM は未 push の作業が無いのときだけ。
   drift は作成時の投入方式と repo の egress の扱いを再現して比べる。
 end note
 
@@ -235,14 +227,6 @@ end note
 note left of HerdrMachine
   herdr 連携を有効にして作った VM にだけある。
   sbxr が登録したものにだけ触れる (同じ target の登録が既にあれば止まる)。
-  sbxr stop の後は無効。
-end note
-
-note right of UnpushedWork
-  対象は作成済みの clone・copy の VM だけ
-  (mount は host の作業ツリーに直接書くので失われない)。
-  origin は VM 内で fetch した後の remote-tracking で見る。
-  fetch には origin の host の egress 許可と secret の配線が要る
-  (VM に ssh 鍵は無く、token は HTTPS にだけ注入される)。
+  sbxr stop の後は無効、sbxr start の後は有効。
 end note
 @enduml

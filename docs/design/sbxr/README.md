@@ -2,14 +2,13 @@
 
 sbxr（repo を宣言 1 枚で AI coding agent 用の sandbox VM にする CLI）の設計ドキュメント一式。目的 → システム関連図 → ユースケース → ドメインモデル図の順で作った。
 
-sbxr が達成したい状態は次の 4 つである。
+sbxr が達成したい状態は次の 3 つである（decision/0023）。
 
-1. **隔離**: VM に入る設定と、VM から通信できる宛先は、利用者が create の前に確かめた内容だけである。
-2. **作業の保全**: VM 内の未 push の作業は、利用者が知らないまま消えない。
-3. **再現**: 同じ宣言からは、同じ構成の VM を作り直せる。
-4. **手数**: 宣言 1 枚と少ないコマンドで使い始められる。
+1. **隔離**: agent は sandbox VM の外へ出られず、VM から通信できる宛先は、利用者が create の前に確かめたものだけである。
+2. **VM の中で開発できる**: VM の中で agent が、Docker を含む開発の道具を使える。
+3. **手軽**: 宣言 1 枚で環境を定義し、1 コマンドで立ち上げ、1 コマンドで止められる。
 
-食い違ったときは、隔離 > 作業の保全 > 再現 > 手数の順に優先する。
+食い違ったときは、隔離 > VM の中で開発できる > 手軽の順に優先する。
 
 範囲は、実装済みの v0.1 に、[decision/](decision/) の決定が足したものである。
 
@@ -22,7 +21,7 @@ sbxr が達成したい状態は次の 4 つである。
 | file | 中身（正本として扱う構造） |
 |---|---|
 | [system.md](system.md) | 境界、相手ごとの接続と port、状態機械の概要、未実測の前提 |
-| [usecases.md](usecases.md) | ユースケース（UC1〜UC9）の Main Success Scenario と Extensions |
+| [usecases.md](usecases.md) | ユースケース（UC1〜UC10）の Main Success Scenario と Extensions |
 | [domain.puml](domain.puml) / domain.svg | entity・集約の範囲・多重度・ID 参照・不変条件 |
 | [statechart.puml](statechart.puml) / statechart.svg | sandbox VM の状態機械（状態・イベント・guard・uncovered 宣言） |
 | [decision/](decision/) | この設計で決めたことの根拠と却下肢（1 決定 1 file、不変） |
@@ -44,7 +43,7 @@ sbxr が達成したい状態は次の 4 つである。
 
 出所の hash は例示の短縮形（`/Users/u/src/app` → `1a2b`）で書く。具体的な ID と状態を入れた遷移列で、ドメインモデル図と状態機械が矛盾なく表現できるかを確かめる。見るのは、多重度・集約の境界・系譜。
 
-### シナリオ 1: cache 層を変えて作り直す（正常系と、未 push の作業による停止）
+### シナリオ 1: cache 層を変えて作り直す（正常系）
 
 path の repo `/Users/u/src/app` の宣言は `template: {inputs: [.mise.toml], run: [mise install]}`。投入方式は clone。
 
@@ -54,26 +53,22 @@ path の repo `/Users/u/src/app` の宣言は `template: {inputs: [.mise.toml], 
    - `sbxr-build-1a2b` を撤去する
 2. VM `app` を `sbxr-app-1a2b:3f9a` から作る
    - egress 自己検証: `astral.sh:443` に届き、`example.com:443` に届かない
+   - VM の中で agent と Docker が使えることを確かめる
    - 作成時の宣言（template の hash `3f9a`、投入方式 clone）を書く
    - 状態は、未作成から稼働中になる
 3. `sbxr stop` で停止中になる
 4. 利用者が `.mise.toml` を変える。`sbxr plan` が drift `template の hash: 3f9a → 7c21` を見せる（UC7）
-5. `sbxr destroy`
-   - 停止中なので一時起動して検査する。branch `feature/x` に、origin に無い commit が 2 つある
-   - 止め直して拒否し、停止中のままになる
-6. 利用者が `sbx exec app -- git push origin feature/x` を実行する
-   - 外部起動で稼働中になり、push の後に `sbxr stop` で停止中に戻す
-   - `sbxr destroy` は一時起動して検査し、未 push の作業が無いなので撤去する
-   - 未作成になる。template `sbxr-app-1a2b:3f9a` は残る（参照する VM は 0 件）
-7. `sbxr create`
+5. `sbxr recreate /Users/u/src/app`
+   - 作る内容と、VM 内の commit と変更が失われることを示し、利用者が承認する
+   - 停止中なので、そのまま撤去する。未作成になる。template `sbxr-app-1a2b:3f9a` は残る（参照する VM は 0 件）
    - hash `7c21` の template が無いので、`sbxr-app-1a2b:7c21` を作り、同じ出所の `sbxr-app-1a2b:3f9a` を消す
    - VM `app` を作り直し、作成時の宣言の hash は `7c21` になる
 
 **検査**
 
-- **多重度**: 出所ごとに最新の template は 1 つで、6 の後も 7 の後も成り立つ
-- **集約の境界**: template の作成と旧い template の削除（template 集約）は、VM の作成（sandbox VM 集約）より前に別々に終わる。7 で VM の作成に失敗しても、template `7c21` は整合したまま残る
-- **系譜**: 7 の VM は同じ名前・同じ出所の新しい実体で、状態ディレクトリは書き直される
+- **多重度**: 出所ごとに最新の template は 1 つで、5 の撤去の後も作り直しの後も成り立つ
+- **集約の境界**: template の作成と旧い template の削除（template 集約）は、VM の作成（sandbox VM 集約）より前に別々に終わる。5 で VM の作成に失敗しても、template `7c21` は整合したまま残る
+- **系譜**: 5 で作った VM は同じ名前・同じ出所の新しい実体で、状態ディレクトリは書き直される
 
 ### シナリオ 2: egress 自己検証が失敗して作成途中になる（異常系からの復帰）
 
@@ -90,7 +85,7 @@ git URL `https://github.com/acme/api.git` から作る。VM の名前は `api`�
 4. `sbxr stop` で作成途中・停止になる
 5. `sbxr destroy`
    - herdr 連携を有効にして作ったことは、作成の最初に書いた状態ディレクトリから分かる。host の herdr があることを確かめ、`api.sbx` の登録を探す（登録は作成時の宣言の後なので無い）
-   - 作成途中なので未 push の作業を検査せずに撤去する
+   - 撤去する
    - sandbox スコープの secret・rule は env 定義ごと消える。cache clone と状態ディレクトリを片付け、未作成になる
 6. 利用者が sbx の global policy を直し、`sbxr policy sync` を実行してから `sbxr create --yes` をやり直す
    - 稼働中になる。作成時の宣言には、repo の egress を落とした扱いが記録される
@@ -104,22 +99,22 @@ git URL `https://github.com/acme/api.git` から作る。VM の名前は `api`�
 
 ### シナリオ 3: herdr 連携と、sbxr の外での操作（境界をまたぐ流れ）
 
-path の repo `/Users/u/src/web` を投入方式 mount で作る。user 設定で herdr 連携を有効（`v0.9.0`）にしている。
+path の repo `/Users/u/src/web` を作る。user 設定で herdr 連携を有効（`v0.9.0`）にしている。
 
-1. `sbxr create --workspace mount /Users/u/src/web`
-   - 確認プロンプトで mount のリスクを示し、利用者が承認する
+1. `sbxr create /Users/u/src/web`
    - VM `web` が稼働中になり、herdr machine `web.sbx`（id `m-12`）を登録する（有効）
 2. `sbxr stop`
    - `m-12` を無効にしてから止め、停止中になる
-   - `herdr machine enable m-12` を案内する
-3. 利用者が `herdr machine enable m-12` を実行する
-   - herdr が繋ぎ直し、外部起動で稼働中になる。boot を再生する
+   - `sbxr start /Users/u/src/web` を案内する
+3. 利用者が `sbxr start /Users/u/src/web` を実行する
+   - VM を起こし、boot が再生される。稼働中になる
+   - VM の中で agent と Docker が使えることを確かめる
+   - `m-12` を有効に戻し、herdr の pane で agent を起動できることを確かめる
 4. 利用者が `sbx rm web` を直接実行する
    - 外部撤去で VM 消失になる
    - 状態ディレクトリと作成時の宣言は残る。`m-12` は有効のまま、繋がらない宛先を指す
 5. `sbxr create /Users/u/src/web` は、VM 消失なので destroy を促して止まる
 6. `sbxr destroy`
-   - mount で、しかも VM 消失なので、未 push の作業を検査しない
    - `m-12` を解除し、VM が無くても sandbox スコープの secret を消す
    - 状態ディレクトリを片付け、未作成になる
 
@@ -135,7 +130,7 @@ path の repo `/Users/u/src/web` を投入方式 mount で作る。user 設定�
 1. `sbxr create /a/app`
    - template `sbxr-app-aaaa:3f9a` を作り、VM `app`（出所 `/a/app`）が稼働中になる
 2. `sbxr stop /a/app` → `sbxr destroy /a/app`
-   - 未 push の作業が無いなので撤去し、未作成になる
+   - 撤去し、未作成になる
    - template `sbxr-app-aaaa:3f9a` は残る
 3. `sbxr create /b/app`
    - VM `app` は未作成なので進む

@@ -64,7 +64,7 @@ _Avoid_: lint, validate（plan と create の途中の、最初の誤りで止�
 いまの 3 スコープの宣言から、作成時と同じ扱い（投入方式・repo の egress を落としたか）で確定した宣言。（effective configuration に当たる）
 
 **投入方式**:
-repo を sandbox VM へ渡す方式。clone（VM 内の clone）・copy（`.git` と ignored でないファイルの複製。`.git/config` の認証設定は除く）・mount（host の作業ツリーの直接 mount）の 3 つ。create のときに利用者が選び、git URL は clone だけ。
+repo を sandbox VM へ渡す方式。clone（VM 内の clone）・copy（`.git` と ignored でないファイルの複製。`.git/config` の認証設定は除く）の 2 つ。create のときに利用者が選び、git URL は clone だけ。
 _Avoid_: workspace mode（sbx の用語と紛れる）
 
 **cache 層**:
@@ -120,7 +120,7 @@ sandbox VM 内の agent が作業する repo の置き場。投入方式によ�
 _Avoid_: workspace（sbx の用語、image の既定 cwd `~/workspace` と紛れる）, repo の root
 
 **agent runtime profile**:
-sandbox VM 内の agent（Claude Code）の設定。宣言の `profile` と、有効にした herdr 連携から作られ、host 側の個人設定は持ち込まない。ただし投入方式が mount のときは、repo 内の ignored な個人設定（`.claude/settings.local.json` など）も VM から見える。
+sandbox VM 内の agent（Claude Code）の設定。宣言の `profile` と、有効にした herdr 連携から作られ、host 側の個人設定は持ち込まない。
 _Avoid_: dot_claude, host settings
 
 **materialize**:
@@ -133,20 +133,13 @@ create 時に 1 回だけ VM 内で走るコマンド列。
 sandbox VM の起動ごとに VM 内で走るコマンド列。起動で消える状態（daemon など）を戻す。走るのは作成時に確定した内容。
 _Avoid_: startup（sbx kit の用語）, resume hook
 
-**未 push の作業**:
-destroy で失われる VM 内の作業。origin から到達できない、local branch か HEAD の commit（unpushed commits）、未 commit の変更、stash。投入方式が clone か copy の VM だけが持つ。
-_Avoid_: 未回収（旧称。decision/ と ADR の既存 file に残る）, dirty（未 commit の変更だけを指す）
-
-**一時起動**:
-destroy が未 push の作業を検査するために、停止中の sandbox VM を起動し、検査の後に止め直すこと。
-
 ### herdr 連携
 
 **herdr 連携**:
 sandbox VM に herdr を入れ、host の herdr から VM 内の agent を扱えるようにする opt-in の支援機能。user 設定でだけ有効にできる。
 
 **herdr machine**:
-herdr 連携を有効にした sandbox VM が、host の herdr に登録される接続先。create で登録し、stop で無効化し、destroy で解除する。
+herdr 連携を有効にした sandbox VM が、host の herdr に登録される接続先。create で登録し、stop で無効化し、start で有効に戻し、destroy で解除する。
 _Avoid_: remote, host entry
 
 ### sandbox VM の状態

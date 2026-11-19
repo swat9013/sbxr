@@ -6,7 +6,7 @@ sbxr の境界と、境界の外の相手との接続を表で書く。語は [C
 
 境界の内に置くのは次の 3 つ。
 
-- sbxr の CLI（plan / create / stop / destroy / policy sync / secret setup / doctor）
+- sbxr の CLI（plan / create / stop / start / destroy / recreate / policy sync / secret setup / doctor）
 - 同梱の資材: default スコープの宣言と、kit `sbxr-boot`・`sbxr-herdr`
 - host 側の管理状態: 状態ディレクトリ（sandbox VM と build 用 VM のもの）、cache clone。template の記録は持たず、有無と作成日時は sbx の template の一覧から読む（decision/0020）
 
@@ -22,17 +22,17 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 
 | 相手 | 境界 | 経由 | 方向 | やり取りするもの |
 |---|---|---|---|---|
-| 利用者 | 外 | CLI 引数・端末（port にしない） | 双方向 | コマンド・投入方式・承認・token / 作る内容の要約・drift・未 push の作業・復旧手順 |
+| 利用者 | 外 | CLI 引数・端末（port にしない） | 双方向 | コマンド・投入方式・承認・token / 作る内容の要約・drift・復旧手順 |
 | user 設定 | 外 | ファイル（port にしない） | 入 | 信頼済みの宣言 |
 | repo 宣言 | 外 | ファイル（port にしない） | 入 | untrusted な宣言 |
 | secret ファイル | 外 | ファイル（port にしない） | 入 / 出（secret setup） | secret の値 |
-| host 側 repo（path のとき） | 外 | host の git・ファイル（port にしない） | 入 / mount では VM が直接書く | origin の host、copy で持ち込むもの、mount の対象、cache 層の inputs |
-| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・一時起動・未 push の作業の検査・egress 自己検証・copy の持ち込み・herdr の最初の workspace の開き直し）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
+| host 側 repo（path のとき） | 外 | host の git・ファイル（port にしない） | 入 | origin の host、copy で持ち込むもの、cache 層の inputs |
+| sbx（sandbox VM・template・rule・secret） | 外 | **Runtime**（port） | 出 + 状態の問い合わせ | env 定義による作成・起動・停止・撤去・状態（absent・stopped・running に読むのは adapter）、VM 内の exec（materialize・init・boot・egress 自己検証・VM の中で agent と Docker が使えることの確認・copy の持ち込み・herdr の最初の workspace の開き直し）、VM のファイルの読み・書き・有無、herdr が繋ぐ ssh の宛先、global rule と sandbox スコープ rule、sandbox スコープの secret、template の save / ls / rm |
 | VM 内の kit dispatcher | 外 | Runtime の内側（Sbx adapter が kit と startup log の文面を持つ） | 出（kit を置く）/ 入（log を読む） | `sbxr-boot`・`sbxr-herdr`、`fail` 行・`dispatcher complete` 行。domain は作る内容（boot の再生、herdr の導入と版、VM 内の作業ツリー、host の skills を持ち込まないこと）を渡し、VM の起動時の処理の完了を adapter が待つ（decision/0009）。このうち host の skills を持ち込まないことは kit ではなく、env 定義の `sandboxOptions.skills` で作成時に入れる（decision/0017） |
 | host の herdr | 外 | herdr CLI（port にしない） | 出 | herdr machine の登録・無効化・有効化・解除 |
 | git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan・drift・doctor の一時 clone |
 | GitHub API | 外 | HTTPS（port にしない） | 出 | secret setup github の token の能力の probe |
-| origin | 外 | VM 内の git（Runtime の exec 経由） | VM 発 | 未 push の作業の検査のための fetch。VM からの push は agent と利用者が行い、sbxr は関与しない。VM に ssh 鍵は無く token は HTTPS にだけ注入されるので、materialize が origin の host の ssh 形を https に書き換える。fetch と push には、origin の host の egress 許可と secret の配線が要る |
+| origin | 外 | VM 内の git（Runtime の exec 経由） | VM 発 | VM からの push と fetch は agent と利用者が行い、sbxr は関与しない。VM に ssh 鍵は無く token は HTTPS にだけ注入されるので、materialize が origin の host の ssh 形を https に書き換える。fetch と push には、origin の host の egress 許可と secret の配線が要る |
 | egress の probe 先 | 外 | VM 内の curl（Runtime の exec 経由） | VM 発 | egress 自己検証の 1 往復ずつ |
 
 ### Runtime の順序の制約
@@ -44,7 +44,7 @@ sbx v0.45.1 の実測（ADR 0006）から、次の順序を守る。順序は Sb
 - VM の撤去（env rm）は、VM が無くても sandbox スコープの secret と rule を消す。作成前に失敗して secret だけが残った名前も片付く
 - 撤去の時点で env 定義が状態ディレクトリに実在している必要がある。状態ディレクトリは VM を消せた後にしか消さない
 - VM の中へのファイルの書き込みは、`sbx exec -i` の stdin を VM 内の shell で書く（`sbx cp` は host の uid と mode のまま置く）
-- `sbx stop` は使用中の session も切る。一時起動した VM を止め直すときも同じ
+- `sbx stop` は使用中の session も切る
 
 ### port の切り方
 
@@ -71,12 +71,13 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 | 停止中 | あり | あり | 停止 |
 | VM 消失 | あり | あり | 無し |
 
-イベントは、sbxr が起こす `create`・`stop`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 6 つ。同じイベントの結果の分岐（create の失敗の段、destroy の `--force` と未 push の作業）は guard で書く。
+イベントは、sbxr が起こす `create`・`stop`・`start`・`destroy` と、sbxr の外で起きる `外部起動`（sbx exec・herdr の再接続）・`外部停止`（sbx stop）・`外部撤去`（sbx rm）の 7 つ。同じイベントの結果の分岐（create の失敗の段、start で VM を起こせたか、destroy の `--force`）は guard で書く。
 
-主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →外部起動→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
+主系列: 未作成 →create→ 稼働中 →stop→ 停止中 →start→ 稼働中 →stop→ 停止中 →destroy→ 未作成。
 
 - 管理外と別出所は状態にせず、どのイベントでも触らずに止まる guard として扱う
-- herdr machine の登録・無効化・解除と、destroy の一時起動は、遷移の action として書く
+- herdr machine の登録・無効化・有効化・解除と、create・start の終わりに VM の中を確かめることは、遷移の action として書く
+- recreate は新しいイベントにせず、stop → destroy → create を続けて起こすものとして扱う（decision/0026）
 - plan・policy sync・secret setup・doctor は VM の状態を変えないので、イベントに含めない
 
 却下: VM と herdr machine の 2 枚の状態機械。理由: herdr machine の状態は VM の遷移の action として変わるだけで、独立したイベントを持たない（herdr の再接続は VM の外部起動として現れる）。2 枚にすると、同期を note でしか縛れない。
@@ -85,11 +86,13 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 
 ## 解こうとしている構造課題
 
-- VM 内の commit の push（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は未 push の作業に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)・[decision/0003](decision/0003-destroy-checks-unrecovered.md)
-- 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)
+- VM 内の commit の push（#9）: 現行は clone 方式で、sbx が host 側 repo に `sandbox-<name>` remote を足し、README は fetch での取り込みを案内している。取り込みには VM の稼働が要る。git URL の VM では取り込み先の cache clone が destroy で消える。destroy は未 push の作業に気付かない。→ [decision/0001](decision/0001-recover-only-via-origin.md)。destroy が未 push の作業を検査する決定（decision/0003・0021）は取り下げた → [decision/0023](decision/0023-purpose-isolation-development-ease.md)
+- 投入方式: 現行は clone に固定で、host の作業ツリーの未 commit の状態を持ち込めず、作業ツリーへの直接の書き込みも選べない。→ [decision/0002](decision/0002-workspace-modes.md)。mount は取り下げた → [decision/0024](decision/0024-workspace-mount-withdrawn.md)
 - init の重さ（#13）: 重い tool の導入が create のたびに init で走る。→ [decision/0004](decision/0004-template-per-repo-built-in-create.md)・[decision/0005](decision/0005-template-build-inputs-and-refresh.md)
 - egress（#12）: 宣言した egress が VM で実際に効いているかを、作成時に確かめていない。→ [decision/0006](decision/0006-egress-self-check-from-vm.md)・[decision/0007](decision/0007-egress-self-check-verdict-by-proxy-denial.md)・[decision/0016](decision/0016-proxy-denial-is-approval-pending-or-local-rule-block.md)
 - VM 内の作業ツリー: copy の置き場が決まっておらず、herdr の pane は VM 内の作業ツリーではなく image の既定の cwd（`/home/agent/workspace`）で始まる。→ [decision/0014](decision/0014-vm-worktree-at-host-path-and-herdr-starts-there.md)・[decision/0015](decision/0015-herdr-first-workspace-reopened-after-registration.md)
+- 起こし直し: 止めた VM を起こす手段が sbxr に無く、起こし直した VM の中で何が成り立つかを設計のどこも保証していない（#87）。→ [decision/0025](decision/0025-start-command.md)・[decision/0027](decision/0027-create-and-start-check-inside-vm.md)
+- 作り直し: 宣言の変更を反映するのに stop → destroy → create の 3 コマンドが要る。→ [decision/0026](decision/0026-recreate-command.md)
 
 ## 未実測の前提
 
@@ -111,6 +114,10 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 14. `sbx template save` した image について、`sbx template ls --json` の `created_at` が save の時刻になるか（decision/0020）。ならなければ、template の記録を持つ形（decision/0004）へ戻す
 15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy・mount の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
+17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す
+18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る
+
+5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。2 は、未 push の作業の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
 
 Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/0018](decision/0018-embedded-kits-move-to-kit-spec-v3.md)。11 と 12 は、移行の実装の前に確かめる。
 
