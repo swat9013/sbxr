@@ -6,8 +6,8 @@ sbxr の境界と、境界の外の相手との接続を表で書く。語は [C
 
 境界の内に置くのは次の 3 つ。
 
-- sbxr の CLI（plan / create / stop / start / destroy / recreate / policy sync / secret setup / doctor）
-- 同梱の資材: default スコープの宣言と、kit `sbxr-boot`・`sbxr-herdr`
+- sbxr の CLI（plan / create / stop / start / destroy / recreate / policy sync / secret setup / doctor / guide）
+- 同梱の資材: default スコープの宣言、kit `sbxr-boot`・`sbxr-herdr`、設定の書き方の案内（`sbxr guide` が出す。decision/0030）
 - host 側の管理状態: 状態ディレクトリ（sandbox VM と build 用 VM のもの）、cache clone。template の記録は持たず、有無と作成日時は sbx の template の一覧から読む（decision/0020）
 
 境界の外に置くのは、利用者、宣言ファイル（user 設定・repo 宣言）、secret ファイル、host 側 repo、sbx とその上の sandbox VM・template・rule・secret、host の herdr、git hosting、GitHub API である。
@@ -16,7 +16,7 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 
 却下: VM の中の構成も境界の内に入れる。理由: sbxr は起動ごとの VM の中を観測できない（2 回目以降の boot の失敗は VM の log に残るだけ）。内に数えると、sbxr が保てない不変条件がドメインモデルに入る。
 
-アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認プロンプトの根拠）。VM 内の agent は sbxr と接しない。host の agent が skill `sbxr-config` で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは doctor と plan の出力だけである。skill は repo に置くが、sbxr の binary には含めず、境界の外に置く（decision/0013）。
+アクターは利用者だけである。repo 宣言の作者は sbxr に目的を持たないので、アクターではなく untrusted な入力の出所として扱う（確認プロンプトの根拠）。VM 内の agent は sbxr と接しない。host の agent が sbxr の案内で設定を書くとき（UC9）も、agent は利用者の代わりに CLI を叩くだけで、sbxr と接するのは guide・doctor・plan の出力だけである（decision/0013・0030）。
 
 ## 相手 × 経由 × 方向
 
