@@ -109,6 +109,10 @@ secret 要求のうち、注入先 host がすべて egress 宣言で許可さ�
 VM には置換用の仮の値（placeholder）だけを入れ、実値は host 側の proxy が通信時に差し込む方式。実値は VM に入らない。
 _Avoid_: placeholder 注入（旧称。decision/ と ADR の既存 file に残る）, env 注入
 
+**注入方式**:
+credential injection の注入先と VM の環境変数名を誰が決めるかの区別。sbx 組み込み service（sbx が知る service の名前を書き、注入先と環境変数名は sbx が決める）と、host 指定（注入先 host と環境変数名を secret 定義に書く。sbx の custom secret に当たる）の 2 つ。
+_Avoid_: placeholder 注入（旧称。host 指定だけを指して使われた）, custom（単独では何が custom かを言わない）
+
 ### VM 内の構成
 
 **VM 内の作業ツリー**:
