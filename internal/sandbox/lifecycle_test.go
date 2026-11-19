@@ -549,15 +549,28 @@ func TestStartWithoutAHerdrRegistrationShowsHowToRegisterAgain(t *testing.T) {
 	}
 }
 
-func TestStartOfARunningVMWithoutHerdrOnTheHostSaysTheVMIsRunning(t *testing.T) {
+func TestStartOfARunningVMWithoutHerdrOnTheHostLeavesItRunning(t *testing.T) {
 	w := newWorld(t, herdrUserConfig)
 	w.arrive(stateRunning)
 	w.herdr.Missing = true
 
 	_, err := w.start(w.repo())
 
-	if err == nil || !strings.Contains(err.Error(), "PATH に herdr を入れる") || !strings.Contains(err.Error(), "動いている") {
-		t.Errorf("Start() error = %v, want the missing herdr with the VM said to be running", err)
+	if err == nil || !strings.Contains(err.Error(), "PATH に herdr を入れる") || w.stateOf(w.repo()) != stateRunning {
+		t.Errorf("Start() error = %v, want how to put herdr on the host with the VM left running", err)
+	}
+}
+
+func TestStartOfARunningVMThatCannotEnableTheHerdrMachineSaysTheVMIsRunning(t *testing.T) {
+	w := newWorld(t, herdrUserConfig)
+	w.arrive(stateRunning)
+	disableTheHerdrMachine(w)
+	w.herdr.FailEnable = true
+
+	_, err := w.start(w.repo())
+
+	if err == nil || !strings.Contains(err.Error(), "herdr machine enable id1") || !strings.Contains(err.Error(), "動いている") {
+		t.Errorf("Start() error = %v, want how to enable by hand with the VM said to be running", err)
 	}
 }
 
@@ -875,7 +888,7 @@ func TestStopDisablesTheHerdrMachineBeforeStoppingAndShowsHowToEnableIt(t *testi
 
 	outcome, err := w.stop(w.repo())
 
-	if err != nil || outcome != Stopped || w.herdr.Machines[0].Enabled || !strings.Contains(w.out.String(), "sbxr start "+w.repo()) || !strings.Contains(w.out.String(), "herdr machine enable id1") {
+	if err != nil || outcome != Stopped || w.herdr.Machines[0].Enabled || !strings.Contains(w.out.String(), "sbxr start "+w.repo()) || strings.Contains(w.out.String(), "herdr machine enable") {
 		t.Errorf("Stop() = %v, %v, machines = %v, output = %q, want the machine disabled and how to enable it", outcome, err, w.herdr.Machines, w.out.String())
 	}
 }
@@ -921,21 +934,6 @@ func TestStopOfAHalfCreatedVMDisablesALeftoverHerdrMachine(t *testing.T) {
 
 	if w.herdr.Machines[0].Enabled || w.stateOf(w.repo()) != stateIncompleteStopped {
 		t.Errorf("machines = %v, state = %s, want the leftover disabled and the VM stopped", w.herdr.Machines, w.stateOf(w.repo()))
-	}
-}
-
-// start は作成途中の VM を拒むので、作成途中の VM の stop は sbxr start ではなく手で戻すコマンドを示す。
-func TestStopOfAHalfCreatedVMShowsHowToEnableTheLeftoverByHand(t *testing.T) {
-	w := newWorld(t, herdrUserConfig)
-	w.arrive(stateIncompleteRunning)
-	w.herdr.Machines = []herdr.Machine{{ID: "old", Target: w.vms.SSHTarget("app"), Enabled: true}}
-
-	if _, err := w.stop(w.repo()); err != nil {
-		t.Fatal(err)
-	}
-
-	if out := w.out.String(); !strings.Contains(out, "herdr machine enable old") || strings.Contains(out, "sbxr start") {
-		t.Errorf("output = %q, want how to enable the leftover by hand without sbxr start", out)
 	}
 }
 

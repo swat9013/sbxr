@@ -220,13 +220,11 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 	}
 	name := target.Name
 	switch observed.state {
-	case stateRunning:
-		return stopResult(name, Stopped, l.stopRunning(ctx, name, viaStart(repo)))
-	case stateIncompleteRunning:
+	case stateRunning, stateIncompleteRunning:
 		// 作成途中の VM の herdr machine は未登録だが、同じ名前の前の VM の登録が残っていれば無効にする
-		return stopResult(name, Stopped, l.stopRunning(ctx, name, byHand))
+		return stopResult(name, Stopped, l.stopRunning(ctx, name, repo))
 	case stateStopped:
-		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name, viaStart(repo)))
+		return stopResult(name, AlreadyStopped, l.disableHerdrMachine(ctx, name, repo))
 	case stateIncompleteStopped:
 		return StopResult{Name: name, Outcome: AlreadyStopped}, nil
 	case stateAbsent:
