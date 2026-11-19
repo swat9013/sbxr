@@ -281,6 +281,25 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
 - VM 3（herdr の kit）: create の後の log は `ok …/003-startup-sbxr-herdr/003-cmd.sh`（integration の段）→ `=== dispatcher complete ===` で終わった。起こし始めは 09:03:21.8、`sbx exec -- true` は 09:03:24.8 に exit 0 で戻り、09:03:25.2 に読んだ log の最後の回（`=== dispatcher run 2026-11-19T09:03:23Z ===`）は `=== dispatcher complete ===` まで出ていた。`herdr status --json` は `"running":true`
   - 前の回の `=== dispatcher complete ===` の後、次の回の `=== dispatcher run` の前に、background の `herdr server` の出力（`herdr server running; …` など 5 行）が入っていた。前の回に属する行で、`startupOutcome` が読む範囲には入らない
   - VM 3 では、起こし直しの startup が 3 秒ほどで終わり、戻った時刻と `dispatcher complete` の順は log の時刻からは読めない（`dispatcher complete` の行は時刻を持たない）。戻るまで待つことは VM 1 で示した
-- kit の順: env 定義の `kits:` の順と、VM の `/etc/durable-startup.d/` の連番（startup が走る順）は、3 つの VM とも逆だった。VM 1 は `sbxr-boot`, `probe-slow` → `002-startup-probe-slow`, `003-startup-sbxr-boot`。VM 2 は `sbxr-herdr`, `sbxr-boot`, `probe-fail` → `002-startup-probe-fail`, `003-startup-sbxr-boot`, `004-startup-sbxr-herdr`。VM 3 は `sbxr-herdr`, `sbxr-boot` → `002-startup-sbxr-boot`, `003-startup-sbxr-herdr`。どれも kit 名の辞書順でもあり、どちらで決まるかは確かめていない → #152
+- kit の順: env 定義の `kits:` の順と、VM の `/etc/durable-startup.d/` の連番（startup が走る順）は、3 つの VM とも逆だった。VM 1 は `sbxr-boot`, `probe-slow` → `002-startup-probe-slow`, `003-startup-sbxr-boot`。VM 2 は `sbxr-herdr`, `sbxr-boot`, `probe-fail` → `002-startup-probe-fail`, `003-startup-sbxr-boot`, `004-startup-sbxr-herdr`。VM 3 は `sbxr-herdr`, `sbxr-boot` → `002-startup-sbxr-boot`, `003-startup-sbxr-herdr`。どれも kit 名の辞書順でもあり、どちらで決まるかは確かめていない → #152。どちらでもなく、kit の source の path の辞書順で決まる（下の #152 の実測）
 - VM 2 で、create の後に log を読もうとした `sbx exec` は `✓ sandbox sbxr-startup-fail-135 — started` を出して VM を起こした（`sbx env create` が戻ったのは 09:00:54.5 で、log の次の回は `=== dispatcher run 2026-11-19T09:01:31Z ===`）。create の後に VM が止まっていた理由は確かめていない
 - 確かめたのは sbx v0.53.0 だけ。`sbx exec --help` は「止まっていれば先に起動する」とだけ書き、startup の完了を待つかは書いていない
+
+### 実測（2026-11-19、sbx v0.53.0、#152）
+
+上の #133 の実測で見た kit の順（env 定義の `kits:` の逆順にも kit 名の辞書順にも読める）が、何で決まるかを確かめた。`kits:` の順でも、その逆順でも、kit 名の辞書順でもなく、kit の source の path の辞書順で決まる。built-in の agent の kit（`claude`）は、どの VM でも先頭（`001-startup-claude`）だった。
+
+- VM の作り方: 上の #135 の実測と同じ形の env 定義（`schemaVersion: "1"`・`agent: claude`・`workspace.clone: true`・`sandboxOptions.skills: off`）に kit を入れ、`sbx env create --force <dir>` で作った（Sbx adapter と同じ経路）。probe の kit は、`lifecycle@1` の startup で `echo <kit 名>: ran` だけを走らせる v3 の mixin kit。`sbxr create` は使っていない。host の herdr には触れていない（`herdr machine add` をしていない）
+- 見たもの: VM の `/etc/durable-startup.d/` の連番、`/etc/durable-startup.d/manifest.json` の `kits`、`/var/log/sbx-kit-startup.log` の実行の順。3 つとも同じ順だった
+
+| VM | env 定義の `kits:` の順（source） | `/etc/durable-startup.d/` の連番（startup が走る順） |
+|---|---|---|
+| 1 | `./kits/probe-b`, `./kits/probe-c`, `./kits/probe-a` | `002-startup-probe-a`, `003-startup-probe-b`, `004-startup-probe-c` |
+| 2 | `./p1/probe-y`, `./p0/probe-z`, `./p3/aaa-probe`, `./p2/probe-x` | `002-startup-probe-z`, `003-startup-probe-y`, `004-startup-probe-x`, `005-startup-aaa-probe` |
+
+- VM 1 は、`kits:` の逆順（a, c, b）と kit 名の辞書順（a, b, c）を分ける組で、kit 名の辞書順と一致した。kit が同じディレクトリに並ぶので、source の path の辞書順とも一致する
+- VM 2 は、kit 名の辞書順（aaa-probe, x, y, z）と source の path の辞書順（`p0` から `p3`）を分ける組で、source の path の辞書順と一致した。kit 名が `claude` より前に来る `aaa-probe` も、`claude` の後に走った
+- `sbx env create` の出力の `loading kit image <path>` の行も、同じ path の辞書順で並んだ。比べたのが env 定義に書いた相対の source か、解決した絶対 path かは分けていない（どの VM も kit は env 定義と同じディレクトリの下にある）
+- sbxr への帰結: Sbx adapter が書いた `./kits/sbxr-herdr` と `./kits/sbxr-boot` は、path の辞書順で boot が先に走る。#152 で、adapter は kit を `./kits/<startup の順の 2 桁の番号>/<kit 名>` に置くようにした。kit 名は directory 名から決まるので変わらない
+- 直した adapter の確かめ: `DefineSandbox`（herdr の `version: v0.9.0`、boot の再生あり）が書いた env 定義と kit（`./kits/00/sbxr-herdr`、`./kits/01/sbxr-boot`）を、そのまま `sbx env create --force <dir>` に渡した。連番は `002-startup-sbxr-herdr`, `003-startup-sbxr-boot` で、log は herdr の 4 つの段の `ok` の後に boot の段の `ok` → `=== dispatcher complete ===` だった。`sbx stop` → `sbx exec <VM> -- true` で起こし直した回も同じ順だった。boot が失敗する VM（herdr の段が boot の失敗の前に走ること）は実行していない。dispatcher は連番の順に走り、段の失敗で止まる（2026-11-16 の実測の 10）ので、連番が herdr の段を先にすれば足りると読んでいる
+- 確かめたのは sbx v0.53.0 だけ。`sbx env create --help` と `sbx kit --help` は kit の startup の順を書いていない（前者は、複数の env 定義を渡したときに list を連結することだけを書く）。docs.docker.com の文書は見ていない
