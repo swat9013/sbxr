@@ -7,7 +7,7 @@ repo を宣言 1 枚で AI coding agent 用の隔離環境（[Docker Sandboxes](
 ## できること
 
 - `sbxr plan <repo>` — 何が作られるかを表示する。VM が既にあれば、作成時の宣言からの差分（drift）も表示する
-- `sbxr create <repo>` — repo 宣言（`sbxr.yaml`）を user 設定と merge し、確認のうえ sandbox VM を作る。egress 許可・secret 配線・agent runtime profile・init / boot を適用する。最後に VM 内から、許可先に届くことと許可外（`example.com` など）が proxy に拒否されることを 1 回ずつ確かめ（egress 自己検証）、通らなければ VM を残して止まる（global rule が宣言に揃っていないと許可先に届かないので、先に `sbxr policy sync` を実行しておく）。その後に宣言の `run` を VM 内の作業ツリーで裏で始める。`--attach` を付けると、その後に VM 内の作業ツリーで agent の対話 session に入る（[run と --attach](#run-と---attach)）
+- `sbxr create <repo>` — repo 宣言（`sbxr.yaml`）を user 設定と merge し、確認のうえ sandbox VM を作る。egress 許可・secret 配線・agent runtime profile・init / boot を適用する。最後に、VM の中で agent と Docker が使えることを確かめてから、許可先に届くことと許可外（`example.com` など）が proxy に拒否されることを、VM 直下と VM の中の container からそれぞれ 1 回ずつ確かめ（egress 自己検証）、通らなければ VM を残して止まる（global rule が宣言に揃っていないと許可先に届かないので、先に `sbxr policy sync` を実行しておく）。container は、create のたびに VM の中の Docker が Docker Hub から pull する image（`curlimages/curl:8.11.1`）で作る。pull できない（Docker Hub に届かない・rate limit・user 設定の egress が `docker-registry` group を外している）と、create は egress 自己検証の失敗として止まる。その後に宣言の `run` を VM 内の作業ツリーで裏で始める。`--attach` を付けると、その後に VM 内の作業ツリーで agent の対話 session に入る（[run と --attach](#run-と---attach)）
 - `sbxr stop <repo>` / `sbxr destroy <repo>` — 停止 / 撤去（撤去すると VM 内の commit と変更は失われるので、確認を求める。稼働中の VM は使用中かを確かめられないので、止めてから撤去するか `--force` を付ける。VM 消失（VM が sbxr の外で撤去され、状態ディレクトリだけが残っている）では、stop は拒否して destroy を促し、destroy は VM が無くても sandbox スコープの secret と状態ディレクトリを片付ける）
 - `sbxr start <repo>` — 止めた sandbox VM を起こす（起動ごとの boot が走る）。確認は求めない。動いている VM には触れずに「動いている」と示す。未作成なら create を、作成途中・VM 消失なら destroy を促して非 0 で終える。VM を起こせなければ、VM は止まったまま非 0 で終える。起こした VM では作成時の宣言の `run` を始める（動いていた VM では始めない）。`--attach` は create と同じ
 - `sbxr policy sync [--check]` — user 設定の egress 宣言を global rule へ収束させる
@@ -50,7 +50,7 @@ run:
 ```
 
 - `run` はコマンドの list で、user 設定と repo 宣言のどちらにも書ける（`init`・`boot` と同じく、default・user・repo の順に並べて足す）。確認プロンプトと `sbxr plan` が内容を示す。長く走る作業（agent の非対話の実行や script）はここに置く。`init`・`boot` は準備で終わる
-- `sbxr create` は最後に（egress 自己検証・VM の中の確認・herdr machine の登録の後に）、`run` を VM 内の作業ツリーで裏で始め、始めたことと出力が残る VM 内の log の場所（`~/.local/state/sbxr/run.log`）を示して終わる。終わるのを待たない。コマンドは順に走り、1 件が失敗しても次へ進む。各コマンドの開始と終了は log に時刻付きで `run[N] start` と `run[N] exit=<code>` の行で残る（sbxr が示す `sbx exec <name> -- tail -f <log>` で読む）
+- `sbxr create` は最後に（VM の中の確認・egress 自己検証・herdr machine の登録の後に）、`run` を VM 内の作業ツリーで裏で始め、始めたことと出力が残る VM 内の log の場所（`~/.local/state/sbxr/run.log`）を示して終わる。終わるのを待たない。コマンドは順に走り、1 件が失敗しても次へ進む。各コマンドの開始と終了は log に時刻付きで `run[N] start` と `run[N] exit=<code>` の行で残る（sbxr が示す `sbx exec <name> -- tail -f <log>` で読む）
 - `sbxr start` は VM を起こしたときに、作成時の宣言の `run` を始める（宣言を読み直さない）。VM が既に動いていたら、動いている run を二重に始めないよう始めない。sbxr の外での起動（`sbx exec`・herdr の再接続）では始まらない。VM を起こす `sbx exec <name> -- true` は起動ごとの boot の再生が終わるまで戻らないので、run は boot の再生の後に始まる（sbx v0.53.0 の実測。[system.md](docs/design/sbxr/system.md) の未実測の前提 18）
 - `run` を始められなければ（VM の中で log を書けない・`setsid` が無いなど）、VM を残して非 0 で終える。始め直すには `sbxr stop` → `sbxr start` を打つ（動いている VM への start は run を始めない）
 - `run` は作成時の宣言に記録され、変えると drift に出る
