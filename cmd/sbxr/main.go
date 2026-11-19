@@ -68,7 +68,7 @@ func newRootCmd(version string, deps dependencies) *cobra.Command {
 		Short:   "repo を宣言 1 枚で AI coding agent 用の sandbox VM にする",
 		Version: version,
 	}
-	root.AddCommand(newPlanCmd(deps), newCreateCmd(deps), newDestroyCmd(deps), newStopCmd(deps), newStartCmd(deps), newPolicyCmd(deps), newSecretCmd(deps), newDoctorCmd(deps))
+	root.AddCommand(newPlanCmd(deps), newCreateCmd(deps), newDestroyCmd(deps), newStopCmd(deps), newStartCmd(deps), newPolicyCmd(deps), newSecretCmd(deps), newDoctorCmd(deps), newGuideCmd())
 	return root
 }
 
