@@ -47,17 +47,21 @@ func (e *RegistrationError) Unwrap() error { return e.Err }
 const stopServer = "pkill -x herdr"
 
 // registerByHand は稼働中の sandbox VM を利用者が手で登録する手順 (Register と同じく、VM 内の server を止めてから登録する)。
-func registerByHand(sandbox, target string) string {
-	return fmt.Sprintf("VM %s の中で %s を実行してから %s", sandbox, stopServer, addCommand(target, sandbox))
+// 手順は、登録で起動し直した VM 内の server の最初の workspace を、VM 内の作業ツリー worktree で開き直す段まで含む
+// (decision/0015。その server は最初の workspace を作業ツリーの外で作る)。
+func registerByHand(sandbox, target, worktree string) string {
+	return fmt.Sprintf("VM %s の中で %s を実行してから %s。登録したら、最初の workspace を作業ツリーで開き直す: %s",
+		sandbox, stopServer, addCommand(target, sandbox), reopenByHand(sandbox, worktree))
 }
 
 // Register は sandbox VM を host の herdr に、その ssh の宛先で登録する。
 // kit が起動した VM 内の server を止めてから登録する (動いたままだと herdr machine add が
 // "remote server is not ready for saved machines" で失敗する。ADR 0007 の実測)。
 // 同じ宛先の登録が残っていたら (前の VM の解除の失敗など)、この回に作っていない登録には触れずに止める。
-func (r Registry) Register(ctx context.Context, sandbox string, progress io.Writer) error {
+// 登録できなければ、VM 内の作業ツリー worktree で最初の workspace を開き直す段まで含めた、手で登録する手順を添える。
+func (r Registry) Register(ctx context.Context, sandbox, worktree string, progress io.Writer) error {
 	target := r.VM.SSHTarget(sandbox)
-	recovery := registerByHand(sandbox, target)
+	recovery := registerByHand(sandbox, target, worktree)
 	machines, err := r.Client.List(ctx)
 	if err != nil {
 		return &RegistrationError{Err: err, Recovery: recovery}
@@ -123,9 +127,8 @@ func (r Registry) Disable(ctx context.Context, sandbox string, progress io.Write
 }
 
 // Enable は、起こした (か動いている) sandbox VM の無効な herdr machine を有効に戻す (decision/0025)。VM には触れない。
-// 有効なら何もしない。登録が無ければ (利用者が手で解除した等)、登録し直す手順を添えた error (UC10 の 5b)。
-// 手順は、登録で起動し直した VM 内の server の最初の workspace を、VM 内の作業ツリー worktree で開き直す段まで含む
-// (decision/0015。その server は最初の workspace を作業ツリーの外で作る)。有効に戻せなければ、手で戻すコマンドを添えた error。
+// 有効なら何もしない。登録が無ければ (利用者が手で解除した等)、VM 内の作業ツリー worktree で最初の workspace を
+// 開き直す段まで含めた、登録し直す手順を添えた error (UC10 の 5b・decision/0032)。有効に戻せなければ、手で戻すコマンドを添えた error。
 func (r Registry) Enable(ctx context.Context, sandbox, worktree string, progress io.Writer) error {
 	target := r.VM.SSHTarget(sandbox)
 	machine, found, err := r.find(ctx, target)
@@ -133,8 +136,7 @@ func (r Registry) Enable(ctx context.Context, sandbox, worktree string, progress
 		return fmt.Errorf("herdr machine を有効に戻せない: %w", err)
 	}
 	if !found {
-		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s。登録したら、最初の workspace を作業ツリーで開き直す: %s",
-			target, registerByHand(sandbox, target), reopenByHand(sandbox, worktree))
+		return fmt.Errorf("%s の herdr machine の登録が無いので有効に戻せない。登録し直す: %s", target, registerByHand(sandbox, target, worktree))
 	}
 	if machine.Enabled {
 		return nil

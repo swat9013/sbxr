@@ -104,16 +104,22 @@ func TestStartAtWorktreeShowsHowToOpenAndCloseByHandWhenTheWorkspaceCannotBeOpen
 	}
 }
 
-func TestStartAtWorktreeShowsHowToOpenAndCloseByHandWhenTheWorkspacesCannotBeListed(t *testing.T) {
+// 開いた後の一覧には開いた workspace も載るので、閉じる対象は開く前に控えた id に限る (decision/0032 と同じ理由)。
+func TestStartAtWorktreeShowsHowToCloseOnlyTheWorkspacesListedBeforeOpeningWhenTheyCannotBeListed(t *testing.T) {
 	rt, server := appWithServer()
 	server.FailList = true
 
 	err := startAppAtWorktree(rt)
 
 	var start *herdr.WorktreeStartError
-	if !errors.As(err, &start) || !strings.Contains(start.Recovery, "herdr workspace create --cwd "+quotedWorktree+" --focus") ||
-		!strings.Contains(start.Recovery, "herdr workspace close <id>") {
-		t.Errorf("StartAtWorktree() = %v, want how to open the workspace and close the others by hand", err)
+	if !errors.As(err, &start) {
+		t.Fatalf("StartAtWorktree() = %v, want a worktree start error", err)
+	}
+	list := strings.Index(start.Recovery, "herdr workspace list")
+	// 開けたときだけ、開く前に控えた workspace を閉じる (&&)
+	reopen := strings.Index(start.Recovery, "herdr workspace create --cwd "+quotedWorktree+" --focus && herdr workspace close <控えた id>")
+	if list < 0 || reopen <= list || strings.Index(start.Recovery, "herdr workspace close") < reopen {
+		t.Errorf("Recovery = %q, want the workspaces listed before opening, then only the listed ones closed after the worktree one opened", start.Recovery)
 	}
 }
 
