@@ -59,11 +59,38 @@ sbxr-dev create .
   - `fix`・`perf` がある: patch を上げる
   - breaking の印（subject の `!` か footer の `BREAKING CHANGE:`）がある: 0.x の間に major をどう扱うかは未決なので、その都度決める
   - 利用者から見える変更が無い（docs・refactor・test・chore・ci だけ）: 出すかどうかをその都度決める
-- `v1.0.0`（実用版）の tag を打つのは、上の条件に加えて、milestone `v1.0.0` に open の issue が無いときだけ。それより前の 0.x の release は、milestone を待たずに出す
-  - milestone `v1.0.0` に入れるのは、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/README.md) の 4 つ）を満たすのに要る issue と、herdr 連携を含む create から destroy までの 1 周で利用者が当たる不具合。入れる・外すは人が決める
-  - 着手できる issue が複数あるときは、milestone `v1.0.0` の issue を先に取る
 - push した tag は公開済みとして扱い、消したり打ち直したりしない。release workflow が途中で失敗すると、GitHub Release や cask が途中まで出ていることがある
 - Claude で出すときは `release` skill（`.claude/skills/release/`）を使う
+
+### v1.0.0 の条件
+
+v1.0.0 は、設計の目的（[docs/design/sbxr/README.md](./docs/design/sbxr/README.md) の 4 つ）が実 sbx の上で満たされ、公開 interface の互換を保ち始める版である。tag を打つのは、次がすべて成り立つときだけ。それより前の 0.x の release は、この条件を待たずに出す。
+
+- milestone `v1.0.0` に open の issue が無い。入れるのは、下の判定条件を満たすのに要る issue だけで、入れる・外すは人が決める
+- 実測済みの上限（`internal/runtime/sbx_version.go` の `MeasuredSbxVersion`）が、tag を打つ時点の sbx の最新の stable である
+- その版の実 sbx（macOS）で下の判定条件をすべて確かめ、手順と結果を milestone の issue に残している
+
+| 目的 | 判定条件 |
+|---|---|
+| 隔離 | create の確認プロンプトが、VM に入る設定と VM から通信できる宛先をすべて示す。egress 自己検証が、許可先に届くことと、許可外が proxy に拒否されることの両方を通す |
+| 作業の保全 | 未 push の作業がある停止中の VM の destroy が、`--force` 無しでは撤去せずに止まり、残っている作業を示す |
+| 再現 | 宣言を変えると plan が drift を示し、stop → destroy → create の後に drift が無くなる。herdr 連携を有効にした VM も、同じ名前で作り直せる |
+| 手数 | README の手順だけで、install から create・stop・起動し直し・destroy までを通せる。起動し直した VM の herdr の pane で agent が動く |
+
+対応する OS は macOS とする。Linux は binary を配るが、実機で確かめていない。
+
+着手できる issue が複数あるときは、milestone `v1.0.0` の issue を先に取る。
+
+### v1.0.0 からの互換
+
+- 互換を保つのは、宣言の schema（repo 宣言と user 設定の key と意味）、CLI（subcommand・flag・終了 code が 0 か非 0 か）、状態ディレクトリの記録（ADR 0006）。これを壊す変更は major を上げる
+- 出力の文面、`internal/` の package、skill `sbxr-config` の文面は互換の対象にしない
+- 対応する sbx の版の下限を上げる変更は minor で出し、release notes に書く
+
+### sbx の新しい版への追従
+
+- sbx の stable が実測済みの上限より新しくなったら、[docs/real-sbx-walkthrough-macos.md](./docs/real-sbx-walkthrough-macos.md) の 1 周をその版で通し、実測済みの上限を上げて release する。通らなければ、直してから上げる
+- 新しい stable の検知は、週 1 回の workflow が issue を立てて知らせる
 
 ## issue の範囲
 
