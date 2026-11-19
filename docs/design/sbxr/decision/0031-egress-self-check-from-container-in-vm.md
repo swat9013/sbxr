@@ -1,4 +1,4 @@
-# 0030. egress 自己検証は、VM の中の container からも 1 往復ずつ確かめる
+# 0031. egress 自己検証は、VM の中の container からも 1 往復ずつ確かめる
 
 - Status: Accepted
 - Date: 2026-11-19
@@ -20,7 +20,8 @@
 | それ以外の curl の失敗 | 届かない（失敗） | 確かめられない（失敗） |
 
 - **image を pull できないとき**: container の確認が成り立たなかったものとして、egress 自己検証の失敗と同じ扱いで止まる（VM を残し、作成時の宣言を書かない）。理由には、VM の中の Docker が Docker Hub から pull するのに egress の `docker-registry` group が要ることを示す
-- **順序**: VM の中で agent と Docker が使えることの確認（[decision/0027](0027-create-and-start-check-inside-vm.md)）を、egress 自己検証の前に置く。egress 自己検証は VM 直下 → container の順に行い、VM 直下が通らなければ container は試さない
+- **順序**: egress 自己検証（VM 直下）→ VM の中で agent と Docker が使えることの確認（[decision/0027](0027-create-and-start-check-inside-vm.md)）→ egress 自己検証（container）の順に行う。VM 直下の egress 自己検証と、agent と Docker の確認の順は変えない。どれかが通らなければ、その後の段は行わない
+- **pull の進み**: pull の前に、pull する image を示す
 - **create だけで確かめる**: start（UC10）では確かめない。VM 直下の egress 自己検証も create だけである
 
 この 2 点（image を pull して使うこと、start では確かめないこと）は、#149 の triage が決めた。
@@ -32,7 +33,7 @@
 - 0007 が却下した「curl が失敗したら届かないとみなす」は、proxy を通らない経路の失敗でも通ってしまうことが理由だった。sbx v0.53.0 では proxy を使わない通信も `transparent` で同じ global rule に判定される（#135）。それでも timeout や接続の拒否のような経路の不調は通さないよう、「届かない」と読むのは実測で拒否の形だった exit 6・35・52 だけにする
 - image を pull するのは、#142（PR #147）が default の `docker-registry` group に Docker Hub の blob の CDN（`production.cloudfront.docker.com:443`）を足し、default の宣言のもとで VM の中の pull が通るようになったから
 - tag を固定するのは、image の中の curl と shell が変わって probe の script の出力の形が変わるのを避けるため
-- Docker の確認を先に置くのは、Docker を使えない VM で、container の確認が image の pull の失敗として（`docker-registry` group の案内とともに）示されるのを避けるため
+- container からの確認を Docker の確認の後に置くのは、Docker を使えない VM で、container の確認が image の pull の失敗として（`docker-registry` group の案内とともに）示されるのを避けるため。VM 直下の確認を Docker の確認より前に残すのは、Docker が使えない VM でも隔離（decision/0023 で最も優先する目的）の確認を先に行うため
 - start で確かめないのは、container の通信の経路を決めるのは VM と sbx の proxy で、起こし直しでは変わらないから。global rule の変更は UC5 が揃える。start のたびに pull が起きる費用も避ける
 - create のたびに Docker Hub から image を pull することになる。pull の所要と、pull の失敗（Docker Hub に届かない・rate limit）が create の成否に入る。隔離を確かめられないまま create を成功させるより、止めるほうを選ぶ（decision/0023 の優先順）
 
@@ -44,6 +45,7 @@
 - start でも確かめる: 経路が変わる根拠が無く、毎回の pull の費用に見合わない
 - container からの拒否も proxy の拒否応答だけで判定する（container に proxy を明示する）: proxy を明示すると `forward` を通り、確かめたい `transparent` を通らない
 - container の側で curl の失敗をすべて「届かない」とみなす: timeout や接続の拒否のような経路の不調でも通ってしまう
+- agent と Docker の確認を、egress 自己検証の全体より前に置く: Docker が使えない VM では、隔離を確かめる前に止まる
 
 ## 見直し条件
 

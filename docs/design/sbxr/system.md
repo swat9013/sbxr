@@ -33,8 +33,8 @@ sandbox VM は sbx の持ち物で、sbxr が触れる手段は sbx の CLI だ�
 | git hosting | 外 | host の gh / glab / git（port にしない） | 出 | git URL の cache clone、plan・drift・doctor の一時 clone |
 | GitHub API | 外 | HTTPS（port にしない） | 出 | secret setup github の token の能力の probe |
 | origin | 外 | VM 内の git（Runtime の exec 経由） | VM 発 | VM からの push と fetch は agent と利用者が行い、sbxr は関与しない。VM に ssh 鍵は無く token は HTTPS にだけ注入されるので、materialize が origin の host の ssh 形を https に書き換える。fetch と push には、origin の host の egress 許可と secret の配線が要る |
-| egress の probe 先 | 外 | VM 内の curl と、VM の中の container の curl（Runtime の exec 経由） | VM 発 | egress 自己検証の 1 往復ずつ（VM 直下と container から。decision/0030） |
-| Docker Hub | 外 | VM の中の Docker（Runtime の exec 経由） | VM 発 | egress 自己検証の container に使う image の pull（`docker-registry` group の宛先。decision/0030） |
+| egress の probe 先 | 外 | VM 内の curl と、VM の中の container の curl（Runtime の exec 経由） | VM 発 | egress 自己検証の 1 往復ずつ（VM 直下と container から。decision/0031） |
+| Docker Hub | 外 | VM の中の Docker（Runtime の exec 経由） | VM 発 | egress 自己検証の container に使う image の pull（`docker-registry` group の宛先。decision/0031） |
 
 ### Runtime の順序の制約
 
@@ -116,7 +116,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 14. `sbx template save` した image について、`sbx template ls --json` の `created_at` が save の時刻になるか（decision/0020）。ならなければ、template の記録を持つ形（decision/0004）へ戻す
 15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
-17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す。→ sbx v0.53.0 では、container の通信も VM 直下と同じ global rule で判定され、許可外に届く経路は見つからなかった。ただし container の既定の通信は proxy の `transparent` を通り、egress 自己検証が通る `forward` とは proxy の中の経路が違う。これを別の経路とみなし、egress 自己検証に container からの確認を足した（下の 2026-11-19 の実測）→ [decision/0030](decision/0030-egress-self-check-from-container-in-vm.md)
+17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す。→ sbx v0.53.0 では、container の通信も VM 直下と同じ global rule で判定され、許可外に届く経路は見つからなかった。ただし container の既定の通信は proxy の `transparent` を通り、egress 自己検証が通る `forward` とは proxy の中の経路が違う。これを別の経路とみなし、egress 自己検証に container からの確認を足した（下の 2026-11-19 の実測）→ [decision/0031](decision/0031-egress-self-check-from-container-in-vm.md)
 18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る。→ sbx v0.53.0 では成り立つ。`sbx exec <VM> -- true` は起こした回の startup が終わるか止まるまで戻らず、戻った後の log の最後の回はその回だった。startup が失敗しても exit 0 で戻る（下の 2026-11-19 の実測の #133）
 
 5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。15 の mount の部分も同じく確かめない。2 は、destroy の前の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
@@ -219,7 +219,7 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
 
 ### 実測（2026-11-19、sbx v0.53.0、VM の Docker 29.10.0、#135）
 
-17 を確かめた。VM の中の container・`--network host` の container・`docker build` の `RUN` は、VM 直下と同じ global rule で判定され、許可外の宛先には 1 つも届かなかった。ただし、sbx の proxy の中の経路は 2 つある。proxy を明示した通信は `forward` を通り、VM 直下と同じ拒否応答（HTTP 403 と `Approval required for <宛先>.`）を受ける。proxy を使わない通信は `transparent` を通り、名前解決の失敗か接続の切断で終わる。container の既定の通信は proxy を使わない側で、egress 自己検証（VM 直下で、proxy の環境変数のもとで `forward` を通る）はこの経路を試さない。この 2 つを 17 の「同じ経路」とみなすか（egress 自己検証に container からの確認を足すか）は決めていない。#135 は設計の見直しを範囲に入れていない。→ 別の経路とみなし、container からの確認を足した（#149。[decision/0030](decision/0030-egress-self-check-from-container-in-vm.md)）
+17 を確かめた。VM の中の container・`--network host` の container・`docker build` の `RUN` は、VM 直下と同じ global rule で判定され、許可外の宛先には 1 つも届かなかった。ただし、sbx の proxy の中の経路は 2 つある。proxy を明示した通信は `forward` を通り、VM 直下と同じ拒否応答（HTTP 403 と `Approval required for <宛先>.`）を受ける。proxy を使わない通信は `transparent` を通り、名前解決の失敗か接続の切断で終わる。container の既定の通信は proxy を使わない側で、egress 自己検証（VM 直下で、proxy の環境変数のもとで `forward` を通る）はこの経路を試さない。この 2 つを 17 の「同じ経路」とみなすか（egress 自己検証に container からの確認を足すか）は決めていない。#135 は設計の見直しを範囲に入れていない。→ 別の経路とみなし、container からの確認を足した（#149。[decision/0031](decision/0031-egress-self-check-from-container-in-vm.md)）
 
 - VM の作り方: sbxr が書く形の env 定義（`schemaVersion: "1"`・`agent: claude`・`workspace.clone: true`・`sandboxOptions.skills: off`。kit なし）を `sbx env create --force <dir>` に渡した（Sbx adapter と同じ経路）。`sbxr create` は使っていない。この host の user 設定が herdr 連携を有効にしており、`sbxr create` は host の herdr へ machine を登録するため。通信の経路を決めるのは VM と sbx の proxy で、kit は関わらないと読んでいる（herdr と boot の kit を入れた VM では確かめていない）
 - global rule: sbxr の宣言と一致していた（`sbxr policy sync --check` → `global rule は宣言と一致している (宛先 47)`。user 設定に egress は無いので、default の宣言と同じ）。default deny で、`sbx policy check network example.com:443` は Denied。global rule は変えていない

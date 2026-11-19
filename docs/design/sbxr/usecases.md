@@ -65,7 +65,7 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 5. sbxr が cache 層の template を用意する（hash に合う template が無いか期限を過ぎていれば、build 用 VM で作って snapshot し、旧いものを消す）
 6. sbxr が sandbox スコープの secret を置いてから template で sandbox VM を作り、repo を投入方式で渡し、作った後に sandbox スコープ rule を足す
 7. sbxr が VM の中を宣言どおりにする（materialize → init → boot）
-8. sbxr が VM の中で agent と Docker が使えることを確かめ、egress 自己検証を VM 直下から行い、続けて VM の中の container からも行う（container は固定の tag の image を pull して作る。decision/0030）
+8. sbxr が VM 直下から egress 自己検証を行い、VM の中で agent と Docker が使えることを確かめ、続けて VM の中の container からも egress 自己検証を行う（container は固定の tag の image を pull して作る。decision/0031）
 9. sbxr が作成時の宣言を記録し、herdr 連携が有効なら herdr machine を登録して、VM 内の herdr の最初の workspace を VM 内の作業ツリーで開き直す（decision/0015）。最後に、宣言の run を VM 内の作業ツリーで裏で始め、始めたことと、出力が残る VM 内の log の場所を示す（decision/0028）
 
 ### Extensions
@@ -89,10 +89,10 @@ sbxr の外での起動（sbx exec・herdr の再接続）は、ユースケー�
 - 6a. 状態ディレクトリに出所を記録する前（実行基盤の定義か作成の最初の記録を書けない。herdr 連携を有効にして、kit へ渡せない path の repo を作ろうとした場合を含む。decision/0015）に失敗した: sbxr は書きかけの状態ディレクトリと git URL の cache clone を消し、未作成に戻して止まる（sbx の側にはまだ何も置いていない。decision/0011）
 - 6b. secret を置けないか、VM を作れない: sbxr は状態ディレクトリを残して止まる（UC4 で片付ける）
 - 7a. VM の中の段（sandbox スコープ rule・kit の startup・materialize・init・boot）が失敗した: sbxr は VM を調べられるよう稼働したまま残し、復旧手順（`sbxr recreate`）を示して止まる
-- 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と、body の 1 行目の `Approval required for <宛先>.` か `Blocked by local rule for <宛先>`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007・0016）。container からの通信は proxy を使わないので、curl の exit 6・35・52（名前解決の拒否・TLS の切断・空の応答）も「届かない」とみなす（decision/0030）
+- 8a. 許可先に届かないか、許可外に届いたか、許可外への通信が proxy の拒否応答を得ずに失敗した: 7a と同じく止まる。利用者は宣言か global rule を直してから作り直す。「届かない」は proxy の拒否応答（403 と、body の 1 行目の `Approval required for <宛先>.` か `Blocked by local rule for <宛先>`）のことで、それ以外の HTTP 応答は状態コードを問わず「届いた」とみなす（decision/0007・0016）。container からの通信は proxy を使わないので、curl の exit 6・35・52（名前解決の拒否・TLS の切断・空の応答）も「届かない」とみなす（decision/0031）
 - 8b. 許可集合に、glob を含まず 443 を通す宛先が無い: sbxr は許可先の確認を省いたことを示し、許可外の確認だけを行う
 - 8c. 許可外の候補（`example.com`・`example.net`・`example.org`）がすべて許可されている: sbxr は許可外の確認を省いたことを示し、許可先の確認だけを行う
-- 8d. VM の中で agent か Docker が使えない: 7a と同じく止まる（egress 自己検証は行わない）
+- 8d. VM の中で agent か Docker が使えない: 7a と同じく止まる（container からの egress 自己検証は行わない）
 - 8e. container に使う image を pull できない（user 設定の egress が Docker Hub を許さないなど）: container からの確認が成り立たなかったものとして、8a と同じく止まる。理由に、VM の中の Docker が pull するには egress の `docker-registry` group が要ることを示す
 - 9a. herdr machine の登録に失敗した: VM は作成済みとして残り、sbxr は登録し直す手順を示して非 0 で終える
 - 9b. 同じ `<名前>.sbx` の登録が既にある: sbxr はその登録に触れずに止まり、解除してから登録し直す手順を示す
