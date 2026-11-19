@@ -275,11 +275,11 @@ func TestEnableWithoutARegistrationShowsHowToReopenTheWorkspaceAtTheWorktreeAfte
 	}
 	msg := err.Error()
 	add := strings.Index(msg, "herdr machine add app.inmemory --label app")
-	list := strings.Index(msg, "VM app の中で herdr workspace list で今ある workspace の id を控え")
-	create := strings.Index(msg, "herdr workspace create --cwd "+quotedWorktree+" --focus を実行し、それが通ったら、")
-	closeRecorded := strings.Index(msg, "控えた id の workspace を herdr workspace close <id> で閉じる")
-	if add < 0 || list <= add || create <= list || closeRecorded <= create {
-		t.Errorf("Enable() error = %q, want the workspaces recorded and reopened at the worktree after registering, then the recorded ones closed", msg)
+	list := strings.Index(msg, "herdr workspace list")
+	// 開けたときだけ、開く前に控えた workspace を閉じる (&&)
+	reopen := strings.Index(msg, "herdr workspace create --cwd "+quotedWorktree+" --focus && herdr workspace close <控えた id>")
+	if add < 0 || list <= add || reopen <= list || strings.Index(msg, "herdr workspace close") < reopen {
+		t.Errorf("Enable() error = %q, want the workspaces listed after registering, then the worktree one opened && the listed ones closed", msg)
 	}
 }
 

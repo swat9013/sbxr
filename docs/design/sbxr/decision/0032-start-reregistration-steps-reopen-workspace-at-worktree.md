@@ -13,7 +13,7 @@
   2. `herdr machine add` で登録する
   3. VM の中で `herdr workspace list` を実行し、今ある workspace の id を控える
   4. `herdr workspace create --cwd <作業ツリー> --focus` を実行する
-  5. 4 が通ったときだけ、3 で控えた id の workspace を `herdr workspace close <id>` で閉じる
+  5. 4 が通ったときだけ、3 で控えた id の workspace を `herdr workspace close <id>` で閉じる。4 と 5 は `&&` でつないだ 1 つのコマンドとして示す（decision/0015 の「開けたときだけ閉じる形」）
 - 閉じる対象を、create の前に控えた id に限る。create の後の一覧では、開いた workspace と前の workspace を見分けられないため。開けなかったときは何も閉じないので、workspace が 0 件になる間を作らない（decision/0015 と同じ）
 - 作業ツリーの path は、start が `<repo>` から求めた VM 内の作業ツリーを使う。run を始める場所（decision/0028）と同じ値
 - decision/0015 が create の経路に定めた自動の開き直しは変えない

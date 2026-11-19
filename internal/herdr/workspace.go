@@ -33,7 +33,8 @@ func StartAtWorktree(ctx context.Context, vm VM, sandbox, worktree string) error
 	create := workspaceCreateArgs(worktree)
 	before, err := workspaces(ctx, vm, sandbox)
 	if err != nil {
-		return &WorktreeStartError{Err: err, Recovery: reopenByHand(sandbox, worktree)}
+		return &WorktreeStartError{Err: err, Recovery: fmt.Sprintf("VM %s の中で %s を実行し、それが通ったら、%s に出る他の workspace を id ごとに %s <id> で閉じる",
+			sandbox, command(create), command(workspaceListArgs()), command(workspaceCloseArgs("")[:2]))}
 	}
 	// 手で開き直すコマンド。開けたときだけ閉じる (&&) ので、貼り付けて失敗しても workspace は 0 件にならない
 	reopen := strings.Join(append([]string{command(create)}, closeCommands(before)...), " && ")
@@ -84,11 +85,12 @@ func StartAtWorktree(ctx context.Context, vm VM, sandbox, worktree string) error
 }
 
 // reopenByHand は、VM 内の herdr server の workspace の id を知らないまま、最初の workspace を VM 内の作業ツリーで
-// 手で開き直す手順。開く前の id を控えてそれだけを閉じ (開いた workspace を閉じない)、開けたときだけ閉じるので、
-// workspace が 0 件になる間を作らない (decision/0015)。
+// 手で開き直す手順 (decision/0032)。開く前の id を控えてそれだけを閉じ (開いた workspace を閉じない)、
+// 開けたときだけ閉じる (&&) ので、workspace が 0 件になる間を作らない (decision/0015)。
 func reopenByHand(sandbox, worktree string) string {
-	return fmt.Sprintf("VM %s の中で %s で今ある workspace の id を控え、%s を実行し、それが通ったら、控えた id の workspace を %s <id> で閉じる",
-		sandbox, command(workspaceListArgs()), command(workspaceCreateArgs(worktree)), command(workspaceCloseArgs("")[:2]))
+	closeArgs := command(workspaceCloseArgs("")[:2])
+	return fmt.Sprintf("VM %s の中で %s で今ある workspace の id を控えてから、%s && %s <控えた id> を実行する (控えた id が複数なら、id ごとに && %s <id> を続ける)",
+		sandbox, command(workspaceListArgs()), command(workspaceCreateArgs(worktree)), closeArgs, closeArgs)
 }
 
 // closeCommands は ids の workspace を閉じる herdr のコマンド (復旧手順として見せる)。
