@@ -232,12 +232,11 @@ func (l Lifecycle) Stop(ctx context.Context, repo string) (StopResult, error) {
 		return stopResult(name, Stopped, err)
 	case stateIncompleteRunning:
 		// 作成途中の VM の herdr machine は未登録だが、同じ名前の前の VM の登録が残っていれば無効にする
-		// 無効にしたことだけを示し、有効に戻す sbxr start は示さない
 		disabled, err := l.stopRunning(ctx, name)
 		if err != nil {
 			return StopResult{}, err
 		}
-		if disabled {
+		if disabled { // 無効にしたことだけを示す。有効に戻す sbxr start は示さない (start は作成途中の VM を拒む)
 			logf(l.Output, "%s\n", disabledNotice(name))
 		}
 		return StopResult{Name: name, Outcome: Stopped, Guidance: halfCreatedStoppedGuidance(name, repo)}, nil
