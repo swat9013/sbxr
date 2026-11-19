@@ -116,7 +116,7 @@ sbxr から見た 1 つの sandbox VM の状態。正本は [statechart.puml](st
 15. VM 内の作業ツリーの path を消し、その親ディレクトリだけが残った template から、clone・copy の VM を作れるか（decision/0022）
 16. 1〜5 の実測は sbx v0.45.1 のもので、agent が kit になった v0.51.0 より前である。対応する版の下限（decision/0018・0019）で確かめ直すまで、decision/0002〜0005 の実装に入らない
 17. VM の中の container からの通信が、VM 直下からの通信と同じ egress の規則と proxy を通るか。通らなければ、VM の中で Docker を使えることが隔離を破る（decision/0023 の優先順では隔離が勝つ）。確かめるまで、egress 自己検証は VM 直下からの 1 往復だけを確かめている。同じ経路を通ると分かれば、egress 自己検証に container からの確認は足さない。別の経路を通るなら、足すか、実行基盤の選び方（ADR 0005）を見直す。→ sbx v0.53.0 では、container の通信も VM 直下と同じ global rule で判定され、許可外に届く経路は見つからなかった。ただし container の既定の通信は proxy の `transparent` を通り、egress 自己検証が通る `forward` とは proxy の中の経路が違う。これを「同じ経路」とみなすかは決めていない（下の 2026-11-19 の実測）
-18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る
+18. 止めた VM を sbx で起こした後、kit の startup の完了を Sbx adapter が待てるか（create の経路では待てている。decision/0009）。待てなければ、start の終わりに VM の中を確かめる段（decision/0027）が startup より先に走る。→ sbx v0.53.0 では成り立つ。`sbx exec <VM> -- true` は起こした回の startup が終わるか止まるまで戻らず、戻った後の log の最後の回はその回だった。startup が失敗しても exit 0 で戻る（下の 2026-11-19 の実測の #133）
 
 5（mount）は、当たる決定を取り下げたので確かめ直さない（decision/0024）。15 の mount の部分も同じく確かめない。2 は、destroy の前の検査（decision/0023 で取り下げた）の前提ではなくなったが、VM からの push の前提として残る。
 
@@ -247,11 +247,14 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
 
 ### 実測（2026-11-19、sbx v0.53.0、前提 18、#133）
 
-18 を確かめた。待てる。`sbx exec <VM> -- true`（`sbxr start` の StartSandbox と同じ起こし方）は、起こした回の kit の startup が終わるまで戻らなかった。戻った後の `/var/log/sbx-kit-startup.log` では、最後の `=== dispatcher run` が新しい起動の回で、その回の `=== dispatcher complete ===` まで出ていた。Sbx adapter の waitStartup の読み方（`startupOutcome`。最後の `=== dispatcher run` から後だけを読む）をこの log に当てると、前の回の行を読まずに、1 回目の読み取りで完了になる（waitStartup そのものを start の経路で走らせてはいない）。
+18 を確かめた。待てる。kit を入れた VM を 3 つ作って確かめた。startup が成功する VM（boot と probe の kit、boot と herdr の kit）と、startup の段が失敗する VM である。どの VM でも、`sbx exec <VM> -- true`（`sbxr start` の StartSandbox と同じ起こし方）は、起こした回の kit の startup が終わるか止まるまで戻らなかった。戻った後の `/var/log/sbx-kit-startup.log` では、最後の `=== dispatcher run` が新しい起動の回で、その回の `=== dispatcher complete ===` まで出ていた。Sbx adapter の waitStartup の読み方（`startupOutcome`。最後の `=== dispatcher run` から後だけを読む）をこの log に当てると、前の回の行を読まずに、1 回目の読み取りで完了になる（waitStartup そのものを start の経路で走らせてはいない）。
 
-- VM の作り方: 上の #135 の実測と同じ形の env 定義に、kit を 2 つ入れて `sbx env create --force <dir>` で作った。1 つは埋め込みの `sbxr-boot`（`internal/assets/kits/sbxr-boot/spec.yaml` の写し）。もう 1 つは startup に 15 秒かかる probe の mixin kit `probe-slow`（開始と終了の時刻を出し、間で `sleep 15`）。herdr の kit は入れていない。VM の `~/.config/sbxr/boot.sh` は書いていないので、`sbxr-boot` の段は何もせず ok で終わる
-- 手順: create の後に log を読み、`sbx stop` → `sbx exec <VM> -- true` を 2 回繰り返した。1 回目は `sbx exec -- true` の前後の host の時刻と、戻った直後の log を見た。2 回目は `sbx exec -- true` を background で走らせ、同時に別の `sbx exec <VM> -- sh -c '…'` で log を 8 回続けて読んだ
-- 時刻（UTC）と log:
+- VM の作り方: 上の #135 の実測と同じ形の env 定義に kit を入れ、`sbx env create --force <dir>` で作った。kit は次の 3 つの組。埋め込みの kit は `internal/assets/kits/` の写しを使った。VM の `~/.config/sbxr/boot.sh` は書いていないので、`sbxr-boot` の段は何もせず ok で終わる。host の herdr には触れていない（`herdr machine add` をしていない）
+  - VM 1: `sbxr-boot` と、startup に 15 秒かかる probe の mixin kit `probe-slow`（開始と終了の時刻を出し、間で `sleep 15`）
+  - VM 2: `sbxr-herdr`（`version: v0.9.0`、`worktree` は VM 内の作業ツリー）、`sbxr-boot`、10 秒待ってから `exit 3` で失敗する probe の mixin kit `probe-fail`
+  - VM 3: `sbxr-herdr`（VM 2 と同じ args）と `sbxr-boot`
+- 手順（VM 1）: create の後に log を読み、`sbx stop` → `sbx exec <VM> -- true` を 2 回繰り返した。1 回目は `sbx exec -- true` の前後の host の時刻と、戻った直後の log を見た。2 回目は `sbx exec -- true` を background で走らせ、同時に別の `sbx exec <VM> -- sh -c '…'` で log を 8 回続けて読んだ
+- VM 1 の時刻（UTC）と log:
 
 | 回 | host で起こし始めた時刻 | dispatcher run の時刻 | probe-slow の開始 → 終了 | `sbx exec -- true` が戻った時刻 |
 |---|---|---|---|---|
@@ -269,5 +272,14 @@ Kit spec v3 への移行と、対応する sbx の版の下限 → [decision/001
   ```
 
 - 起こし直し 2 で同時に読んだ側の `sbx exec` も、startup が終わるまで出力しなかった。最初の出力は 08:54:45.7（probe-slow の終了の後）で、`dispatcher run` は 3 回、最後の行は `=== dispatcher complete ===` だった。8 回とも同じで、startup の途中の log は 1 度も読めなかった
-- startup の段が失敗する kit で起こし直したときに、`sbx exec -- true` がいつ戻るか、終了 code が何かは確かめていない
+- VM 2（startup の段が失敗する）: dispatcher は `probe-fail` の段で止まった。`sbx env create` は `warning: a kit startup command failed; view the log: …` を出して exit 0 で終わった（2026-11-16 の実測の 10 と同じ）。`sbx stop` の後、VM 1 の起こし直し 1 と同じ手順で起こし直した
+  - 起こし始めは 09:01:58.0。log の新しい回は `=== dispatcher run 2026-11-19T09:02:00Z ===` で、`probe-fail: start 09:02:00.88` → `probe-fail: exit 3 at 09:02:10.89` → `fail /etc/durable-startup.d/002-startup-probe-fail/000-cmd.sh exit=3` と出た
+  - `sbx exec -- true` は、同じ warning と、その回の startup の log の写しを出してから、09:02:11.7 に exit 0 で戻った。終了 code では失敗を読めない
+  - 戻った直後（09:02:12.3）の log の最後の dispatcher run は 09:02:00 の回で、最後の行はその回の `fail … exit=3` だった。前の回（create の 09:00:43 の回）にも同じ `fail` 行があるが、`startupOutcome` は最後の `=== dispatcher run` より前を読まないので、読み分けられる
+  - VM 2 では `probe-fail` が `sbxr-herdr` より先に走ったので、herdr の段は 1 度も走っていない（下の kit の順）
+- VM 3（herdr の kit）: create の後の log は `ok …/003-startup-sbxr-herdr/003-cmd.sh`（integration の段）→ `=== dispatcher complete ===` で終わった。起こし始めは 09:03:21.8、`sbx exec -- true` は 09:03:24.8 に exit 0 で戻り、09:03:25.2 に読んだ log の最後の回（`=== dispatcher run 2026-11-19T09:03:23Z ===`）は `=== dispatcher complete ===` まで出ていた。`herdr status --json` は `"running":true`
+  - 前の回の `=== dispatcher complete ===` の後、次の回の `=== dispatcher run` の前に、background の `herdr server` の出力（`herdr server running; …` など 5 行）が入っていた。前の回に属する行で、`startupOutcome` が読む範囲には入らない
+  - VM 3 では、起こし直しの startup が 3 秒ほどで終わり、戻った時刻と `dispatcher complete` の順は log の時刻からは読めない（`dispatcher complete` の行は時刻を持たない）。戻るまで待つことは VM 1 で示した
+- kit の順: env 定義の `kits:` の順と、VM の `/etc/durable-startup.d/` の連番（startup が走る順）は、3 つの VM とも逆だった。VM 1 は `sbxr-boot`, `probe-slow` → `002-startup-probe-slow`, `003-startup-sbxr-boot`。VM 2 は `sbxr-herdr`, `sbxr-boot`, `probe-fail` → `002-startup-probe-fail`, `003-startup-sbxr-boot`, `004-startup-sbxr-herdr`。VM 3 は `sbxr-herdr`, `sbxr-boot` → `002-startup-sbxr-boot`, `003-startup-sbxr-herdr`。どれも kit 名の辞書順でもあり、どちらで決まるかは確かめていない → #152
+- VM 2 で、create の後に log を読もうとした `sbx exec` は `✓ sandbox sbxr-startup-fail-135 — started` を出して VM を起こした（`sbx env create` が戻ったのは 09:00:54.5 で、log の次の回は `=== dispatcher run 2026-11-19T09:01:31Z ===`）。create の後に VM が止まっていた理由は確かめていない
 - 確かめたのは sbx v0.53.0 だけ。`sbx exec --help` は「止まっていれば先に起動する」とだけ書き、startup の完了を待つかは書いていない
