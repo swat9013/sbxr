@@ -5,6 +5,8 @@ name: sbx stable watch
 on:
   schedule:
     - cron: "0 0 * * 1"
+  # merge の後に、gh api と issue の作成の経路を月曜を待たずに通せるようにする
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -19,8 +21,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # releases/latest は prerelease と draft を除いた最新の release を返す
       - run: gh api repos/docker/sbx-releases/releases/latest --jq .tag_name > "$RUNNER_TEMP/latest-tag"
-      # 同じ版の issue は open でも closed でも立て直さないので、state=all の題名を全件渡す
-      - run: gh api --paginate "repos/${GITHUB_REPOSITORY}/issues?state=all&per_page=100" --jq '.[].title' > "$RUNNER_TEMP/titles"
+      # 同じ版の issue は open でも closed でも立て直さないので、state=all の題名を全件渡す。
+      # issues API は PR も返すので、同じ題名の PR が issue を止めないよう除く
+      - run: gh api --paginate "repos/${GITHUB_REPOSITORY}/issues?state=all&per_page=100" --jq '.[] | select(.pull_request == null) | .title' > "$RUNNER_TEMP/titles"
       - run: |
           title=$(python3 scripts/sbx_stable_watch.py \
             --latest-tag "$(cat "$RUNNER_TEMP/latest-tag")" \
