@@ -34,3 +34,8 @@ herdr 連携は、sandbox VM に herdr を入れ、host の herdr から VM 内�
 - `sbxr start` が、止めた VM を起こした後に herdr machine を有効に戻す（[decision/0025](../design/sbxr/decision/0025-start-command.md)）。host 側の lifecycle は、create 後に登録・stop 前に無効化・start 後に有効化・destroy 前に解除になる
 - 有効にして作った VM の start も、host に herdr が無ければ VM に触れる前に error で止める
 - create と start は、herdr の pane で agent を起動できることを確かめる（[decision/0027](../design/sbxr/decision/0027-create-and-start-check-inside-vm.md)）
+
+## 改訂（2026-11-19、#156）
+
+- `sbxr start` は VM を起こした回の失敗を読んで止まる（[decision/0033](../design/sbxr/decision/0033-start-reads-the-result-of-the-vm-start-processing.md)）。上の「実装で決めたこと」の「2 回目以降の起動での失敗は、boot と同じく log に残るだけになる」のうち、log に残るだけになるのは `sbxr start` を通さない起動（その VM が動いたまま `sbxr start` を打てば、start が log の最後の回として読む）
+- 起動時の処理が失敗したか時間切れで止まった start は、herdr machine を有効に戻さない（decision/0033）。上の改訂（2026-11-19）の「start 後に有効化」は、起動時の処理が成功したときに限る
